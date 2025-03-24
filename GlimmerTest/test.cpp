@@ -108,8 +108,12 @@ public:
     {
         ImVec4 clear_color = ImVec4(1.f, 1.f, 1.f, 1.00f);
 
+        glimmer::FontFileNames names;
+        names.BasePath = "C:\\Users\\akpradha\\Downloads\\font\\";
+        names.Monospace.Files[glimmer::FT_Normal] = "Iosevka-Medium.ttf";
         glimmer::FontDescriptor desc;
-        desc.flags = glimmer::FLT_Proportional;
+        desc.flags = glimmer::FLT_Monospace;
+        desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
         desc.sizes.push_back(24.f);
@@ -120,14 +124,9 @@ public:
         bool state = false;
 
         auto id = 1;
-        auto& btnstate = glimmer::GetButtonState(id);
-        btnstate.text = "Test Button!";
-
-        auto& hover = glimmer::GetStyle(id, glimmer::WS_Hovered);
-        hover.bgcolor = glimmer::ToRGBA(150, 150, 150);
-
-        auto& pressed = glimmer::GetStyle(id, glimmer::WS_Pressed);
-        pressed.bgcolor = glimmer::ToRGBA(100, 100, 100);
+        glimmer::GetButtonState(id).text = "Test Button!";
+        glimmer::GetStyle(id, glimmer::WS_Hovered).BgColor(150, 150, 150);
+        glimmer::GetStyle(id, glimmer::WS_Pressed).BgColor(100, 100, 100).FgColor(255, 255, 255);
 
         // Main loop
 #ifdef __EMSCRIPTEN__

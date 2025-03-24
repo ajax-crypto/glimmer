@@ -30,6 +30,23 @@
 #endif
 
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#undef ERROR
+#define ERROR(FMT, ...) { \
+    CONSOLE_SCREEN_BUFFER_INFO cbinfo; \
+    auto h = GetStdHandle(STD_ERROR_HANDLE); \
+    GetConsoleScreenBufferInfo(h, &cbinfo); \
+    SetConsoleTextAttribute(h, FOREGROUND_RED | FOREGROUND_INTENSITY); \
+    std::fprintf(stderr, FMT, __VA_ARGS__); \
+    SetConsoleTextAttribute(h, cbinfo.wAttributes); }
+#undef DrawText
+#else
+#define ERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
+#endif
+
+#ifdef _WIN32
 #define WINDOWS_DEFAULT_FONT \
     "c:\\Windows\\Fonts\\segoeui.ttf", \
     "c:\\Windows\\Fonts\\segoeuil.ttf",\
@@ -96,6 +113,65 @@
 
 namespace glimmer
 {
+    // =============================================================================================
+    // STATIC DATA
+    // =============================================================================================
+
+    static WindowConfig GlobalWindowConfig{};
+
+    struct AnimationData
+    {
+        int32_t elements = 0;
+        int32_t types = 0;
+        ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
+        float offset = 0.f;
+        long long timestamp = 0;
+
+        void moveByPixel(float amount, float max, float reset)
+        {
+            auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock().now().time_since_epoch()).count();
+            if (timestamp == 0) timestamp = currts;
+
+            if (currts - timestamp >= 33)
+            {
+                offset += amount;
+                if (offset >= max) offset = reset;
+            }
+        }
+    };
+
+    constexpr int ButtonsPreallocSz = 32;
+    constexpr int AnimationsPreallocSz = 32;
+    constexpr int ShadowsPreallocSz = 32;
+    constexpr int FontStylePreallocSz = 64;
+    constexpr int BorderPreallocSz = 64;
+    constexpr int GradientPreallocSz = 16;
+
+    struct WidgetStates
+    {
+        // This is quasi-persistent
+        std::vector<ButtonState> buttonStates{ ButtonsPreallocSz, ButtonState{} };
+        std::vector<StyleDescriptor> buttonStyles{ ButtonsPreallocSz * 5, StyleDescriptor{} };
+
+        // This has to persistent
+        std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
+        std::vector<BoxShadow> shadows{ ShadowsPreallocSz, BoxShadow{} };
+        std::vector<FontStyle> fonts{ FontStylePreallocSz, FontStyle{} };
+        std::vector<FourSidedBorder> borders{ BorderPreallocSz, FourSidedBorder{} };
+        std::vector<ColorGradient> gradients{ GradientPreallocSz, ColorGradient{} };
+
+        StyleDescriptorIndexes occupied;
+
+        WidgetStates()
+        {
+            occupied.shadow = occupied.border = occupied.gradient = occupied.font = 1;
+            occupied.animation = 0;
+        }
+    };
+
+    static WidgetStates GlobalStates{};
+
     // =============================================================================================
     // FONT FUNCTIONS
     // =============================================================================================
@@ -325,10 +401,21 @@ namespace glimmer
 
         auto copyFileName = [](const std::string_view fontname, char* fontpath, int startidx) {
             auto sz = std::min((int)fontname.size(), _MAX_PATH - startidx);
-            std::memcpy(fontpath + startidx, fontname.data(), sz);
-            fontpath[startidx + sz] = 0;
+
+            if (sz == 0) std::memset(fontpath, 0, _MAX_PATH);
+            else
+            {
+#ifdef _WIN32
+                if (fontpath[startidx - 1] != '\\') { fontpath[startidx] = '\\'; startidx++; }
+#else
+                if (fontpath[startidx - 1] != '/') { fontpath[startidx] = '/'; startidx++; }
+#endif
+                std::memcpy(fontpath + startidx, fontname.data(), sz);
+                fontpath[startidx + sz] = 0;
+            }
+
             return fontpath;
-            };
+        };
 
         if (names == nullptr)
         {
@@ -344,33 +431,40 @@ namespace glimmer
         else
         {
 #if defined(_WIN32)
-            char baseFontPath[_MAX_PATH] = "c:\\Windows\\Fonts\\";
+            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "c:\\Windows\\Fonts\\", "c:\\Windows\\Fonts\\",
+                "c:\\Windows\\Fonts\\","c:\\Windows\\Fonts\\", "c:\\Windows\\Fonts\\" };
 #elif __APPLE__
-            char baseFontPath[_MAX_PATH] = "/Library/Fonts/";
+            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "/Library/Fonts/", "/Library/Fonts/",
+                "/Library/Fonts/", "/Library/Fonts/", "/Library/Fonts/" };
 #elif __linux__
-            char baseFontPath[_MAX_PATH] = "/usr/share/fonts/";
+            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "/usr/share/fonts/", "/usr/share/fonts/",
+                "/usr/share/fonts/", "/usr/share/fonts/", "/usr/share/fonts/" };
 #else
 #error "Platform unspported..."
 #endif
 
             if (!names->BasePath.empty())
             {
-                std::memset(baseFontPath, 0, _MAX_PATH);
-                auto sz = std::min((int)names->BasePath.size(), _MAX_PATH);
-                strncpy_s(baseFontPath, names->BasePath.data(), sz);
-                baseFontPath[sz] = '\0';
+                for (auto idx = 0; idx < FT_Total; ++idx)
+                {
+                    auto baseFontPath = BaseFontPaths[idx];
+                    std::memset(baseFontPath, 0, _MAX_PATH);
+                    auto sz = std::min((int)names->BasePath.size(), _MAX_PATH);
+                    strncpy_s(baseFontPath, _MAX_PATH - 1, names->BasePath.data(), sz);
+                    baseFontPath[sz] = '\0';
+                }
             }
 
-            const int startidx = (int)std::strlen(baseFontPath);
+            const int startidx = (int)std::strlen(BaseFontPaths[0]);
             FontCollectionFile files;
 
             if (!skipProportional && !names->Proportional.Files[FT_Normal].empty())
             {
-                files.Files[FT_Normal] = copyFileName(names->Proportional.Files[FT_Normal], baseFontPath, startidx);
-                files.Files[FT_Light] = copyFileName(names->Proportional.Files[FT_Light], baseFontPath, startidx);
-                files.Files[FT_Bold] = copyFileName(names->Proportional.Files[FT_Bold], baseFontPath, startidx);
-                files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], baseFontPath, startidx);
-                files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], baseFontPath, startidx);
+                files.Files[FT_Normal] = copyFileName(names->Proportional.Files[FT_Normal], BaseFontPaths[FT_Normal], startidx);
+                files.Files[FT_Light] = copyFileName(names->Proportional.Files[FT_Light], BaseFontPaths[FT_Light], startidx);
+                files.Files[FT_Bold] = copyFileName(names->Proportional.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
+                files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
+                files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
                 LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale);
 #endif
@@ -390,10 +484,10 @@ namespace glimmer
 
             if (!skipMonospace && !names->Monospace.Files[FT_Normal].empty())
             {
-                files.Files[FT_Normal] = copyFileName(names->Monospace.Files[FT_Normal], baseFontPath, startidx);
-                files.Files[FT_Bold] = copyFileName(names->Monospace.Files[FT_Bold], baseFontPath, startidx);
-                files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], baseFontPath, startidx);
-                files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], baseFontPath, startidx);
+                files.Files[FT_Normal] = copyFileName(names->Monospace.Files[FT_Normal], BaseFontPaths[FT_Normal], startidx);
+                files.Files[FT_Bold] = copyFileName(names->Monospace.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
+                files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
+                files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
                 LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale);
 #endif
@@ -454,28 +548,6 @@ namespace glimmer
         return true;
     }
 
-//#ifndef IM_FONTMANAGER_STANDALONE
-//    std::vector<float> GetFontSizes(const RenderConfig& config, uint64_t flt)
-//    {
-//        std::vector<float> sizes;
-//        sizes.push_back(config.DefaultFontSize * config.FontScale);
-//
-//        if (flt & FLT_HasSubscript) sizes.push_back(config.DefaultFontSize * config.ScaleSubscript * config.FontScale);
-//        if (flt & FLT_HasSuperscript) sizes.push_back(config.DefaultFontSize * config.ScaleSuperscript * config.FontScale);
-//        if (flt & FLT_HasSmall) sizes.push_back(config.DefaultFontSize * 0.8f * config.FontScale);
-//        if (flt & FLT_HasH1) sizes.push_back(config.HFontSizes[0] * config.FontScale);
-//        if (flt & FLT_HasH2) sizes.push_back(config.HFontSizes[1] * config.FontScale);
-//        if (flt & FLT_HasH3) sizes.push_back(config.HFontSizes[2] * config.FontScale);
-//        if (flt & FLT_HasH4) sizes.push_back(config.HFontSizes[3] * config.FontScale);
-//        if (flt & FLT_HasH5) sizes.push_back(config.HFontSizes[4] * config.FontScale);
-//        if (flt & FLT_HasH6) sizes.push_back(config.HFontSizes[5] * config.FontScale);
-//        if (flt & FLT_HasHeaders) for (auto sz : config.HFontSizes) sizes.push_back(sz * config.FontScale);
-//        std::sort(sizes.begin(), sizes.end());
-//
-//        return (flt & FLT_AutoScale) ? std::vector<float>{ *(--sizes.end()) } : sizes;
-//    }
-//#endif
-
     bool LoadDefaultFonts(const FontDescriptor* descriptors, int total)
     {
         assert(descriptors != nullptr);
@@ -486,6 +558,12 @@ namespace glimmer
             LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
         }
 
+        for (auto& font : GlobalStates.fonts) 
+        {
+            font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
+            font.font = GetFont(font.family, font.size, FT_Normal);
+        }
+        
         return true;
     }
 
@@ -993,7 +1071,7 @@ namespace glimmer
 //    void* GetOverlayFont(const RenderConfig& config)
 //    {
 //        auto it = LookupFontFamily(IM_RICHTEXT_DEFAULT_FONTFAMILY);
-//        auto fontsz = config.DefaultFontSize * 0.8f * config.FontScale;
+//        auto fontsz = GlobalWindowConfig.defaultFontSz * 0.8f * GlobalWindowConfig.fontScaling;
 //        return it->second.FontPtrs->lower_bound(fontsz)->second;
 //    }
 //#endif
@@ -1360,7 +1438,7 @@ namespace glimmer
     {
         if (!text.empty())
         {
-            //SetCurrentFont(config.DefaultFontFamily, config.DefaultFontSize, FT_Normal);
+            //SetCurrentFont(config.DefaultFontFamily, GlobalWindowConfig.defaultFontSz, FT_Normal);
             ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
             ResetFont();
         }
@@ -1484,7 +1562,7 @@ namespace glimmer
         return idx;
     }
 
-    [[nodiscard]] int SkipSpace(const std::string_view text, int from)
+    [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0)
     {
         auto end = (int)text.size();
         while ((from < end) && (std::isspace(text[from]))) from++;
@@ -1498,14 +1576,14 @@ namespace glimmer
         return from;
     }
 
-    [[nodiscard]] int SkipDigits(const std::string_view text, int from)
+    [[nodiscard]] int SkipDigits(const std::string_view text, int from = 0)
     {
         auto end = (int)text.size();
         while ((from < end) && (std::isdigit(text[from]))) from++;
         return from;
     }
 
-    [[nodiscard]] int SkipFDigits(const std::string_view text, int from)
+    [[nodiscard]] int SkipFDigits(const std::string_view text, int from = 0)
     {
         auto end = (int)text.size();
         while ((from < end) && ((std::isdigit(text[from])) || (text[from] == '.'))) from++;
@@ -2265,69 +2343,268 @@ namespace glimmer
         return *this;
     }
 
+    static int PopulateSegmentStyle(StyleDescriptor& style,
+        FontStyle& font, ColorGradient& gradient, FourSidedBorder& border,
+        BoxShadow& shadow, std::string_view stylePropName, std::string_view stylePropVal)
+    {
+        int prop = NoStyleChange;
+
+        if (AreSame(stylePropName, "font-size"))
+        {
+            if (AreSame(stylePropVal, "xx-small")) font.size = GlobalWindowConfig.defaultFontSz * 0.6f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "x-small")) font.size = GlobalWindowConfig.defaultFontSz * 0.75f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "small")) font.size = GlobalWindowConfig.defaultFontSz * 0.89f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "medium")) font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "large")) font.size = GlobalWindowConfig.defaultFontSz * 1.2f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "x-large")) font.size = GlobalWindowConfig.defaultFontSz * 1.5f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "xx-large")) font.size = GlobalWindowConfig.defaultFontSz * 2.f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "xxx-large")) font.size = GlobalWindowConfig.defaultFontSz * 3.f * GlobalWindowConfig.fontScaling;
+            else
+                font.size = ExtractFloatWithUnit(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                    GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.fontScaling);
+            prop = StyleFontSize;
+        }
+        else if (AreSame(stylePropName, "font-weight"))
+        {
+            auto idx = SkipDigits(stylePropVal);
+
+            if (idx == 0)
+            {
+                if (AreSame(stylePropVal, "bold")) font.flags |= FontStyleBold;
+                else if (AreSame(stylePropVal, "light")) font.flags |= FontStyleLight;
+                else ERROR("Invalid font-weight property value... [%.*s]\n",
+                    (int)stylePropVal.size(), stylePropVal.data());
+            }
+            else
+            {
+                int weight = ExtractInt(stylePropVal.substr(0u, idx), 400);
+                if (weight >= 600) font.flags |= FontStyleBold;
+                if (weight < 400) font.flags |= FontStyleLight;
+            }
+
+            prop = StyleFontWeight;
+        }
+        else if (AreSame(stylePropName, "text-wrap"))
+        {
+            if (AreSame(stylePropVal, "nowrap")) font.flags |= FontStyleNoWrap;
+            prop = StyleTextWrap;
+        }
+        else if (AreSame(stylePropName, "background-color") || AreSame(stylePropName, "background"))
+        {
+            if (StartsWith(stylePropVal, "linear-gradient"))
+                gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            else style.bgcolor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            prop = StyleBackground;
+        }
+        else if (AreSame(stylePropName, "color"))
+        {
+            style.fgcolor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            prop = StyleFgColor;
+        }
+        else if (AreSame(stylePropName, "width"))
+        {
+            style.dimension.x = ExtractFloatWithUnit(stylePropVal, 0, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            prop = StyleWidth;
+        }
+        else if (AreSame(stylePropName, "height"))
+        {
+            style.dimension.y = ExtractFloatWithUnit(stylePropVal, 0, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            prop = StyleHeight;
+        }
+        else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
+        {
+            style.alignment |= AreSame(stylePropVal, "justify") ? TextAlignJustify :
+                AreSame(stylePropVal, "right") ? TextAlignRight :
+                AreSame(stylePropVal, "center") ? TextAlignHCenter :
+                TextAlignLeft;
+            prop = StyleHAlignment;
+        }
+        else if (AreSame(stylePropName, "vertical-align"))
+        {
+            style.alignment |= AreSame(stylePropVal, "top") ? TextAlignTop :
+                AreSame(stylePropVal, "bottom") ? TextAlignBottom :
+                TextAlignVCenter;
+            prop = StyleVAlignment;
+        }
+        else if (AreSame(stylePropName, "font-family"))
+        {
+            font.family = stylePropVal;
+            prop = StyleFontFamily;
+        }
+        else if (AreSame(stylePropName, "padding"))
+        {
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.padding.top = style.padding.right = style.padding.left = style.padding.bottom = val;
+            prop = StylePadding;
+        }
+        else if (AreSame(stylePropName, "padding-top"))
+        {
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.padding.top = val;
+            prop = StylePadding;
+        }
+        else if (AreSame(stylePropName, "padding-bottom"))
+        {
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.padding.bottom = val;
+            prop = StylePadding;
+        }
+        else if (AreSame(stylePropName, "padding-left"))
+        {
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.padding.left = val;
+            prop = StylePadding;
+        }
+        else if (AreSame(stylePropName, "padding-right"))
+        {
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.padding.right = val;
+            prop = StylePadding;
+        }
+        else if (AreSame(stylePropName, "text-overflow"))
+        {
+            if (AreSame(stylePropVal, "ellipsis"))
+            {
+                font.flags |= FontStyleOverflowEllipsis;
+                prop = StyleTextOverflow;
+            }
+        }
+        else if (AreSame(stylePropName, "border"))
+        {
+            border.top = border.bottom = border.left = border.right = ExtractBorder(stylePropVal,
+                GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GetColor, GlobalWindowConfig.userData);
+            border.isUniform = true;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-top"))
+        {
+            border.top = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, GetColor, GlobalWindowConfig.userData);
+            border.isUniform = false;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-left"))
+        {
+            border.left = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, GetColor, GlobalWindowConfig.userData);
+            border.isUniform = false;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-right"))
+        {
+            border.right = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, GetColor, GlobalWindowConfig.userData);
+            border.isUniform = false;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-bottom"))
+        {
+            border.bottom = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, GetColor, GlobalWindowConfig.userData);
+            prop = StyleBorder;
+            border.isUniform = false;
+        }
+        else if (AreSame(stylePropName, "border-radius"))
+        {
+            auto radius = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            if (stylePropVal.back() == '%') style.relativeProps |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius | 
+                RSP_BorderBottomRightRadius);
+            border.setRadius(radius);
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-width"))
+        {
+            auto width = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            border.setThickness(width);
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-color"))
+        {
+            auto color = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            border.setColor(color);
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-top-left-radius"))
+        {
+            border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopLeftRadius;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-top-right-radius"))
+        {
+            border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopRightRadius;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-bottom-right-radius"))
+        {
+            border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomRightRadius;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "border-bottom-left-radius"))
+        {
+            border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                1.f, 1.f);
+            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomLeftRadius;
+            prop = StyleBorder;
+        }
+        else if (AreSame(stylePropName, "margin"))
+        {
+            style.margin.left = style.margin.right = style.margin.top = style.margin.bottom =
+                ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleMargin;
+        }
+        else if (AreSame(stylePropName, "margin-top"))
+        {
+            style.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleMargin;
+        }
+        else if (AreSame(stylePropName, "margin-left"))
+        {
+            style.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleMargin;
+        }
+        else if (AreSame(stylePropName, "margin-right"))
+        {
+            style.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleMargin;
+        }
+        else if (AreSame(stylePropName, "margin-bottom"))
+        {
+            style.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleMargin;
+        }
+        else if (AreSame(stylePropName, "font-style"))
+        {
+            if (AreSame(stylePropVal, "normal")) font.flags |= FontStyleNormal;
+            else if (AreSame(stylePropVal, "italic") || AreSame(stylePropVal, "oblique"))
+                font.flags |= FontStyleItalics;
+            else ERROR("Invalid font-style property value [%.*s]\n",
+                (int)stylePropVal.size(), stylePropVal.data());
+            prop = StyleFontStyle;
+        }
+        else if (AreSame(stylePropName, "box-shadow"))
+        {
+            shadow = ExtractBoxShadow(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
+            prop = StyleBoxShadow;
+        }
+        else
+        {
+            ERROR("Invalid style property... [%.*s]\n", (int)stylePropName.size(), stylePropName.data());
+        }
+
+        return prop;
+    }
+
     // =============================================================================================
     // DRAWING FUNCTIONS
     // =============================================================================================
-
-    static WindowConfig GlobalWindowConfig{};
-
-    struct AnimationData
-    {
-        int32_t elements = 0;
-        int32_t types = 0;
-        ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
-        float offset = 0.f;
-        long long timestamp = 0;
-
-        void moveByPixel(float amount, float max, float reset)
-        {
-            auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock().now().time_since_epoch()).count();
-            if (timestamp == 0) timestamp = currts;
-
-            if (currts - timestamp >= 33)
-            {
-                offset += amount;
-                if (offset >= max) offset = reset;
-            }
-        }
-    };
-
-    struct WidgetStates
-    {
-        // This is quasi-persistent
-        std::vector<ButtonState> buttonStates{ 32, ButtonState{} };
-        std::vector<StyleDescriptor> buttonStyles{ 32 * 5, StyleDescriptor{} };
-        int32_t totalButtons = 0;
-
-        // This has to persistent
-        std::vector<AnimationData> animations{ 32, AnimationData{} };
-        std::vector<BoxShadow> shadows{ 32, BoxShadow{} };
-        std::vector<FontStyle> fonts{ 32, FontStyle{} };
-        std::vector<FourSidedBorder> borders{ 16, FourSidedBorder{} };
-        std::vector<ColorGradient> gradients{ 16, ColorGradient{} };
-
-        StyleDescriptorIndexes occupied;
-
-        void reset()
-        {
-            totalButtons = 0;
-        }
-
-        // Create all the widgets!
-        // Layout become hard... 
-
-        WidgetStates()
-        {
-            //for (auto& style : buttonStyles)
-            //{
-            //    //style.font.size = 32.f; // GlobalWindowConfig.defaultFontSz;
-            //    ///style.font.flags = FLT_AutoScale | FLT_Proportional;
-            //}
-        }
-    };
-
-    static WidgetStates GlobalStates{};
 
     void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, uint32_t bgcolor, IRenderer& renderer)
     {
@@ -2647,25 +2924,22 @@ namespace glimmer
     {
         assert(id >= 0 && id <= 1024);
 
-        if (id < 32)
+        if (id < ButtonsPreallocSz)
         {
             auto& button = GlobalStates.buttonStates[id];
             button.text = text;
             button.tooltip = tooltip;
             if (disabled) button.state = WS_Disabled;
-            //GlobalStates.totalButtons++;
         }
         else
         {
-            for (auto idx = 31; idx < id; ++idx) GlobalStates.buttonStates.emplace_back();
+            for (auto idx = ButtonsPreallocSz - 1; idx < id; ++idx) GlobalStates.buttonStates.emplace_back();
 
             auto& button = GlobalStates.buttonStates[id];
             button.text = text;
             button.tooltip = tooltip;
             if (disabled) button.state = WS_Disabled;
         }
-
-        //return GlobalStates.totalButtons < 32 ? (GlobalStates.totalButtons - 1) : (int32_t)GlobalStates.buttonStates.size() - 1;
     }
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
@@ -2678,7 +2952,6 @@ namespace glimmer
         auto& state = GlobalStates.buttonStates[id];
         auto& style = GlobalStates.buttonStyles[id + log2((uint32_t)state.state)];
         auto& font = GlobalStates.fonts[style.index.font];
-        if (font.font == nullptr) font.font = GetFont(font.family, font.size, FT_Normal);
         auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
 
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
@@ -2718,24 +2991,97 @@ namespace glimmer
         std::memset(&index, 0, sizeof(index));
     }
 
+#define PushOrUpdate(src, object, dest, index, checkForDuplicate) \
+    do {                                                     \
+        using S = decltype(index);                           \
+        S res;                                               \
+        bool found = false;                                  \
+        if (checkForDuplicate) {                             \
+            for (S idx = 0; idx < (S)dest.size(); ++idx)     \
+                if (std::memcmp(&(dest[idx]), &object, sizeof(object)) == 0) { \
+                    index = idx;                             \
+                    found = true;                            \
+                    break;                                   \
+                }                                            \
+        }                                                    \
+        if (!found) {                                        \
+            if (index < (S)dest.size()) {                    \
+                dest[index] = object;                        \
+                res = index;                                 \
+                index++;                                     \
+            }                                                \
+            else {                                           \
+                res = (S)dest.size();                        \
+                dest.emplace_back(object);                   \
+            }                                                \
+        }                                                    \
+    } while (0)                                              \
+
     StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
     {
-        if (GlobalStates.occupied.border < GlobalStates.borders.size())
-        {
-            GlobalStates.borders[GlobalStates.occupied.border].setThickness(thick);
-            GlobalStates.borders[GlobalStates.occupied.border].setColor(ToRGBA(color));
-            GlobalStates.occupied.border++;
-        }
-        else
-        {
-            auto& border = GlobalStates.borders.emplace_back();
-            border.setThickness(thick); border.setColor(ToRGBA(color));
-        }
+        FourSidedBorder border;
+        border.setThickness(thick); border.setColor(ToRGBA(color));
+        PushOrUpdate(index.border, border, GlobalStates.borders, GlobalStates.occupied.border, true);
         return *this;
     }
 
     StyleDescriptor& StyleDescriptor::Raised(float amount)
     {
+        return *this;
+    }
+
+    StyleDescriptor& StyleDescriptor::From(std::string_view css, bool checkForDuplicate)
+    {
+        auto sidx = 0;
+        int prop = 0;
+        FontStyle font;
+        FourSidedBorder border;
+        BoxShadow shadow;
+        ColorGradient gradient;
+
+        while (sidx < (int)css.size())
+        {
+            sidx = SkipSpace(css, sidx);
+            auto stbegin = sidx;
+            while ((sidx < (int)css.size()) && (css[sidx] != ':') &&
+                !std::isspace(css[sidx])) sidx++;
+            auto stylePropName = css.substr(stbegin, sidx - stbegin);
+
+            sidx = SkipSpace(css, sidx);
+            if (css[sidx] == ':') sidx++;
+            sidx = SkipSpace(css, sidx);
+
+            auto stylePropVal = GetQuotedString(css.data(), sidx, (int)css.size());
+            if (!stylePropVal.has_value() || stylePropVal.value().empty())
+            {
+                stbegin = sidx;
+                while ((sidx < (int)css.size()) && css[sidx] != ';') sidx++;
+                stylePropVal = css.substr(stbegin, sidx - stbegin);
+
+                if (css[sidx] == ';') sidx++;
+            }
+
+            if (stylePropVal.has_value())
+            {
+                prop |= PopulateSegmentStyle(*this, font, gradient, border, shadow, stylePropName, stylePropVal.value());
+            }
+        }
+
+        if (prop != 0)
+        {
+            if (prop & StyleFontFamily || prop & StyleFontSize || prop & StyleFontStyle || prop & StyleFontWeight)
+                 PushOrUpdate(index.font, font, GlobalStates.fonts, GlobalStates.occupied.font, checkForDuplicate);
+
+            if (prop & StyleBoxShadow)
+                 PushOrUpdate(index.shadow, shadow, GlobalStates.shadows, GlobalStates.occupied.shadow, checkForDuplicate);
+
+            if (prop & StyleBorder || prop & StyleBorderRadius)
+                 PushOrUpdate(index.border, border, GlobalStates.borders, GlobalStates.occupied.border, checkForDuplicate);
+
+            if (prop & StyleBackground && gradient.totalStops > 0)
+                 PushOrUpdate(index.gradient, gradient, GlobalStates.gradients, GlobalStates.occupied.gradient, checkForDuplicate);
+        }
+
         return *this;
     }
 }

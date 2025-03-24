@@ -50,22 +50,9 @@ namespace glimmer
         FLT_Proportional = 1,
         FLT_Monospace = 2,
 
-        FLT_HasSmall = 4,
-        FLT_HasSuperscript = 8,
-        FLT_HasSubscript = 16,
-        FLT_HasH1 = 32,
-        FLT_HasH2 = 64,
-        FLT_HasH3 = 128,
-        FLT_HasH4 = 256,
-        FLT_HasH5 = 512,
-        FLT_HasH6 = 1024,
-
         // Use this to auto-scale fonts, loading the largest size for a family
         // NOTE: For ImGui backend, this will save on memory from texture
         FLT_AutoScale = 2048,
-
-        // Include all <h*> tags
-        FLT_HasHeaders = FLT_HasH1 | FLT_HasH2 | FLT_HasH3 | FLT_HasH4 | FLT_HasH5 | FLT_HasH6,
 
         // TODO: Handle absolute size font-size fonts (Look at imrichtext.cpp: PopulateSegmentStyle function)
     };
@@ -78,23 +65,11 @@ namespace glimmer
         uint64_t flags = FLT_Proportional;
     };
 
-//#ifndef IM_FONTMANAGER_STANDALONE
-//    // Get font sizes required from the specified config and flt
-//    // flt is a bitwise OR of FontLoadType flags
-//    std::vector<float> GetFontSizes(const RenderConfig& config, uint64_t flt);
-//#endif
-
     // Load default fonts based on provided descriptor. Custom paths can also be 
     // specified through FontDescriptor::names member. If not specified, a OS specific
     // default path is selected i.e. C:\Windows\Fonts for Windows and 
     // /usr/share/fonts/ for Linux.
     bool LoadDefaultFonts(const FontDescriptor* descriptors, int totalNames = 1);
-
-//#ifndef IM_FONTMANAGER_STANDALONE
-//    // Load default fonts from specified config, bitwise OR of FontLoadType flags, 
-//    // and provided charset which determines which glyph ranges to load
-//    bool LoadDefaultFonts(const RenderConfig& config, uint64_t flt, TextContentCharset charset);
-//#endif
 
     // Find out path to .ttf file for specified font family and font type
     // The exact filepath returned is based on reading TTF OS/2 and name tables
@@ -288,6 +263,12 @@ namespace glimmer
         ImGuiDir dir = ImGuiDir::ImGuiDir_Down;
     };
 
+    [[nodiscard]] uint32_t ToRGBA(int r, int g, int b, int a = 255);
+    [[nodiscard]] uint32_t ToRGBA(float r, float g, float b, float a = 1.f);
+    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int, int>& color);
+    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int>& color);
+    [[nodiscard]] uint32_t GetColor(const char* name, void*);
+
     struct FourSidedMeasure
     {
         float top = 0.f, left = 0.f, right = 0.f, bottom = 0.f;
@@ -370,7 +351,7 @@ namespace glimmer
     struct FontStyle
     {
         void* font = nullptr; // Pointer to font object
-        std::string_view family = IM_RICHTEXT_DEFAULT_FONTFAMILY;
+        std::string_view family = IM_RICHTEXT_MONOSPACE_FONTFAMILY;
         float size = 24.f;
         int32_t flags = FontStyleNone;
     };
@@ -403,6 +384,25 @@ namespace glimmer
         StyleWhitespaceCollapse = 1 << 22,
         StyleWhitespace = 1 << 23,
         StyleTextOverflow = 1 << 24,
+        StyleMinWidth = 1 << 25,
+        StyleMaxWidth = 1 << 26,
+        StyleMinHeight = 1 << 27,
+        StyleMaxHeight = 1 << 28
+    };
+
+    enum RelativeStyleProperty : uint32_t
+    {
+        None = 0,
+        RSP_Width = 1,
+        RSP_Height = 1 << 1,
+        RSP_MinHeight = 1 << 2,
+        RSP_MaxHeight = 1 << 3,
+        RSP_MinWidth = 1 << 4,
+        RSP_MaxWidth = 1 << 5,
+        RSP_BorderTopRightRadius = 1 << 6,
+        RSP_BorderTopLeftRadius = 1 << 7,
+        RSP_BorderBottomLeftRadius = 1 << 8,
+        RSP_BorderBottomRightRadius = 1 << 9,
     };
 
     enum TextAlignment
@@ -417,42 +417,6 @@ namespace glimmer
         TextAlignCenter = TextAlignHCenter | TextAlignVCenter,
         TextAlignLeading = TextAlignLeft | TextAlignVCenter
     };
-
-    // Geometry functions
-    [[nodiscard]] IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
-    [[nodiscard]] RectBreakup ComputeRectBreakups(ImRect rect, float amount);
-
-    // Generic string helpers, case-insensitive matches
-    [[nodiscard]] bool AreSame(const std::string_view lhs, const char* rhs);
-    [[nodiscard]] bool AreSame(const std::string_view lhs, const std::string_view rhs);
-    [[nodiscard]] bool StartsWith(const std::string_view lhs, const char* rhs);
-    [[nodiscard]] int SkipDigits(const std::string_view text, int from = 0);
-    [[nodiscard]] int SkipFDigits(const std::string_view text, int from = 0);
-    [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0);
-    [[nodiscard]] int SkipSpace(const char* text, int idx, int end);
-    [[nodiscard]] std::optional<std::string_view> GetQuotedString(const char* text, int& idx, int end);
-
-    // String to number conversion functions
-    [[nodiscard]] int ExtractInt(std::string_view input, int defaultVal);
-    [[nodiscard]] int ExtractIntFromHex(std::string_view input, int defaultVal);
-    [[nodiscard]] IntOrFloat ExtractNumber(std::string_view input, float defaultVal);
-    [[nodiscard]] float ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
-
-    // Color related functions
-    [[nodiscard]] uint32_t ToRGBA(int r, int g, int b, int a = 255);
-    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int>& rgb);
-    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba);
-    [[nodiscard]] uint32_t ToRGBA(float r, float g, float b, float a = 1.f);
-    [[nodiscard]] uint32_t GetColor(const char* name, void*);
-    [[nodiscard]] bool IsColorVisible(uint32_t color);
-
-    // Parsing functions
-    [[nodiscard]] uint32_t ExtractColor(std::string_view stylePropVal, uint32_t(*NamedColor)(const char*, void*), void* userData);
-    [[nodiscard]] ColorGradient ExtractLinearGradient(std::string_view input, uint32_t(*NamedColor)(const char*, void*), void* userData);
-    [[nodiscard]] Border ExtractBorder(std::string_view input, float ems, float percent,
-        uint32_t(*NamedColor)(const char*, void*), void* userData);
-    [[nodiscard]] BoxShadow ExtractBoxShadow(std::string_view input, float ems, float percent,
-        uint32_t(*NamedColor)(const char*, void*), void* userData);
 
     enum AnimationType
     {
@@ -496,17 +460,18 @@ namespace glimmer
         uint32_t bgcolor = IM_COL32_BLACK_TRANS;
         uint32_t fgcolor = IM_COL32_BLACK;
         ImVec2 dimension;
+        ImVec2 mindim;
+        ImVec2 maxdim;
         int32_t alignment = TextAlignLeading;
+        uint32_t relativeProps = 0;
         FourSidedMeasure padding;
         FourSidedMeasure margin;
         StyleDescriptorIndexes index;
 
         StyleDescriptor();
 
-        //int32_t _borderCornerRel = 0;
-
-        StyleDescriptor& BgColor(int r, int g, int b, int a) { bgcolor = ToRGBA(r, g, b, a); return *this; }
-        StyleDescriptor& FgColor(int r, int g, int b, int a) { fgcolor = ToRGBA(r, g, b, a); return *this; }
+        StyleDescriptor& BgColor(int r, int g, int b, int a = 255) { bgcolor = ToRGBA(r, g, b, a); return *this; }
+        StyleDescriptor& FgColor(int r, int g, int b, int a = 255) { fgcolor = ToRGBA(r, g, b, a); return *this; }
         StyleDescriptor& Size(float w, float h) { dimension = ImVec2{ w, h }; return *this; }
         StyleDescriptor& Align(int32_t align) { alignment = align; return *this; }
         StyleDescriptor& Padding(float p) { padding.left = padding.top = padding.bottom = padding.right = p; return *this; }
@@ -514,8 +479,7 @@ namespace glimmer
         StyleDescriptor& Border(float thick, std::tuple<int, int, int, int> color);
         StyleDescriptor& Raised(float amount);
 
-        /*template <typename T>
-        StyleDescriptor& Animate(AnimationElement el, AnimationType type, )*/
+        StyleDescriptor& From(std::string_view css, bool checkForDuplicate = true);
     };
 
     enum class BoxShadowQuality
@@ -531,8 +495,11 @@ namespace glimmer
         int32_t tooltipDelay = 500;
         float tooltipFontSz = 16.f;
         float defaultFontSz = 16.f;
+        float fontScaling = 2.f;
+        float scaling = 1.5f;
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
+        void* userData = nullptr;
     };
 
     // =============================================================================================
@@ -553,44 +520,6 @@ namespace glimmer
     {
         assert((state % 2 == 0) || (state == 1));
     }
-
-    /*template <typename K, typename V, int max, int mod = max> struct PerfectHashMap
-    {
-        static_assert((sizeof(V) * max) <= (1 << 12));
-        static_assert(std::is_integral_v<K>);
-
-        PerfectHashMap() { std::memset(mapped, 0, sizeof(mapped)); }
-
-        static int hash(K key) const { auto h = key % mod; while (occupancy & (1 << h)) { h++; h %= mod; } return h; };
-
-        template <typename... Vt>
-        void emplace(K key, Vt&&... value) { 
-            auto h = hash(key); 
-            if constexpr (!std::is_fundamental_v<V>)
-                ::new (void*)(mapped + (h * sizeof(V))) V{ std::forward<Vt>(value)... }; 
-            else if constexpr (sizeof...(Vt) == 1)
-                std::memset(mapped[h * sizeof(V)],  
-            occupancy |= (1 << h); 
-        }
-        V& operator[](K key) { auto h = hash(key); occupancy |= (1 << h); return mapped[h]; }
-        V const& operator[](K key) const { return mapped[hash(key)]; }
-        bool exists(K key) const { return occupancy & (1 << hash(key)); }
-        bool empty() const { return occupancy == 0; }
-
-        void clear() { 
-            if constexpr (!std::is_fundamental_v<V>)
-                for (auto h = 0; h < mod; ++h) if (occupancy & (1 << h)) getvptr(h)->~V();
-            std::memset(mapped, 0, sizeof(mapped)); occupancy = 0; 
-        }
-
-    private:
-
-        V* getvptr(int h) { return reinterpret_cast<V*>((void*)(mapped + h * sizeof(V))); }
-
-        unsigned char mapped[max * sizeof(V)];
-        uint64_t occupancy = 0;
-    };
-*/
 
     struct CommonWidgetData
     {
@@ -618,8 +547,6 @@ namespace glimmer
     WidgetDrawResult Button(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry = std::nullopt);
     StyleDescriptor& GetStyle(int32_t id, int32_t state);
     ButtonState& GetButtonState(int32_t id);
-
-    // If we were to give user the ability to gnerate id
 
     struct GridLayout
     {
