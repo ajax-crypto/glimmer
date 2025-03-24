@@ -440,6 +440,8 @@ namespace glimmer
 
     // Color related functions
     [[nodiscard]] uint32_t ToRGBA(int r, int g, int b, int a = 255);
+    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int>& rgb);
+    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba);
     [[nodiscard]] uint32_t ToRGBA(float r, float g, float b, float a = 1.f);
     [[nodiscard]] uint32_t GetColor(const char* name, void*);
     [[nodiscard]] bool IsColorVisible(uint32_t color);
@@ -478,19 +480,28 @@ namespace glimmer
         AE_FontWeight = 1 << 6
     };
 
+    struct StyleDescriptorIndexes
+    {
+        unsigned font : 16;
+        unsigned animation : 16;
+        unsigned border : 8;
+        unsigned shadow : 8;
+        unsigned gradient : 8;
+    };
+
+    constexpr unsigned int InvalidIdx = (unsigned)-1;
+
     struct StyleDescriptor
     {
         uint32_t bgcolor = IM_COL32_BLACK_TRANS;
         uint32_t fgcolor = IM_COL32_BLACK;
         ImVec2 dimension;
-        //FontStyle font;
         int32_t alignment = TextAlignLeading;
         FourSidedMeasure padding;
         FourSidedMeasure margin;
-        //FourSidedBorder border;
-        //BoxShadow shadow;
-        //ColorGradient gradient;
-        int32_t animation = -1;
+        StyleDescriptorIndexes index;
+
+        StyleDescriptor();
 
         //int32_t _borderCornerRel = 0;
 
@@ -500,9 +511,8 @@ namespace glimmer
         StyleDescriptor& Align(int32_t align) { alignment = align; return *this; }
         StyleDescriptor& Padding(float p) { padding.left = padding.top = padding.bottom = padding.right = p; return *this; }
         StyleDescriptor& Margin(float p) { margin.left = margin.top = margin.bottom = margin.right = p; return *this; }
-        StyleDescriptor& Border(float thick, std::tuple<int, int, int, int> color) 
-        { border.setThickness(thick); border.setColor(ToRGBA(std::get<0>(color), std::get<1>(color), std::get<2>(color), std::get<3>(color))); return *this; }
-        StyleDescriptor& Raised(float amount) { shadow.blur = amount; shadow.color = ToRGBA(100, 100, 100); return *this; }
+        StyleDescriptor& Border(float thick, std::tuple<int, int, int, int> color);
+        StyleDescriptor& Raised(float amount);
 
         /*template <typename T>
         StyleDescriptor& Animate(AnimationElement el, AnimationType type, )*/
@@ -524,72 +534,6 @@ namespace glimmer
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
     };
-
-    // =============================================================================================
-    // DRAWING FUNCTIONS
-    // =============================================================================================
-
-    template <typename ItrT>
-    void DrawLinearGradient(ImVec2 initpos, ImVec2 endpos, float angle, ImGuiDir dir,
-        ItrT start, ItrT end, const FourSidedBorder& border, IRenderer& renderer)
-    {
-        if (!border.isRounded())
-        {
-            auto width = endpos.x - initpos.x;
-            auto height = endpos.y - initpos.y;
-
-            if (dir == ImGuiDir::ImGuiDir_Left)
-            {
-                // TODO: Add support for non-axis aligned gradients
-                /*ImVec2 points[4];
-                ImU32 colors[4];
-
-                for (auto it = start; it != end; ++it)
-                {
-                    auto extent = width * it->pos;
-                    auto m = std::tanf(angle);
-
-                    points[0] = initpos;
-                    points[1] = points[0] + ImVec2{ extent, 0.f };
-                    points[2] = initpos - ImVec2{ m * initpos.y, height };
-                    points[3] = points[2] + ImVec2{ extent, 0.f };
-
-                    colors[0] = colors[3] = it->from;
-                    colors[1] = colors[2] = it->to;
-
-                    DrawPolyFilledMultiColor(drawList, points, colors, 4);
-                    initpos.x += extent;
-                }*/
-
-                for (auto it = start; it != end; ++it)
-                {
-                    auto extent = width * it->pos;
-                    renderer.DrawRectGradient(initpos, initpos + ImVec2{ extent, height },
-                        it->from, it->to, DIR_Horizontal);
-                    initpos.x += extent;
-                }
-            }
-            else if (dir == ImGuiDir::ImGuiDir_Down)
-            {
-                for (auto it = start; it != end; ++it)
-                {
-                    auto extent = height * it->pos;
-                    renderer.DrawRectGradient(initpos, initpos + ImVec2{ width, extent },
-                        it->from, it->to, DIR_Vertical);
-                    initpos.y += extent;
-                }
-            }
-        }
-        else
-        {
-
-        }
-    }
-
-    void DrawBorderRect(const FourSidedBorder& border, ImVec2 startpos, ImVec2 endpos, uint32_t bgcolor, IRenderer& renderer);
-    void DrawBoxShadow(ImVec2 startpos, ImVec2 endpos, const BoxShadow& shadow, FourSidedBorder border, IRenderer& renderer);
-    void DrawBackground(ImVec2 startpos, ImVec2 endpos, const ColorGradient& gradient, uint32_t color, const FourSidedBorder& border, IRenderer& renderer);
-    void DrawText(ImVec2 startpos, ImVec2 endpos, std::string_view text, bool disabled, const StyleDescriptor& style, IRenderer& renderer);
 
     // =============================================================================================
     // WIDGETS
@@ -671,11 +615,11 @@ namespace glimmer
         ImRect geometry;
     };
 
-    ButtonState& RegisterButton(int id);
-    WidgetDrawResult Button(int id, bool disabled, std::string_view text, ImVec2 pos, IRenderer& renderer, 
-        std::optional<ImVec2> geometry = std::nullopt);
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry = std::nullopt);
+    StyleDescriptor& GetStyle(int32_t id, int32_t state);
+    ButtonState& GetButtonState(int32_t id);
 
-    StyleDescriptor& GetStyle(int id, int state);
+    // If we were to give user the ability to gnerate id
 
     struct GridLayout
     {

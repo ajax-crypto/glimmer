@@ -119,6 +119,16 @@ public:
         glimmer::ImGuiRenderer renderer{};
         bool state = false;
 
+        auto id = 1;
+        auto& btnstate = glimmer::GetButtonState(id);
+        btnstate.text = "Test Button!";
+
+        auto& hover = glimmer::GetStyle(id, glimmer::WS_Hovered);
+        hover.bgcolor = glimmer::ToRGBA(150, 150, 150);
+
+        auto& pressed = glimmer::GetStyle(id, glimmer::WS_Pressed);
+        pressed.bgcolor = glimmer::ToRGBA(100, 100, 100);
+
         // Main loop
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -157,7 +167,7 @@ public:
             {
                 renderer.UserData = ImGui::GetWindowDrawList();
                 renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
-                if (glimmer::Button(0, state, "Test Button!", ImVec2{10.f, 10.f}, renderer).event == glimmer::WidgetEvent::Clicked)
+                if (glimmer::Button(id, ImVec2{10.f, 10.f}, renderer).event == glimmer::WidgetEvent::Clicked)
                     state = true;
             }
 

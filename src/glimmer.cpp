@@ -1651,6 +1651,16 @@ namespace glimmer
             ((uint32_t)(r) << 0));
     }
 
+    uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
+    {
+        return ToRGBA(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
+    }
+
+    uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
+    {
+        return ToRGBA(std::get<0>(rgba), std::get<1>(rgba), std::get<2>(rgba), std::get<3>(rgba));
+    }
+
     uint32_t ToRGBA(float r, float g, float b, float a)
     {
         return ToRGBA((int)(r * 255.f), (int)(g * 255.f), (int)(b * 255.f), (int)(a * 255.f));
@@ -2268,32 +2278,60 @@ namespace glimmer
         ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
         float offset = 0.f;
         long long timestamp = 0;
+
+        void moveByPixel(float amount, float max, float reset)
+        {
+            auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock().now().time_since_epoch()).count();
+            if (timestamp == 0) timestamp = currts;
+
+            if (currts - timestamp >= 33)
+            {
+                offset += amount;
+                if (offset >= max) offset = reset;
+            }
+        }
     };
 
     struct WidgetStates
     {
-        std::vector<ButtonState> buttonStates{ 64, ButtonState{} };
-        std::vector<StyleDescriptor> buttonStyles{ 64 * 5, StyleDescriptor{} };
+        // This is quasi-persistent
+        std::vector<ButtonState> buttonStates{ 32, ButtonState{} };
+        std::vector<StyleDescriptor> buttonStyles{ 32 * 5, StyleDescriptor{} };
+        int32_t totalButtons = 0;
 
-        // TODO: Add other widget states...
+        // This has to persistent
+        std::vector<AnimationData> animations{ 32, AnimationData{} };
+        std::vector<BoxShadow> shadows{ 32, BoxShadow{} };
+        std::vector<FontStyle> fonts{ 32, FontStyle{} };
+        std::vector<FourSidedBorder> borders{ 16, FourSidedBorder{} };
+        std::vector<ColorGradient> gradients{ 16, ColorGradient{} };
 
-        std::vector<AnimationData> animationStates{ 64, AnimationData{} };
+        StyleDescriptorIndexes occupied;
+
+        void reset()
+        {
+            totalButtons = 0;
+        }
+
+        // Create all the widgets!
+        // Layout become hard... 
 
         WidgetStates()
         {
-            for (auto& style : buttonStyles)
-            {
-                style.font.size = 32.f; // GlobalWindowConfig.defaultFontSz;
-                ///style.font.flags = FLT_AutoScale | FLT_Proportional;
-            }
+            //for (auto& style : buttonStyles)
+            //{
+            //    //style.font.size = 32.f; // GlobalWindowConfig.defaultFontSz;
+            //    ///style.font.flags = FLT_AutoScale | FLT_Proportional;
+            //}
         }
     };
 
     static WidgetStates GlobalStates{};
 
-    void DrawBorderRect(const FourSidedBorder& border, ImVec2 startpos, ImVec2 endpos,
-        uint32_t bgcolor, IRenderer& renderer)
+    void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, uint32_t bgcolor, IRenderer& renderer)
     {
+        const auto& border = GlobalStates.borders[style.index.border];
         if (border.isUniform && border.top.thickness > 0.f && IsColorVisible(border.top.color) &&
             border.top.color != bgcolor)
         {
@@ -2322,14 +2360,15 @@ namespace glimmer
         }
     }
 
-    void DrawBoxShadow(ImVec2 startpos, ImVec2 endpos, const BoxShadow& shadow,
-        FourSidedBorder border, IRenderer& renderer)
+    void DrawBoxShadow(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer)
     {
         // In order to draw box-shadow, the following steps are used:
         // 1. Draw the underlying rectangle with shadow color, spread and offset.
         // 2. Decompose the blur region into 8 rects i.e. 4 for corners, 4 for the sides
         // 3. For each rect, determine the vertex color i.e. shadow color or transparent,
         //    and draw a rect gradient accordingly.
+        auto border = GlobalStates.borders[style.index.border];
+        auto shadow = GlobalStates.shadows[style.index.shadow];
 
         if ((shadow.blur > 0.f || shadow.spread > 0.f || shadow.offset.x != 0.f ||
             shadow.offset.y != 0) && IsColorVisible(shadow.color))
@@ -2394,7 +2433,7 @@ namespace glimmer
 
             auto diffcolor = GlobalWindowConfig.bgcolor - 1;
             border.setColor(GlobalWindowConfig.bgcolor);
-            DrawBorderRect(border, startpos, endpos, diffcolor, renderer);
+            DrawBorderRect(startpos, endpos, style, diffcolor, renderer);
             if (!border.isRounded())
                 renderer.DrawRect(startpos, endpos, GlobalWindowConfig.bgcolor, true);
             else
@@ -2404,20 +2443,58 @@ namespace glimmer
         }
     }
 
-    void DrawBackground(ImVec2 startpos, ImVec2 endpos, const ColorGradient& gradient, uint32_t color,
-        const FourSidedBorder& border, IRenderer& renderer)
+    template <typename ItrT>
+    void DrawLinearGradient(ImVec2 initpos, ImVec2 endpos, float angle, ImGuiDir dir,
+        ItrT start, ItrT end, const FourSidedBorder& border, IRenderer& renderer)
     {
+        if (!border.isRounded())
+        {
+            auto width = endpos.x - initpos.x;
+            auto height = endpos.y - initpos.y;
+
+            if (dir == ImGuiDir::ImGuiDir_Left)
+            {
+                for (auto it = start; it != end; ++it)
+                {
+                    auto extent = width * it->pos;
+                    renderer.DrawRectGradient(initpos, initpos + ImVec2{ extent, height },
+                        it->from, it->to, DIR_Horizontal);
+                    initpos.x += extent;
+                }
+            }
+            else if (dir == ImGuiDir::ImGuiDir_Down)
+            {
+                for (auto it = start; it != end; ++it)
+                {
+                    auto extent = height * it->pos;
+                    renderer.DrawRectGradient(initpos, initpos + ImVec2{ width, extent },
+                        it->from, it->to, DIR_Vertical);
+                    initpos.y += extent;
+                }
+            }
+        }
+        else
+        {
+
+        }
+    }
+
+    void DrawBackground(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer)
+    {
+        const auto& gradient = GlobalStates.gradients[style.index.gradient];
+        const auto& border = GlobalStates.borders[style.index.border];
+
         if (gradient.totalStops != 0)
             (gradient.dir == ImGuiDir_Down || gradient.dir == ImGuiDir_Left) ?
             DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
                 std::begin(gradient.colorStops), std::begin(gradient.colorStops) + gradient.totalStops, border, renderer) :
             DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
                 std::rbegin(gradient.colorStops), std::rbegin(gradient.colorStops) + gradient.totalStops, border, renderer);
-        else if (IsColorVisible(color))
+        else if (IsColorVisible(style.bgcolor))
             if (!border.isRounded())
-                renderer.DrawRect(startpos, endpos, color, true);
+                renderer.DrawRect(startpos, endpos, style.bgcolor, true);
             else
-                renderer.DrawRoundedRect(startpos, endpos, color, true,
+                renderer.DrawRoundedRect(startpos, endpos, style.bgcolor, true,
                     border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
                     border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner]);
     }
@@ -2425,42 +2502,35 @@ namespace glimmer
     void DrawText(ImVec2 startpos, ImVec2 endpos, std::string_view text, bool disabled, const StyleDescriptor& style, IRenderer& renderer)
     {
         ImRect content{ startpos, endpos };
+        const auto& font = GlobalStates.fonts[style.index.font];
+        
         renderer.SetClipRect(content.Min, content.Max);
-        renderer.SetCurrentFont(style.font.font, style.font.size);
+        renderer.SetCurrentFont(font.font, font.size);
 
-        if ((style.font.flags & FontStyleOverflowMarquee) != 0 &&
-            !disabled && style.animation != -1)
+        if ((font.flags & FontStyleOverflowMarquee) != 0 &&
+            !disabled && style.index.animation != InvalidIdx)
         {
-            ImVec2 textsz = renderer.GetTextSize(text, style.font.font, style.font.size);
+            auto& animation = GlobalStates.animations[style.index.animation];
+            ImVec2 textsz = renderer.GetTextSize(text, font.font, font.size);
 
             if (textsz.x > content.GetWidth())
             {
-                auto& anim = GlobalStates.animationStates[style.animation];
-                auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock().now().time_since_epoch()).count();
-                if (anim.timestamp == 0) anim.timestamp = currts;
-
-                if (currts - anim.timestamp >= 33)
-                {
-                    anim.offset += 1.f;
-                    if (anim.offset >= content.GetWidth()) anim.offset = -textsz.x;
-                }
-
-                content.Min.x += anim.offset;
+                animation.moveByPixel(1.f, content.GetWidth(), -textsz.x);
+                content.Min.x += animation.offset;
                 renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
             }
             else
                 renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
         }
-        else if (style.font.flags & FontStyleOverflowEllipsis)
+        else if (font.flags & FontStyleOverflowEllipsis)
         {
-            float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
+            float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(font.font, font.size);
             auto renderedText = false;
 
             for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
             {
                 // TODO: This is only valid for ASCII, this should be fixed for UTF-8
-                width += renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
+                width += renderer.GetTextSize(text.substr(chidx, 1), font.font, font.size).x;
                 if (width > available)
                 {
                     renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, 
@@ -2509,9 +2579,12 @@ namespace glimmer
         std::string_view text, IRenderer& renderer, std::optional<ImVec2> geometry)
     {
         ImRect content, padding, border, margin;
+        const auto& borderstyle = GlobalStates.borders[style.index.border];
+        const auto& font = GlobalStates.fonts[style.index.font];
+
         margin.Min = pos;
         border.Min = pos + ImVec2{ style.margin.left, style.margin.top };
-        padding.Min = border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+        padding.Min = border.Min + ImVec2{ borderstyle.left.thickness, borderstyle.top.thickness };
         content.Min = padding.Min + ImVec2{ style.padding.left, style.padding.top };
 
         if (!geometry.has_value())
@@ -2526,14 +2599,14 @@ namespace glimmer
         {
             // If neither geometry, nor dimension is specified, calculate based on
             // text metrics + style params
-            auto textsz = renderer.GetTextSize(text, style.font.font, style.font.size, 
+            auto textsz = renderer.GetTextSize(text, font.font, font.size, 
                 margin.Max.x == 0.f ? -1.f : margin.Max.x);
 
             if (margin.Max.x == 0.f)
             {
                 margin.Max.x = margin.Min.x + textsz.x;
                 border.Max.x = margin.Max.x - style.margin.right;
-                padding.Max.x = border.Max.x - style.border.right.thickness;
+                padding.Max.x = border.Max.x - borderstyle.right.thickness;
                 content.Max.x = padding.Max.x - style.padding.right;
             }
 
@@ -2541,14 +2614,14 @@ namespace glimmer
             {
                 margin.Max.y = margin.Min.y + textsz.y;
                 border.Max.y = margin.Max.y - style.margin.bottom;
-                padding.Max.y = border.Max.y - style.border.bottom.thickness;
+                padding.Max.y = border.Max.y - borderstyle.bottom.thickness;
                 content.Max.y = padding.Max.y - style.padding.bottom;
             }
         }
         else
         {
             border.Max = margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-            padding.Max = border.Max - ImVec2{ style.border.right.thickness, style.border.left.thickness };
+            padding.Max = border.Max - ImVec2{ borderstyle.right.thickness, borderstyle.left.thickness };
             content.Max = padding.Max - ImVec2{ style.padding.right, style.padding.bottom };
         }
         
@@ -2570,38 +2643,52 @@ namespace glimmer
         }
     }
 
-    ButtonState& RegisterButton(int id)
+    void CreateButton(int32_t id, std::string_view text, std::string_view tooltip, bool disabled)
     {
-        assert(id == (int)GlobalStates.buttonStates.size());
-        for (auto i = 0; i < 5; ++i) GlobalStates.buttonStyles.emplace_back();
-        GlobalStates.animationStates.emplace_back();
-        return GlobalStates.buttonStates.emplace_back();
+        assert(id >= 0 && id <= 1024);
+
+        if (id < 32)
+        {
+            auto& button = GlobalStates.buttonStates[id];
+            button.text = text;
+            button.tooltip = tooltip;
+            if (disabled) button.state = WS_Disabled;
+            //GlobalStates.totalButtons++;
+        }
+        else
+        {
+            for (auto idx = 31; idx < id; ++idx) GlobalStates.buttonStates.emplace_back();
+
+            auto& button = GlobalStates.buttonStates[id];
+            button.text = text;
+            button.tooltip = tooltip;
+            if (disabled) button.state = WS_Disabled;
+        }
+
+        //return GlobalStates.totalButtons < 32 ? (GlobalStates.totalButtons - 1) : (int32_t)GlobalStates.buttonStates.size() - 1;
     }
 
-    inline int log2(auto i) { return i == 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
+    inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
-    WidgetDrawResult Button(int id, bool disabled, std::string_view text, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
     {
         assert(id <= (int)GlobalStates.buttonStates.size());
-        if (id == (int)GlobalStates.buttonStates.size()) RegisterButton(id);
 
         WidgetEvent result = WidgetEvent::None;
         auto& state = GlobalStates.buttonStates[id];
-        state.state = disabled ? WS_Disabled : state.state == WS_Default || state.state == WS_Disabled ? WS_Default : state.state;
-
         auto& style = GlobalStates.buttonStyles[id + log2((uint32_t)state.state)];
-        state.text = text;
-        if (style.font.font == nullptr) style.font.font = GetFont(style.font.family, style.font.size, FT_Normal);
+        auto& font = GlobalStates.fonts[style.index.font];
+        if (font.font == nullptr) font.font = GetFont(font.family, font.size, FT_Normal);
         auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
 
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
         state.state = !ismouseover ? WS_Default :
             ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
 
-        //DrawBoxShadow(border.Min, border.Max, style.shadow, style.border, renderer);
-        DrawBorderRect(style.border, border.Min, border.Max, style.bgcolor, renderer);
-        DrawBackground(padding.Min, padding.Max, style.gradient, style.bgcolor, style.border, renderer);
-        DrawText(content.Min, content.Max, state.text, disabled, style, renderer);
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
+        DrawBackground(padding.Min, padding.Max, style, renderer);
+        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
 
         if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             result = WidgetEvent::Clicked;
@@ -2612,8 +2699,43 @@ namespace glimmer
         return { result, margin };
     }
 
-    StyleDescriptor& GetStyle(int id, int state)
+    StyleDescriptor& GetStyle(int32_t id, int32_t state)
     {
-        
+        auto styleidx = log2((unsigned)state);
+        assert(styleidx < 5);
+
+        return GlobalStates.buttonStyles[id + styleidx];
+    }
+
+    ButtonState& GetButtonState(int32_t id)
+    {
+        assert(id < (int32_t)GlobalStates.buttonStates.size());
+        return GlobalStates.buttonStates[id];
+    }
+
+    StyleDescriptor::StyleDescriptor()
+    {
+        std::memset(&index, 0, sizeof(index));
+    }
+
+    StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
+    {
+        if (GlobalStates.occupied.border < GlobalStates.borders.size())
+        {
+            GlobalStates.borders[GlobalStates.occupied.border].setThickness(thick);
+            GlobalStates.borders[GlobalStates.occupied.border].setColor(ToRGBA(color));
+            GlobalStates.occupied.border++;
+        }
+        else
+        {
+            auto& border = GlobalStates.borders.emplace_back();
+            border.setThickness(thick); border.setColor(ToRGBA(color));
+        }
+        return *this;
+    }
+
+    StyleDescriptor& StyleDescriptor::Raised(float amount)
+    {
+        return *this;
     }
 }
