@@ -121,12 +121,29 @@ public:
         glimmer::LoadDefaultFonts(&desc);
 
         glimmer::ImGuiRenderer renderer{};
-        bool state = false;
+        glimmer::GetWindowConfig().renderer = &renderer;
 
-        auto id = 1;
-        glimmer::GetButtonState(id).text = "Test Button!";
-        glimmer::GetStyle(id, glimmer::WS_Hovered).BgColor(150, 150, 150);
-        glimmer::GetStyle(id, glimmer::WS_Pressed).BgColor(100, 100, 100).FgColor(255, 255, 255);
+        enum Labels { UPPER, LEFT, CONTENT, BOTTOM };
+        int32_t labels[4];
+
+        auto lid = glimmer::GetNextId(glimmer::WT_Label);
+        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Upper";
+        labels[UPPER] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Label);
+        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Left";
+        labels[LEFT] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Label);
+        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Content";
+        labels[CONTENT] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Label);
+        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Bottom";
+        labels[BOTTOM] = lid;
+
+        // BuildStyle(id).When(WS_Default).Style("cjndkjckdcf").When("hover").Style(",dcdcd");
+        // SetStyle(id, "{ ... } :hover { ... } :pressed { ... }");
 
         // Main loop
 #ifdef __EMSCRIPTEN__
@@ -159,6 +176,7 @@ public:
             ImGui::NewFrame();
             ImGui::SetNextWindowSize(ImVec2{ (float)width, (float)height }, ImGuiCond_Always);
             ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
+            glimmer::BeginFrame();
 
             // Render here
             if (ImGui::Begin("main-window", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
@@ -166,11 +184,19 @@ public:
             {
                 renderer.UserData = ImGui::GetWindowDrawList();
                 renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
-                if (glimmer::Button(id, ImVec2{10.f, 10.f}, renderer).event == glimmer::WidgetEvent::Clicked)
-                    state = true;
+
+                glimmer::PushStyle("border: 2px solid gray; padding: 5px;", "border: 2px solid black");
+                ImVec2 pos{ 0.f, 0.f };
+                auto upperdim = glimmer::Label(labels[UPPER], pos, FLT_MAX, 0.f).geometry;
+                pos.y += upperdim.GetHeight();
+                pos.x += glimmer::Label(labels[LEFT], pos, 0.f, FLT_MAX).geometry.GetWidth();
+                pos.y += glimmer::Label(labels[CONTENT], pos, FLT_MAX, (float)height - (2.f * upperdim.GetHeight())).geometry.GetHeight();
+                glimmer::Label(labels[BOTTOM], pos, FLT_MAX, upperdim.GetHeight());
+                glimmer::PopStyle();
             }
 
             ImGui::End();
+            glimmer::EndFrame();
 
             // Rendering
             ImGui::Render();

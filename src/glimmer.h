@@ -387,7 +387,14 @@ namespace glimmer
         StyleMinWidth = 1 << 25,
         StyleMaxWidth = 1 << 26,
         StyleMinHeight = 1 << 27,
-        StyleMaxHeight = 1 << 28
+        StyleMaxHeight = 1 << 28,
+        StyleThumbColor = 1 << 29,
+        StyleTrackColor = 1 << 30,
+        StyleTrackOutlineColor = 1ll << 31,
+        StyleThumbOffset = 1ll << 32,
+
+        StyleUpdatedFromBase = 1ll << 62,
+        StyleTotal = 28
     };
 
     enum RelativeStyleProperty : uint32_t
@@ -444,29 +451,37 @@ namespace glimmer
         AE_FontWeight = 1 << 6
     };
 
-    struct StyleDescriptorIndexes
+    constexpr unsigned int InvalidIdx = (unsigned)-1;
+
+    enum WidgetType
     {
-        unsigned font : 16;
-        unsigned animation : 16;
-        unsigned border : 8;
-        unsigned shadow : 8;
-        unsigned gradient : 8;
+        WT_Label, WT_Button, WT_RadioButton, WT_ToggleButton,
+        WT_TotalTypes
     };
 
-    constexpr unsigned int InvalidIdx = (unsigned)-1;
+    struct CustomStyleDataIndices
+    {
+        unsigned animation : 8;
+        unsigned custom : 16;
+    };
 
     struct StyleDescriptor
     {
+        uint64_t specified = 0;
         uint32_t bgcolor = IM_COL32_BLACK_TRANS;
         uint32_t fgcolor = IM_COL32_BLACK;
-        ImVec2 dimension;
-        ImVec2 mindim;
-        ImVec2 maxdim;
+        CustomStyleDataIndices index;
+        ImVec2 dimension{ 0.f, 0.f };
+        ImVec2 mindim{ 0.f, 0.f };
+        ImVec2 maxdim{ FLT_MAX, FLT_MAX };
         int32_t alignment = TextAlignLeading;
         uint32_t relativeProps = 0;
         FourSidedMeasure padding;
         FourSidedMeasure margin;
-        StyleDescriptorIndexes index;
+        FourSidedBorder border;
+        FontStyle font;
+        BoxShadow shadow;
+        ColorGradient gradient;
 
         StyleDescriptor();
 
@@ -489,6 +504,11 @@ namespace glimmer
         High      // Unimplemented
     };
 
+    enum class LayoutPolicy
+    {
+        ImmediateMode, DeferredMode
+    };
+
     struct WindowConfig
     {
         uint32_t bgcolor;
@@ -496,9 +516,12 @@ namespace glimmer
         float tooltipFontSz = 16.f;
         float defaultFontSz = 16.f;
         float fontScaling = 2.f;
-        float scaling = 1.5f;
+        float scaling = 1.f;
+        ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
+        LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
+        IRenderer* renderer = nullptr;
         void* userData = nullptr;
     };
 
@@ -514,6 +537,7 @@ namespace glimmer
         WS_Hovered = 1 << 2,
         WS_Pressed = 1 << 3,
         WS_Dragged = 1 << 4,
+        WS_Checked = 1 << 5
     };
 
     inline void ValidateState(int state)
@@ -526,6 +550,7 @@ namespace glimmer
         int32_t state = WS_Default;
         std::string_view tooltip = "";
         long long _hoverDuration = 0; // for tooltip
+        bool floating = false;
     };
     
     struct ButtonState : public CommonWidgetData
@@ -533,26 +558,62 @@ namespace glimmer
         std::string_view text;
     };
 
+    using LabelState = ButtonState;
+
+    struct ToggleButtonState : public CommonWidgetData
+    {
+        bool checked = false;
+    };
+
+    using RadioButtonState = ToggleButtonState;
+
     enum class WidgetEvent
     {
-        None, Clicked, Hovered, Pressed, DoubleClicked, Dragged
+        None, Clicked, Hovered, Pressed, DoubleClicked, Dragged, Edited
     };
 
     struct WidgetDrawResult
     {
         WidgetEvent event = WidgetEvent::None;
-        ImRect geometry;
+        ImRect geometry, content;
     };
 
-    WidgetDrawResult Button(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry = std::nullopt);
-    StyleDescriptor& GetStyle(int32_t id, int32_t state);
-    ButtonState& GetButtonState(int32_t id);
+    union WidgetStateData
+    {
+        LabelState label;
+        ButtonState button;
+        ToggleButtonState toggle;
+        RadioButtonState radio;
+        // Add others...
 
-    struct GridLayout
+        WidgetStateData(WidgetType type);
+    };
+
+    WindowConfig& GetWindowConfig();
+
+    void BeginFrame();
+    void EndFrame();
+    int32_t GetNextId(WidgetType type);
+
+    WidgetDrawResult Label(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
+    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
+    WidgetDrawResult CheckBox(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
+
+    void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "", 
+        std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
+    StyleDescriptor& GetStyle(int32_t id, int32_t state = WS_Default);
+    void PopStyle(int depth = 1);
+
+    WidgetStateData& CreateWidget(WidgetType type, int16_t id);
+    WidgetStateData& CreateWidget(int32_t id);
+
+    struct FlowLayout
     {
         int32_t rows = 0, cols = 0;
         int32_t currrow = -1, currcol = -1;
         ImVec2 dimension;
+        bool isRowWise = true;
     };
 }
 

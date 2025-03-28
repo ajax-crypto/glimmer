@@ -141,32 +141,176 @@ namespace glimmer
         }
     };
 
-    constexpr int ButtonsPreallocSz = 32;
     constexpr int AnimationsPreallocSz = 32;
-    constexpr int ShadowsPreallocSz = 32;
+    constexpr int ShadowsPreallocSz = 64;
     constexpr int FontStylePreallocSz = 64;
     constexpr int BorderPreallocSz = 64;
-    constexpr int GradientPreallocSz = 16;
+    constexpr int GradientPreallocSz = 64;
+
+    inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
+
+    struct ToggleButtonStyleDescriptor
+    {
+        uint32_t trackColor;
+        uint32_t trackBorderColor;
+        uint32_t thumbColor;
+        int32_t trackGradient = -1;
+        int32_t thumGradient = -1;
+        float trackBorderThickness = 2.f;
+        float thumbOffset = 1.f;
+        float thumbExpand = 0.f;
+    };
+
+    union CommonWidgetStyleDescriptor
+    {
+        ToggleButtonStyleDescriptor toggle;
+
+        CommonWidgetStyleDescriptor() {}
+    };
+
+    //// Solve the problem: only leaf can be a widget
+    //struct WidgetDescriptor
+    //{
+    //    WidgetType wtype;
+    //    int32_t id;
+    //    int32_t sibling;
+    //    ImVec2 constraint;
+    //    ImRect border, margin, padding, content;
+    //    float flex = 1.f;
+    //    bool isComputed = false;
+    //    // keep adding members
+    //};
+
+    //struct LayoutDescriptor
+    //{
+    //    std::vector<WidgetDescriptor> widgets;
+    //    LayoutType type;
+    //    ImVec2 currpos;
+    //    ImVec2 maxdim;
+    //    ImVec2 computed;
+    //    ImVec2 constraint{ -1.f, -1.f };
+    //    ImRect geometry;
+    //    int32_t parent = -1;
+    //    bool wrap = true;
+    //    bool isRowWise = true;
+    //    bool overflowed = false;
+    //};
+
+    /*template <typename T, int16_t SegmentSz>
+    class GVector
+    {
+        T  initial[SegmentSz];
+        T* segments[31];
+        int size = 0;
+
+    public:
+
+        GVector() {}
+
+        template <typename... ArgsT>
+        T& emplace_back(ArgsT&&... args)
+        {
+            if (size < SegmentSz)
+            {
+                initial[size] = T{ std::forward<ArgsT>(args)... };
+                return initial[size];
+            }
+            else
+            {
+                auto segidx = (size - SegmentSz) / SegmentSz;
+                auto elidx = (size - SegmentSz) % SegmentSz;
+                assert(segidx < 31);
+
+                if (segments[segidx] == nullptr)
+                    segments[segidx] = new T[SegmentSz]{};
+
+                segments[segidx][elidx] = T{ std::forward<ArgsT>(args)... };
+                return segments[segidx][elidx];
+            }
+        }
+
+        T& operator[](int index)
+        {
+            assert(index < size);
+            if (size < SegmentSz) return initial[size];
+            else
+            {
+                auto segidx = (size - SegmentSz) / SegmentSz;
+                auto elidx = (size - SegmentSz) % SegmentSz;
+                std::div(1, 23);
+                return segments[segidx][elidx];
+            }
+        }
+    };*/
 
     struct WidgetStates
     {
         // This is quasi-persistent
-        std::vector<ButtonState> buttonStates{ ButtonsPreallocSz, ButtonState{} };
-        std::vector<StyleDescriptor> buttonStyles{ ButtonsPreallocSz * 5, StyleDescriptor{} };
+        std::vector<WidgetStateData> states[WT_TotalTypes];
+        std::vector<StyleDescriptor> styles[WT_TotalTypes];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
-        std::vector<BoxShadow> shadows{ ShadowsPreallocSz, BoxShadow{} };
-        std::vector<FontStyle> fonts{ FontStylePreallocSz, FontStyle{} };
-        std::vector<FourSidedBorder> borders{ BorderPreallocSz, FourSidedBorder{} };
-        std::vector<ColorGradient> gradients{ GradientPreallocSz, ColorGradient{} };
 
-        StyleDescriptorIndexes occupied;
+        // Per widget specific style objects
+        std::vector<ToggleButtonStyleDescriptor> toggleButtonStyles;
+
+        // These are used for push/pop style API
+        StyleDescriptor currstyle[32 * 6];
+        int currstyleDepth = 0;
+
+        // Keep track of widget IDs
+        int maxids[WT_TotalTypes];
+        int tempids[WT_TotalTypes];
+
+        // Whether we are in a frame being rendered
+        bool InsideFrame = false;
+
+        //std::vector<LayoutDescriptor> layouts[16]; // stack of layout (upto 16 deep)
+        //int32_t currLayoutDepth = -1;
+
+        WidgetStateData& GetState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return states[wtype][index];
+        }
+
+        StyleDescriptor& GetStyle(int32_t id, int32_t state)
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            auto style = log2((unsigned)state);
+            auto& res = styles[wtype][index + style];
+            if (res.font.font == nullptr) res.font.font = GetFont(res.font.family, res.font.size, FT_Normal);
+            return res;
+        }
 
         WidgetStates()
         {
-            occupied.shadow = occupied.border = occupied.gradient = occupied.font = 1;
-            occupied.animation = 0;
+            std::memset(maxids, 0, WT_TotalTypes);
+            std::memset(tempids, INT_MAX, WT_TotalTypes);
+
+            for (auto idx = 0; idx < WT_TotalTypes; ++idx)
+            {
+                maxids[idx] = 0;
+                states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
+                styles[idx].resize(32 * 6, StyleDescriptor{});
+
+                for (auto sidx = 0; sidx < 32 * 6; sidx++)
+                {
+                    //styles[idx][sidx].wtype = (WidgetType)idx;
+
+                    switch (idx)
+                    {
+                    case WT_ToggleButton:
+                        styles[idx][sidx].mindim = GlobalWindowConfig.toggleButtonSz;
+                        toggleButtonStyles.resize(32 * 6, ToggleButtonStyleDescriptor{});
+                        break;
+                    default: break;
+                    }
+                }
+            }
         }
     };
 
@@ -176,6 +320,7 @@ namespace glimmer
     // FONT FUNCTIONS
     // =============================================================================================
 
+#pragma region Font Management
     struct FontFamily
     {
 #ifdef IM_RICHTEXT_TARGET_IMGUI
@@ -556,12 +701,6 @@ namespace glimmer
         {
             auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
             LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
-        }
-
-        for (auto& font : GlobalStates.fonts) 
-        {
-            font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
-            font.font = GetFont(font.family, font.size, FT_Normal);
         }
         
         return true;
@@ -1114,10 +1253,13 @@ namespace glimmer
         return &(FontStore.at(family).Fonts[ft].at(size));
     }
 #endif
+#pragma endregion
 
     // =============================================================================================
     // INTERFACE IMPLEMENTATIONS
     // =============================================================================================
+
+#pragma region Interface Impls
 
     ImGuiRenderer::ImGuiRenderer()
     {
@@ -1470,90 +1612,18 @@ namespace glimmer
         if (bottomleftr > 0.f) dl.PathArcToFast(ImVec2{ startpos.x + bottomleftr, endpos.y - bottomleftr }, bottomleftr, 3, 6);
     }
 
+    float IRenderer::EllipsisWidth(void* fontptr, float sz)
+    {
+        return GetTextSize("...", fontptr, sz).x;
+    }
+
+#pragma endregion
+
     // =============================================================================================
     // STYLING FUNCTIONS
     // =============================================================================================
 
-    IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos)
-    {
-        IntersectRects res;
-
-        res.intersects[0].Max.x = startpos.x;
-        res.intersects[1].Max.y = startpos.y;
-        res.intersects[2].Min.x = endpos.x;
-        res.intersects[3].Min.y = endpos.y;
-
-        if (rect.Min.x < startpos.x)
-        {
-            res.intersects[0].Min.x = res.intersects[1].Min.x = res.intersects[3].Min.x = rect.Min.x;
-        }
-        else
-        {
-            res.intersects[1].Min.x = res.intersects[3].Min.x = rect.Min.x;
-            res.visibleRect[0] = false;
-        }
-
-        if (rect.Min.y < startpos.y)
-        {
-            res.intersects[0].Min.y = res.intersects[1].Min.y = res.intersects[2].Min.y = rect.Min.y;
-        }
-        else
-        {
-            res.intersects[0].Min.y = res.intersects[2].Min.y = rect.Min.y;
-            res.visibleRect[1] = false;
-        }
-
-        if (rect.Max.x > endpos.x)
-        {
-            res.intersects[1].Max.x = res.intersects[2].Max.x = res.intersects[3].Max.x = rect.Max.x;
-        }
-        else
-        {
-            res.intersects[1].Max.x = res.intersects[3].Max.x = rect.Max.x;
-            res.visibleRect[2] = false;
-        }
-
-        if (rect.Max.y > endpos.y)
-        {
-            res.intersects[0].Max.y = res.intersects[2].Max.y = res.intersects[3].Max.y = rect.Max.y;
-        }
-        else
-        {
-            res.intersects[0].Max.y = res.intersects[2].Max.y = rect.Max.y;
-            res.visibleRect[3] = false;
-        }
-
-        return res;
-    }
-
-    RectBreakup ComputeRectBreakups(ImRect rect, float amount)
-    {
-        RectBreakup res;
-
-        res.rects[0].Min = ImVec2{ rect.Min.x - amount, rect.Min.y };
-        res.rects[0].Max = ImVec2{ rect.Min.x, rect.Max.y };
-
-        res.rects[1].Min = ImVec2{ rect.Min.x, rect.Min.y - amount };
-        res.rects[1].Max = ImVec2{ rect.Max.x, rect.Min.y };
-
-        res.rects[2].Min = ImVec2{ rect.Max.x, rect.Min.y };
-        res.rects[2].Max = ImVec2{ rect.Max.x + amount, rect.Max.y };
-
-        res.rects[3].Min = ImVec2{ rect.Min.x, rect.Max.y };
-        res.rects[3].Max = ImVec2{ rect.Max.x, rect.Max.y + amount };
-
-        ImVec2 delta{ amount, amount };
-        res.corners[0].Min = rect.Min - delta;
-        res.corners[0].Max = rect.Min;
-        res.corners[1].Min = ImVec2{ rect.Max.x, rect.Min.y - amount };
-        res.corners[1].Max = res.corners[1].Min + delta;
-        res.corners[2].Min = rect.Max;
-        res.corners[2].Max = rect.Max + delta;
-        res.corners[3].Min = ImVec2{ rect.Min.x - amount, rect.Max.y };
-        res.corners[3].Max = res.corners[3].Min + delta;
-
-        return res;
-    }
+#pragma region Style parsing
 
 #pragma optimize( "", on )
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
@@ -2306,11 +2376,6 @@ namespace glimmer
         return std::nullopt;
     }
 
-    float IRenderer::EllipsisWidth(void* fontptr, float sz)
-    {
-        return GetTextSize("...", fontptr, sz).x;
-    }
-
     bool FourSidedBorder::isRounded() const
     {
         return cornerRadius[TopLeftCorner] > 0.f ||
@@ -2343,24 +2408,23 @@ namespace glimmer
         return *this;
     }
 
-    static int PopulateSegmentStyle(StyleDescriptor& style,
-        FontStyle& font, ColorGradient& gradient, FourSidedBorder& border,
-        BoxShadow& shadow, std::string_view stylePropName, std::string_view stylePropVal)
+    static int PopulateSegmentStyle(StyleDescriptor& style, CommonWidgetStyleDescriptor& specific, 
+        std::string_view stylePropName, std::string_view stylePropVal)
     {
         int prop = NoStyleChange;
 
         if (AreSame(stylePropName, "font-size"))
         {
-            if (AreSame(stylePropVal, "xx-small")) font.size = GlobalWindowConfig.defaultFontSz * 0.6f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "x-small")) font.size = GlobalWindowConfig.defaultFontSz * 0.75f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "small")) font.size = GlobalWindowConfig.defaultFontSz * 0.89f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "medium")) font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "large")) font.size = GlobalWindowConfig.defaultFontSz * 1.2f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "x-large")) font.size = GlobalWindowConfig.defaultFontSz * 1.5f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "xx-large")) font.size = GlobalWindowConfig.defaultFontSz * 2.f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "xxx-large")) font.size = GlobalWindowConfig.defaultFontSz * 3.f * GlobalWindowConfig.fontScaling;
+            if (AreSame(stylePropVal, "xx-small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.6f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "x-small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.75f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.89f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "medium")) style.font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "large")) style.font.size = GlobalWindowConfig.defaultFontSz * 1.2f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "x-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 1.5f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "xx-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 2.f * GlobalWindowConfig.fontScaling;
+            else if (AreSame(stylePropVal, "xxx-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 3.f * GlobalWindowConfig.fontScaling;
             else
-                font.size = ExtractFloatWithUnit(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                style.font.size = ExtractFloatWithUnit(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                     GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.fontScaling);
             prop = StyleFontSize;
         }
@@ -2370,29 +2434,29 @@ namespace glimmer
 
             if (idx == 0)
             {
-                if (AreSame(stylePropVal, "bold")) font.flags |= FontStyleBold;
-                else if (AreSame(stylePropVal, "light")) font.flags |= FontStyleLight;
+                if (AreSame(stylePropVal, "bold")) style.font.flags |= FontStyleBold;
+                else if (AreSame(stylePropVal, "light")) style.font.flags |= FontStyleLight;
                 else ERROR("Invalid font-weight property value... [%.*s]\n",
                     (int)stylePropVal.size(), stylePropVal.data());
             }
             else
             {
                 int weight = ExtractInt(stylePropVal.substr(0u, idx), 400);
-                if (weight >= 600) font.flags |= FontStyleBold;
-                if (weight < 400) font.flags |= FontStyleLight;
+                if (weight >= 600) style.font.flags |= FontStyleBold;
+                if (weight < 400) style.font.flags |= FontStyleLight;
             }
 
             prop = StyleFontWeight;
         }
         else if (AreSame(stylePropName, "text-wrap"))
         {
-            if (AreSame(stylePropVal, "nowrap")) font.flags |= FontStyleNoWrap;
+            if (AreSame(stylePropVal, "nowrap")) style.font.flags |= FontStyleNoWrap;
             prop = StyleTextWrap;
         }
         else if (AreSame(stylePropName, "background-color") || AreSame(stylePropName, "background"))
         {
             if (StartsWith(stylePropVal, "linear-gradient"))
-                gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
             else style.bgcolor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
             prop = StyleBackground;
         }
@@ -2428,7 +2492,7 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "font-family"))
         {
-            font.family = stylePropVal;
+            style.font.family = stylePropVal;
             prop = StyleFontFamily;
         }
         else if (AreSame(stylePropName, "padding"))
@@ -2465,44 +2529,44 @@ namespace glimmer
         {
             if (AreSame(stylePropVal, "ellipsis"))
             {
-                font.flags |= FontStyleOverflowEllipsis;
+                style.font.flags |= FontStyleOverflowEllipsis;
                 prop = StyleTextOverflow;
             }
         }
         else if (AreSame(stylePropName, "border"))
         {
-            border.top = border.bottom = border.left = border.right = ExtractBorder(stylePropVal,
+            style.border.top = style.border.bottom = style.border.left = style.border.right = ExtractBorder(stylePropVal,
                 GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GetColor, GlobalWindowConfig.userData);
-            border.isUniform = true;
+            style.border.isUniform = true;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top"))
         {
-            border.top = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.top = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, GetColor, GlobalWindowConfig.userData);
-            border.isUniform = false;
+            style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-left"))
         {
-            border.left = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.left = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, GetColor, GlobalWindowConfig.userData);
-            border.isUniform = false;
+            style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-right"))
         {
-            border.right = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.right = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, GetColor, GlobalWindowConfig.userData);
-            border.isUniform = false;
+            style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom"))
         {
-            border.bottom = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.bottom = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, GetColor, GlobalWindowConfig.userData);
             prop = StyleBorder;
-            border.isUniform = false;
+            style.border.isUniform = false;
         }
         else if (AreSame(stylePropName, "border-radius"))
         {
@@ -2510,46 +2574,46 @@ namespace glimmer
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius | 
                 RSP_BorderBottomRightRadius);
-            border.setRadius(radius);
+            style.border.setRadius(radius);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-width"))
         {
             auto width = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, 1.f);
-            border.setThickness(width);
+            style.border.setThickness(width);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-color"))
         {
             auto color = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
-            border.setColor(color);
+            style.border.setColor(color);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-left-radius"))
         {
-            border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopLeftRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-right-radius"))
         {
-            border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-right-radius"))
         {
-            border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-left-radius"))
         {
-            border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomLeftRadius;
             prop = StyleBorder;
@@ -2582,17 +2646,47 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "font-style"))
         {
-            if (AreSame(stylePropVal, "normal")) font.flags |= FontStyleNormal;
+            if (AreSame(stylePropVal, "normal")) style.font.flags |= FontStyleNormal;
             else if (AreSame(stylePropVal, "italic") || AreSame(stylePropVal, "oblique"))
-                font.flags |= FontStyleItalics;
+                style.font.flags |= FontStyleItalics;
             else ERROR("Invalid font-style property value [%.*s]\n",
                 (int)stylePropVal.size(), stylePropVal.data());
             prop = StyleFontStyle;
         }
         else if (AreSame(stylePropName, "box-shadow"))
         {
-            shadow = ExtractBoxShadow(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
+            style.shadow = ExtractBoxShadow(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
             prop = StyleBoxShadow;
+        }
+        else if (AreSame(stylePropName, "thumb-color"))
+        {
+            if (StartsWith(stylePropVal, "linear-gradient"))
+            {
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            }
+            else specific.toggle.thumbColor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            prop = StyleThumbColor;
+        }
+        else if (AreSame(stylePropName, "track-color"))
+        {
+            if (StartsWith(stylePropVal, "linear-gradient"))
+            {
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            }
+            else specific.toggle.trackColor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            prop = StyleTrackColor;
+        }
+        else if (AreSame(stylePropName, "track-outline"))
+        {
+            auto brd = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
+            specific.toggle.trackBorderColor = brd.color;
+            specific.toggle.trackBorderThickness = brd.thickness;
+            prop = StyleTrackOutlineColor;
+        }
+        else if (AreSame(stylePropName, "thumb-offset"))
+        {
+            specific.toggle.thumbOffset = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz* GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            prop = StyleThumbOffset;
         }
         else
         {
@@ -2602,38 +2696,122 @@ namespace glimmer
         return prop;
     }
 
+#pragma endregion
+
     // =============================================================================================
     // DRAWING FUNCTIONS
     // =============================================================================================
 
+#pragma region Drawing functions
+
+    IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos)
+    {
+        IntersectRects res;
+
+        res.intersects[0].Max.x = startpos.x;
+        res.intersects[1].Max.y = startpos.y;
+        res.intersects[2].Min.x = endpos.x;
+        res.intersects[3].Min.y = endpos.y;
+
+        if (rect.Min.x < startpos.x)
+        {
+            res.intersects[0].Min.x = res.intersects[1].Min.x = res.intersects[3].Min.x = rect.Min.x;
+        }
+        else
+        {
+            res.intersects[1].Min.x = res.intersects[3].Min.x = rect.Min.x;
+            res.visibleRect[0] = false;
+        }
+
+        if (rect.Min.y < startpos.y)
+        {
+            res.intersects[0].Min.y = res.intersects[1].Min.y = res.intersects[2].Min.y = rect.Min.y;
+        }
+        else
+        {
+            res.intersects[0].Min.y = res.intersects[2].Min.y = rect.Min.y;
+            res.visibleRect[1] = false;
+        }
+
+        if (rect.Max.x > endpos.x)
+        {
+            res.intersects[1].Max.x = res.intersects[2].Max.x = res.intersects[3].Max.x = rect.Max.x;
+        }
+        else
+        {
+            res.intersects[1].Max.x = res.intersects[3].Max.x = rect.Max.x;
+            res.visibleRect[2] = false;
+        }
+
+        if (rect.Max.y > endpos.y)
+        {
+            res.intersects[0].Max.y = res.intersects[2].Max.y = res.intersects[3].Max.y = rect.Max.y;
+        }
+        else
+        {
+            res.intersects[0].Max.y = res.intersects[2].Max.y = rect.Max.y;
+            res.visibleRect[3] = false;
+        }
+
+        return res;
+    }
+
+    RectBreakup ComputeRectBreakups(ImRect rect, float amount)
+    {
+        RectBreakup res;
+
+        res.rects[0].Min = ImVec2{ rect.Min.x - amount, rect.Min.y };
+        res.rects[0].Max = ImVec2{ rect.Min.x, rect.Max.y };
+
+        res.rects[1].Min = ImVec2{ rect.Min.x, rect.Min.y - amount };
+        res.rects[1].Max = ImVec2{ rect.Max.x, rect.Min.y };
+
+        res.rects[2].Min = ImVec2{ rect.Max.x, rect.Min.y };
+        res.rects[2].Max = ImVec2{ rect.Max.x + amount, rect.Max.y };
+
+        res.rects[3].Min = ImVec2{ rect.Min.x, rect.Max.y };
+        res.rects[3].Max = ImVec2{ rect.Max.x, rect.Max.y + amount };
+
+        ImVec2 delta{ amount, amount };
+        res.corners[0].Min = rect.Min - delta;
+        res.corners[0].Max = rect.Min;
+        res.corners[1].Min = ImVec2{ rect.Max.x, rect.Min.y - amount };
+        res.corners[1].Max = res.corners[1].Min + delta;
+        res.corners[2].Min = rect.Max;
+        res.corners[2].Max = rect.Max + delta;
+        res.corners[3].Min = ImVec2{ rect.Min.x - amount, rect.Max.y };
+        res.corners[3].Max = res.corners[3].Min + delta;
+
+        return res;
+    }
+
     void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, uint32_t bgcolor, IRenderer& renderer)
     {
-        const auto& border = GlobalStates.borders[style.index.border];
-        if (border.isUniform && border.top.thickness > 0.f && IsColorVisible(border.top.color) &&
-            border.top.color != bgcolor)
+        if (style.border.isUniform && style.border.top.thickness > 0.f && IsColorVisible(style.border.top.color) &&
+            style.border.top.color != bgcolor)
         {
-            if (!border.isRounded())
-                renderer.DrawRect(startpos, endpos, border.top.color, false, border.top.thickness);
+            if (!style.border.isRounded())
+                renderer.DrawRect(startpos, endpos, style.border.top.color, false, style.border.top.thickness);
             else
-                renderer.DrawRoundedRect(startpos, endpos, border.top.color, false,
-                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
-                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner],
-                    border.top.thickness);
+                renderer.DrawRoundedRect(startpos, endpos, style.border.top.color, false,
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
+                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner],
+                    style.border.top.thickness);
         }
         else
         {
             auto width = endpos.x - startpos.x, height = endpos.y - startpos.y;
 
-            if (border.top.thickness > 0.f && border.top.color != bgcolor && IsColorVisible(border.top.color))
-                renderer.DrawLine(startpos, startpos + ImVec2{ width, 0.f }, border.top.color, border.top.thickness);
-            if (border.right.thickness > 0.f && border.right.color != bgcolor && IsColorVisible(border.right.color))
-                renderer.DrawLine(startpos + ImVec2{ width - border.right.thickness, 0.f }, endpos -
-                    ImVec2{ border.right.thickness, 0.f }, border.right.color, border.right.thickness);
-            if (border.left.thickness > 0.f && border.left.color != bgcolor && IsColorVisible(border.left.color))
-                renderer.DrawLine(startpos, startpos + ImVec2{ 0.f, height }, border.left.color, border.left.thickness);
-            if (border.bottom.thickness > 0.f && border.bottom.color != bgcolor && IsColorVisible(border.bottom.color))
-                renderer.DrawLine(startpos + ImVec2{ 0.f, height - border.bottom.thickness }, endpos -
-                    ImVec2{ 0.f, border.bottom.thickness }, border.bottom.color, border.bottom.thickness);
+            if (style.border.top.thickness > 0.f && style.border.top.color != bgcolor && IsColorVisible(style.border.top.color))
+                renderer.DrawLine(startpos, startpos + ImVec2{ width, 0.f }, style.border.top.color, style.border.top.thickness);
+            if (style.border.right.thickness > 0.f && style.border.right.color != bgcolor && IsColorVisible(style.border.right.color))
+                renderer.DrawLine(startpos + ImVec2{ width - style.border.right.thickness, 0.f }, endpos -
+                    ImVec2{ style.border.right.thickness, 0.f }, style.border.right.color, style.border.right.thickness);
+            if (style.border.left.thickness > 0.f && style.border.left.color != bgcolor && IsColorVisible(style.border.left.color))
+                renderer.DrawLine(startpos, startpos + ImVec2{ 0.f, height }, style.border.left.color, style.border.left.thickness);
+            if (style.border.bottom.thickness > 0.f && style.border.bottom.color != bgcolor && IsColorVisible(style.border.bottom.color))
+                renderer.DrawLine(startpos + ImVec2{ 0.f, height - style.border.bottom.thickness }, endpos -
+                    ImVec2{ 0.f, style.border.bottom.thickness }, style.border.bottom.color, style.border.bottom.thickness);
         }
     }
 
@@ -2644,26 +2822,23 @@ namespace glimmer
         // 2. Decompose the blur region into 8 rects i.e. 4 for corners, 4 for the sides
         // 3. For each rect, determine the vertex color i.e. shadow color or transparent,
         //    and draw a rect gradient accordingly.
-        auto border = GlobalStates.borders[style.index.border];
-        auto shadow = GlobalStates.shadows[style.index.shadow];
-
-        if ((shadow.blur > 0.f || shadow.spread > 0.f || shadow.offset.x != 0.f ||
-            shadow.offset.y != 0) && IsColorVisible(shadow.color))
+        if ((style.shadow.blur > 0.f || style.shadow.spread > 0.f || style.shadow.offset.x != 0.f ||
+            style.shadow.offset.y != 0) && IsColorVisible(style.shadow.color))
         {
             ImRect rect{ startpos, endpos };
-            rect.Expand(shadow.spread);
-            rect.Translate(shadow.offset);
+            rect.Expand(style.shadow.spread);
+            rect.Translate(style.shadow.offset);
 
-            if (shadow.blur > 0.f)
+            if (style.shadow.blur > 0.f)
             {
-                auto outercol = shadow.color & ~IM_COL32_A_MASK;
-                auto brk = ComputeRectBreakups(rect, shadow.blur);
+                auto outercol = style.shadow.color & ~IM_COL32_A_MASK;
+                auto brk = ComputeRectBreakups(rect, style.shadow.blur);
 
                 // Sides: Left -> Top -> Right -> Bottom
-                renderer.DrawRectGradient(brk.rects[0].Min, brk.rects[0].Max, outercol, shadow.color, DIR_Horizontal);
-                renderer.DrawRectGradient(brk.rects[1].Min, brk.rects[1].Max, outercol, shadow.color, DIR_Vertical);
-                renderer.DrawRectGradient(brk.rects[2].Min, brk.rects[2].Max, shadow.color, outercol, DIR_Horizontal);
-                renderer.DrawRectGradient(brk.rects[3].Min, brk.rects[3].Max, shadow.color, outercol, DIR_Vertical);
+                renderer.DrawRectGradient(brk.rects[0].Min, brk.rects[0].Max, outercol, style.shadow.color, DIR_Horizontal);
+                renderer.DrawRectGradient(brk.rects[1].Min, brk.rects[1].Max, outercol, style.shadow.color, DIR_Vertical);
+                renderer.DrawRectGradient(brk.rects[2].Min, brk.rects[2].Max, style.shadow.color, outercol, DIR_Horizontal);
+                renderer.DrawRectGradient(brk.rects[3].Min, brk.rects[3].Max, style.shadow.color, outercol, DIR_Vertical);
 
                 // Corners: Top-left -> Top-right -> Bottom-right -> Bottom-left
                 switch (GlobalWindowConfig.shadowQuality)
@@ -2676,22 +2851,22 @@ namespace glimmer
                     radius *= 1.75f;
 
                     renderer.SetClipRect(brk.corners[0].Min, brk.corners[0].Max);
-                    renderer.DrawRadialGradient(center + offset, radius, shadow.color, outercol, 180, 270);
+                    renderer.DrawRadialGradient(center + offset, radius, style.shadow.color, outercol, 180, 270);
                     renderer.ResetClipRect();
 
                     center = ImVec2{ brk.corners[1].Min.x, brk.corners[1].Max.y };
                     renderer.SetClipRect(brk.corners[1].Min, brk.corners[1].Max);
-                    renderer.DrawRadialGradient(center + ImVec2{ -offset.x, offset.y }, radius, shadow.color, outercol, 270, 360);
+                    renderer.DrawRadialGradient(center + ImVec2{ -offset.x, offset.y }, radius, style.shadow.color, outercol, 270, 360);
                     renderer.ResetClipRect();
 
                     center = brk.corners[2].Min;
                     renderer.SetClipRect(brk.corners[2].Min, brk.corners[2].Max);
-                    renderer.DrawRadialGradient(center - offset, radius, shadow.color, outercol, 0, 90);
+                    renderer.DrawRadialGradient(center - offset, radius, style.shadow.color, outercol, 0, 90);
                     renderer.ResetClipRect();
 
                     center = ImVec2{ brk.corners[3].Max.x, brk.corners[3].Min.y };
                     renderer.SetClipRect(brk.corners[3].Min, brk.corners[3].Max);
-                    renderer.DrawRadialGradient(center + ImVec2{ offset.x, -offset.y }, radius, shadow.color, outercol, 90, 180);
+                    renderer.DrawRadialGradient(center + ImVec2{ offset.x, -offset.y }, radius, style.shadow.color, outercol, 90, 180);
                     renderer.ResetClipRect();
                     break;
                 }
@@ -2700,23 +2875,24 @@ namespace glimmer
                 }
             }
 
-            rect.Expand(shadow.blur > 0.f ? 1.f : 0.f);
-            if (!border.isRounded())
-                renderer.DrawRect(rect.Min, rect.Max, shadow.color, true);
+            rect.Expand(style.shadow.blur > 0.f ? 1.f : 0.f);
+            if (!style.border.isRounded())
+                renderer.DrawRect(rect.Min, rect.Max, style.shadow.color, true);
             else
-                renderer.DrawRoundedRect(rect.Min, rect.Max, shadow.color, true,
-                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
-                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner]);
+                renderer.DrawRoundedRect(rect.Min, rect.Max, style.shadow.color, true,
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
+                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
 
             auto diffcolor = GlobalWindowConfig.bgcolor - 1;
+            auto border = style.border;
             border.setColor(GlobalWindowConfig.bgcolor);
             DrawBorderRect(startpos, endpos, style, diffcolor, renderer);
             if (!border.isRounded())
                 renderer.DrawRect(startpos, endpos, GlobalWindowConfig.bgcolor, true);
             else
                 renderer.DrawRoundedRect(startpos, endpos, GlobalWindowConfig.bgcolor, true,
-                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
-                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner]);
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
+                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
         }
     }
 
@@ -2758,37 +2934,33 @@ namespace glimmer
 
     void DrawBackground(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer)
     {
-        const auto& gradient = GlobalStates.gradients[style.index.gradient];
-        const auto& border = GlobalStates.borders[style.index.border];
-
-        if (gradient.totalStops != 0)
-            (gradient.dir == ImGuiDir_Down || gradient.dir == ImGuiDir_Left) ?
-            DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
-                std::begin(gradient.colorStops), std::begin(gradient.colorStops) + gradient.totalStops, border, renderer) :
-            DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
-                std::rbegin(gradient.colorStops), std::rbegin(gradient.colorStops) + gradient.totalStops, border, renderer);
+        if (style.gradient.totalStops != 0)
+            (style.gradient.dir == ImGuiDir_Down || style.gradient.dir == ImGuiDir_Left) ?
+            DrawLinearGradient(startpos, endpos, style.gradient.angleDegrees, style.gradient.dir,
+                std::begin(style.gradient.colorStops), std::begin(style.gradient.colorStops) + style.gradient.totalStops, style.border, renderer) :
+            DrawLinearGradient(startpos, endpos, style.gradient.angleDegrees, style.gradient.dir,
+                std::rbegin(style.gradient.colorStops), std::rbegin(style.gradient.colorStops) + style.gradient.totalStops, style.border, renderer);
         else if (IsColorVisible(style.bgcolor))
-            if (!border.isRounded())
+            if (!style.border.isRounded())
                 renderer.DrawRect(startpos, endpos, style.bgcolor, true);
             else
                 renderer.DrawRoundedRect(startpos, endpos, style.bgcolor, true,
-                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
-                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner]);
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
+                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
     }
 
     void DrawText(ImVec2 startpos, ImVec2 endpos, std::string_view text, bool disabled, const StyleDescriptor& style, IRenderer& renderer)
     {
         ImRect content{ startpos, endpos };
-        const auto& font = GlobalStates.fonts[style.index.font];
         
         renderer.SetClipRect(content.Min, content.Max);
-        renderer.SetCurrentFont(font.font, font.size);
+        renderer.SetCurrentFont(style.font.font, style.font.size);
 
-        if ((font.flags & FontStyleOverflowMarquee) != 0 &&
+        if ((style.font.flags & FontStyleOverflowMarquee) != 0 &&
             !disabled && style.index.animation != InvalidIdx)
         {
             auto& animation = GlobalStates.animations[style.index.animation];
-            ImVec2 textsz = renderer.GetTextSize(text, font.font, font.size);
+            ImVec2 textsz = renderer.GetTextSize(text, style.font.font, style.font.size);
 
             if (textsz.x > content.GetWidth())
             {
@@ -2799,22 +2971,23 @@ namespace glimmer
             else
                 renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
         }
-        else if (font.flags & FontStyleOverflowEllipsis)
+        else if (style.font.flags & FontStyleOverflowEllipsis)
         {
-            float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(font.font, font.size);
+            float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
             auto renderedText = false;
 
             for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
             {
                 // TODO: This is only valid for ASCII, this should be fixed for UTF-8
-                width += renderer.GetTextSize(text.substr(chidx, 1), font.font, font.size).x;
-                if (width > available)
+                auto w = renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
+                if (width + w > available)
                 {
-                    renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, 
-                        style.dimension.x > 0 ? style.dimension.x : -1.f);
+                    renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, -1.f);
+                    renderer.DrawText("...", content.Min + ImVec2{ width, 0.f }, style.fgcolor, -1.f);
                     renderedText = true;
                     break;
                 }
+                width += w;
             }
 
             if (!renderedText)
@@ -2827,9 +3000,13 @@ namespace glimmer
         renderer.ResetClipRect();
     }
 
+#pragma endregion
+
     // =============================================================================================
     // WIDGET FUNCTIONS
     // =============================================================================================
+
+#pragma region Widgets
 
     /* Here is the box model that is followed here:
 
@@ -2853,55 +3030,53 @@ namespace glimmer
 
     */
     static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style, 
-        std::string_view text, IRenderer& renderer, std::optional<ImVec2> geometry)
+        std::string_view text, IRenderer& renderer, float width, float height)
     {
         ImRect content, padding, border, margin;
-        const auto& borderstyle = GlobalStates.borders[style.index.border];
-        const auto& font = GlobalStates.fonts[style.index.font];
+        const auto& borderstyle = style.border;
+        const auto& font = style.font;
 
         margin.Min = pos;
         border.Min = pos + ImVec2{ style.margin.left, style.margin.top };
         padding.Min = border.Min + ImVec2{ borderstyle.left.thickness, borderstyle.top.thickness };
         content.Min = padding.Min + ImVec2{ style.padding.left, style.padding.top };
+        auto textsz = renderer.GetTextSize(text, font.font, font.size,
+            margin.Max.x == 0.f ? -1.f : margin.Max.x);
 
-        if (!geometry.has_value())
+        if (width == 0.f)
         {
-            if (style.dimension.x > 0) margin.Max.x = style.dimension.x;
-            if (style.dimension.y > 0) margin.Max.y = style.dimension.y;
-        }
-        else
-            margin.Max = margin.Min + geometry.value();
-
-        if (margin.Max.x == 0.f || margin.Max.y == 0.f)
-        {
-            // If neither geometry, nor dimension is specified, calculate based on
-            // text metrics + style params
-            auto textsz = renderer.GetTextSize(text, font.font, font.size, 
-                margin.Max.x == 0.f ? -1.f : margin.Max.x);
-
-            if (margin.Max.x == 0.f)
-            {
-                margin.Max.x = margin.Min.x + textsz.x;
-                border.Max.x = margin.Max.x - style.margin.right;
-                padding.Max.x = border.Max.x - borderstyle.right.thickness;
-                content.Max.x = padding.Max.x - style.padding.right;
-            }
-
-            if (margin.Max.y == 0.f)
-            {
-                margin.Max.y = margin.Min.y + textsz.y;
-                border.Max.y = margin.Max.y - style.margin.bottom;
-                padding.Max.y = border.Max.y - borderstyle.bottom.thickness;
-                content.Max.y = padding.Max.y - style.padding.bottom;
-            }
+            content.Max.x = style.dimension.x != 0.f ? style.dimension.x : 
+                std::clamp(content.Min.x + textsz.x, style.mindim.x, style.maxdim.x);
+            padding.Max.x = content.Max.x + style.padding.right;
+            border.Max.x = padding.Max.x + borderstyle.right.thickness;
+            margin.Max.x = border.Max.x + style.margin.right;
         }
         else
         {
-            border.Max = margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-            padding.Max = border.Max - ImVec2{ borderstyle.right.thickness, borderstyle.left.thickness };
-            content.Max = padding.Max - ImVec2{ style.padding.right, style.padding.bottom };
+            margin.Max.x = width == FLT_MAX ? std::min(ImGui::GetCurrentWindow()->Size.x, margin.Min.x + style.maxdim.x) : 
+                margin.Min.x + width;
+            border.Max.x = margin.Max.x - style.margin.right;
+            padding.Max.x = border.Max.x - borderstyle.right.thickness;
+            content.Max.x = padding.Max.x - style.padding.right;
         }
-        
+
+        if (height == 0.f)
+        {
+            content.Max.y = style.dimension.y != 0.f ? style.dimension.y :
+                std::clamp(content.Min.y + textsz.y, style.mindim.y, style.maxdim.y);
+            padding.Max.y = content.Max.y + style.padding.bottom;
+            border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
+            margin.Max.y = border.Max.y + style.margin.bottom;
+        }
+        else
+        {
+            margin.Max.y = height == FLT_MAX ? std::min(ImGui::GetCurrentWindow()->Size.y, margin.Min.y + style.maxdim.y) : 
+                margin.Min.y + height;
+            border.Max.y = margin.Max.y - style.margin.bottom;
+            padding.Max.y = border.Max.y - borderstyle.left.thickness;
+            content.Max.y = padding.Max.y - style.padding.bottom;
+        }
+
         return std::make_tuple(content, padding, border, margin);
     }
 
@@ -2919,109 +3094,665 @@ namespace glimmer
             renderer.DrawTooltip(tooltippos, tooltip);
         }
     }
-
-    void CreateButton(int32_t id, std::string_view text, std::string_view tooltip, bool disabled)
+    
+    static void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
     {
-        assert(id >= 0 && id <= 1024);
+        if (dest.specified & StyleUpdatedFromBase) return;
 
-        if (id < ButtonsPreallocSz)
+        for (int64_t idx = 0; idx <= StyleTotal; ++idx)
         {
-            auto& button = GlobalStates.buttonStates[id];
-            button.text = text;
-            button.tooltip = tooltip;
-            if (disabled) button.state = WS_Disabled;
+            auto prop = (StyleProperty)((1ll << idx));
+            if ((dest.specified & prop) == 0)
+            {
+                switch (prop)
+                {
+                case glimmer::StyleBackground:
+                    dest.bgcolor = src.bgcolor;
+                    dest.gradient = src.gradient;
+                    break;
+                case glimmer::StyleFgColor:
+                    dest.fgcolor = src.fgcolor;
+                    break;
+                case glimmer::StyleFontSize:
+                case glimmer::StyleFontFamily:
+                case glimmer::StyleFontWeight:
+                case glimmer::StyleFontStyle:
+                    dest.font = src.font;
+                    break;
+                case glimmer::StyleHeight:
+                    dest.dimension.y = src.dimension.y;
+                    break;
+                case glimmer::StyleWidth:
+                    dest.dimension.x = src.dimension.x;
+                    break;
+                case glimmer::StyleHAlignment:
+                    break;
+                case glimmer::StyleVAlignment:
+                    break;
+                case glimmer::StylePadding:
+                    dest.padding = src.padding;
+                    break;
+                case glimmer::StyleMargin:
+                    dest.margin = src.margin;
+                    break;
+                case glimmer::StyleBorder:
+                    dest.border = src.border;
+                    break;
+                case glimmer::StyleOverflow:
+                    break;
+                case glimmer::StyleBorderRadius:
+                {
+                    const auto& srcborder = src.border;
+                    auto& dstborder = dest.border;
+                    dstborder.cornerRadius[0] = srcborder.cornerRadius[0];
+                    dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
+                    dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
+                    dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
+                    break;
+                }
+                case glimmer::StyleCellSpacing:
+                    break;
+                case glimmer::StyleTextWrap:
+                    break;
+                case glimmer::StyleBoxShadow:
+                    dest.shadow = src.shadow;
+                    break;
+                case glimmer::StyleTextOverflow:
+                    break;
+                case glimmer::StyleMinWidth:
+                    dest.mindim.x = src.mindim.x;
+                    break;
+                case glimmer::StyleMaxWidth:
+                    dest.maxdim.x = src.maxdim.x;
+                    break;
+                case glimmer::StyleMinHeight:
+                    dest.mindim.y = src.mindim.y;
+                    break;
+                case glimmer::StyleMaxHeight:
+                    dest.maxdim.y = src.maxdim.y;
+                    break;
+                default:
+                    break;
+                }
+            }
         }
-        else
-        {
-            for (auto idx = ButtonsPreallocSz - 1; idx < id; ++idx) GlobalStates.buttonStates.emplace_back();
 
-            auto& button = GlobalStates.buttonStates[id];
-            button.text = text;
-            button.tooltip = tooltip;
-            if (disabled) button.state = WS_Disabled;
-        }
+        dest.specified |= StyleUpdatedFromBase;
     }
 
-    inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
-
-    WidgetDrawResult Button(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    /*WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
     {
-        assert(id <= (int)GlobalStates.buttonStates.size());
-
-        WidgetEvent result = WidgetEvent::None;
-        auto& state = GlobalStates.buttonStates[id];
-        auto& style = GlobalStates.buttonStyles[id + log2((uint32_t)state.state)];
-        auto& font = GlobalStates.fonts[style.index.font];
-        auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
-
+        WidgetDrawResult result;
+        auto& state = GlobalStates.GetState(id).button;
+        auto& style = GlobalStates.GetStyle(id, state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
         state.state = !ismouseover ? WS_Default :
             ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
-        DrawBackground(padding.Min, padding.Max, style, renderer);
         DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
 
         if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            result = WidgetEvent::Clicked;
+            result.event = WidgetEvent::Clicked;
         else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, pos, state.tooltip, renderer);
+            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
         else state._hoverDuration == 0;
 
-        return { result, margin };
+        result.geometry = margin;
+        return result;
+    }
+
+    void UpdateLayout(LayoutDescriptor& layout, ImVec2 sz)
+    {
+        switch (layout.type)
+        {
+        case glimmer::LayoutType::HBox:
+            layout.currpos.x += sz.x;
+            break;
+        case glimmer::LayoutType::VBox:
+            break;
+        case glimmer::LayoutType::Grid:
+            break;
+        case glimmer::LayoutType::Flex:
+            if (layout.isRowWise)
+            {
+                auto layoutsz = layout.geometry.GetSize();
+                if (layout.wrap && (sz.x + layout.currpos.x > layoutsz.x))
+                {
+                    layout.currpos.y += layout.maxdim.y;
+                    layout.currpos.x = 0.f;
+                }
+                else
+                {
+                    layout.maxdim.y = std::max(layout.maxdim.y, sz.y);
+                    layout.currpos.x += sz.x;
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    WidgetDrawResult Button(int32_t id, IRenderer& renderer, std::optional<ImVec2> geometry)
+    {
+        assert(id <= (int)GlobalStates.states[WT_Button].size());
+
+        if (GlobalWindowConfig.layoutPolicy == LayoutPolicy::ImmediateMode)
+        {
+            auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth].back();
+            auto& state = GlobalStates.GetState(id).button;
+            CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
+
+            // TODO: Adjust everything...
+            auto& style = GlobalStates.GetStyle(id, state.state);
+            auto [content, padding, border, margin] = GetBoxModelBounds(layout.currpos, style, state.text, renderer, 
+                geometry ? geometry.value() : ImVec2{ -1.f, -1.f });
+            auto res = ButtonImpl(id, margin, border, padding, content, renderer);
+            UpdateLayout(layout, res.geometry.GetSize());
+            return res;
+        }
+        else
+        {
+            WidgetDescriptor wdesc;
+            wdesc.wtype = WT_Button;
+            wdesc.id = id;
+            wdesc.constraint = geometry ? geometry.value() : ImVec2{ -1.f, -1.f };
+            SubmitWidget(std::move(wdesc));
+
+            WidgetEvent result = WidgetEvent::None;
+            ImRect margin;
+
+            return { result, margin };
+        }
+    }
+
+    void SubmitWidget(WidgetDescriptor&& desc)
+    {
+        auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth];
+        layout.back().widgets.emplace_back(desc);
+    }*/
+
+    WindowConfig& GetWindowConfig()
+    {
+        return GlobalWindowConfig;
+    }
+
+    void BeginFrame()
+    {
+        GlobalStates.InsideFrame = true;
+    }
+
+    void EndFrame()
+    {
+        GlobalStates.InsideFrame = false;
+    }
+
+    int32_t GetNextId(WidgetType type)
+    {
+        return GlobalStates.maxids[type];
+    }
+
+    static void UsePushedStyle(int32_t wid)
+    {
+        // If a set of styles is already pushed, add it to widget being created
+        if (GlobalStates.currstyleDepth >= 6)
+        {
+            GlobalStates.GetStyle(wid, WS_Default) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 6];
+            GlobalStates.GetStyle(wid, WS_Disabled) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 5];
+            GlobalStates.GetStyle(wid, WS_Hovered) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 4];
+            GlobalStates.GetStyle(wid, WS_Pressed) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 3];
+            GlobalStates.GetStyle(wid, WS_Focused) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 2];
+            GlobalStates.GetStyle(wid, WS_Checked) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 1];
+        }
+    }
+
+    WidgetDrawResult Label(int32_t id, ImVec2 pos, float width, float height)
+    {
+        assert((id & 0xffff) <= (int)GlobalStates.states[WT_Label].size());
+
+        UsePushedStyle(id);
+        auto& state = GlobalStates.GetState(id).label;
+        auto& renderer = *GlobalWindowConfig.renderer;
+
+        // TODO: Adjust everything...
+        auto& style = GlobalStates.GetStyle(id, state.state);
+        auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, width, height);
+        WidgetDrawResult result;
+        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
+
+        if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+        else state._hoverDuration == 0;
+
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, float width, float height)
+    {
+        assert((id & 0xffff) <= (int)GlobalStates.states[WT_Button].size());
+
+        UsePushedStyle(id);
+        auto& state = GlobalStates.GetState(id).button;
+        auto& renderer = *GlobalWindowConfig.renderer;
+        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
+
+        // TODO: Adjust everything...
+        auto& style = GlobalStates.GetStyle(id, state.state);
+        auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, width, height);
+        WidgetDrawResult result;
+        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+        state.state = !ismouseover ? WS_Default :
+            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
+
+        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            result.event = WidgetEvent::Clicked;
+        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+        else state._hoverDuration == 0;
+
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    {
+        assert(id <= (int)GlobalStates.states[WT_ToggleButton].size());
+
+        auto& state = GlobalStates.GetState(id).toggle;
+        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
+
+        WidgetEvent result = WidgetEvent::None;
+        auto& style = GlobalStates.GetStyle(id, state.state);
+
+        ImRect extent;
+        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
+        else
+        {
+            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
+            extent.Max = extent.Min + style.dimension;
+        }
+        
+        auto radius = ((extent.GetHeight()) * 0.5f) + GlobalStates.toggleButtonStyles[style.index.custom].thumbOffset;
+        auto center = extent.Min + ImVec2{ radius + 1.f, radius };
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
+        auto mouseover = extent.Contains(mousepos);
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+
+        auto& specificStyle = GlobalStates.toggleButtonStyles[style.index.custom + log2((unsigned)state.state)];
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackColor, true, radius, radius, radius, radius);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, radius, radius, radius, radius, 
+            specificStyle.trackBorderThickness);
+
+        if (mouseover && specificStyle.thumbExpand > 0.f)
+            renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
+
+        renderer.DrawCircle(center, radius, style.fgcolor, true);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+        }
+
+        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
+        return { result, extent };
+    }
+
+    WidgetDrawResult RadioButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    {
+        assert(id <= (int)GlobalStates.states[WT_RadioButton].size());
+
+        auto& state = GlobalStates.GetState(id).radio;
+        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
+
+        WidgetEvent result = WidgetEvent::None;
+        auto& style = GlobalStates.GetStyle(id, state.state);
+
+        ImRect extent;
+        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
+        else
+        {
+            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
+            extent.Max = extent.Min + style.dimension;
+        }
+
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto mouseover = extent.Contains(mousepos);
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+
+        auto radius = extent.GetHeight() * 0.5f;
+        auto center = ImVec2{ radius * 0.5f, radius * 0.5f };
+        auto color = GlobalStates.GetStyle(id, state.state).fgcolor;
+        renderer.DrawCircle(center, radius, color, false, 1.f);
+        radius -= 1.f;
+        renderer.DrawCircle(center, radius, color, true);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+        }
+
+        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
+        return { result, extent };
+    }
+
+    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, std::string_view focusedcss, 
+        std::string_view checkedcss, std::string_view disblcss)
+    {
+        GlobalStates.currstyle[GlobalStates.currstyleDepth].From(defcss);
+        GlobalStates.currstyle[GlobalStates.currstyleDepth + 1].From(disblcss);
+        GlobalStates.currstyle[GlobalStates.currstyleDepth + 2].From(hovercss);
+        GlobalStates.currstyle[GlobalStates.currstyleDepth + 3].From(pressedcss);
+        GlobalStates.currstyle[GlobalStates.currstyleDepth + 4].From(focusedcss);
+        GlobalStates.currstyle[GlobalStates.currstyleDepth + 5].From(checkedcss);
+        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 1]);
+        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 2]);
+        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 3]);
+        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 4]);
+        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 5]);
+        GlobalStates.currstyleDepth += 6;
     }
 
     StyleDescriptor& GetStyle(int32_t id, int32_t state)
     {
         auto styleidx = log2((unsigned)state);
-        assert(styleidx < 5);
+        auto& src = GlobalStates.GetStyle(id, state);
 
-        return GlobalStates.buttonStyles[id + styleidx];
+        for (auto stidx = styleidx + 1; stidx < 5; ++stidx) 
+            CopyStyle(src, GlobalStates.GetStyle(id, 1 << stidx));
+
+        return src;
     }
 
-    ButtonState& GetButtonState(int32_t id)
+    void PopStyle(int depth)
     {
-        assert(id < (int32_t)GlobalStates.buttonStates.size());
-        return GlobalStates.buttonStates[id];
+        while (GlobalStates.currstyleDepth >= 6 && depth > 0)
+        {
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 1] = StyleDescriptor{};
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 2] = StyleDescriptor{};
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 3] = StyleDescriptor{};
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 4] = StyleDescriptor{};
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 5] = StyleDescriptor{};
+            GlobalStates.currstyle[GlobalStates.currstyleDepth - 6] = StyleDescriptor{};
+            GlobalStates.currstyleDepth -= 6;
+            depth--;
+        }
     }
+
+    WidgetStateData& CreateWidget(WidgetType type, int16_t id)
+    {
+        // Create widgets before beginning a frame
+        assert(!GlobalStates.InsideFrame);
+
+        int32_t wid = id;
+        wid = wid | (type << 16);
+        GlobalStates.maxids[type]++;
+        if (GlobalStates.InsideFrame) GlobalStates.tempids[type] = std::min(GlobalStates.tempids[type], GlobalStates.maxids[type]);
+        
+        // If a set of styles is already pushed, add it to widget being created
+        if (GlobalStates.currstyleDepth >= 6)
+        {
+            GlobalStates.GetStyle(wid, WS_Default) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 6];
+            GlobalStates.GetStyle(wid, WS_Disabled) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 5];
+            GlobalStates.GetStyle(wid, WS_Hovered) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 4];
+            GlobalStates.GetStyle(wid, WS_Pressed) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 3];
+            GlobalStates.GetStyle(wid, WS_Focused) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 2];
+            GlobalStates.GetStyle(wid, WS_Checked) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 1];
+        }
+
+        return GlobalStates.GetState(wid);
+    }
+
+    WidgetStateData& CreateWidget(int32_t id)
+    {
+        auto wtype = (WidgetType)(id >> 16);
+        GlobalStates.maxids[wtype]++;
+        return CreateWidget(wtype, (int16_t)(id & 0xffff));
+    }
+
+    /*void StartLayout(LayoutType type, ImVec2 size)
+    {
+        assert((GlobalWindowConfig.layoutPolicy == LayoutPolicy::DeferredMode ||
+            size != ImVec2{ -1.f, -1.f }));
+
+        GlobalStates.currLayoutDepth++;
+        auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth].emplace_back();
+        layout.type = type;
+        layout.currpos = GlobalStates.currLayoutDepth > 0 ? 
+            GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].back().currpos : ImVec2{0.f, 0.f};
+
+        if (size != ImVec2{ -1.f, -1.f })
+        {
+            layout.geometry.Min = layout.currpos;
+            layout.geometry.Max = layout.geometry.Min + size;
+        }
+        
+        // If all leaves are at same level, this is not required
+        if (GlobalStates.currLayoutDepth > 0)
+        {
+            layout.parent = (int32_t)GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].size() - 1;
+
+            WidgetDescriptor desc;
+            desc.wtype = WT_SubLayout;
+            desc.id = GlobalStates.currLayoutDepth;
+            desc.sibling = (int32_t)GlobalStates.layouts[GlobalStates.currLayoutDepth].size() - 1;
+            GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].back().widgets.push_back(desc);
+        }
+    }
+
+    void ComputeMinSizes(LayoutDescriptor& layout)
+    {
+        for (auto& widget : layout.widgets)
+        {
+            if (widget.wtype != WT_SubLayout)
+            {
+                if (!widget.isComputed)
+                {
+                    switch (widget.wtype)
+                    {
+                    case WT_Label:
+                    case WT_Button:
+                    {
+                        auto& state = GlobalStates.GetState(widget.id).button;
+                        CopyStyle(GlobalStates.GetStyle(widget.id, WS_Default), GlobalStates.GetStyle(widget.id, state.state));
+
+                        auto& style = GlobalStates.GetStyle(widget.id, state.state);
+                        std::tie(widget.content, widget.padding, widget.border, widget.margin) = GetBoxModelBounds(ImVec2{ 0.f, 0.f },
+                            style, state.text, * GlobalWindowConfig.renderer, layout.constraint);
+                        widget.isComputed = true;
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+
+                if (layout.isRowWise) { layout.computed.x += widget.margin.GetSize().x; layout.computed.y = std::max(layout.computed.y, widget.margin.GetSize().y); }
+                else { layout.computed.y += widget.margin.GetSize().y; layout.computed.x = std::max(layout.computed.x, widget.margin.GetSize().x); }
+            }
+            else
+            {
+                auto& sublayout = GlobalStates.layouts[widget.id][widget.sibling];
+                ComputeMinSizes(sublayout); // Can be avoided by storing parent layout ids in widgets
+                if (layout.isRowWise) { layout.computed.x += sublayout.computed.x; layout.computed.y = std::max(layout.computed.y, sublayout.computed.y); }
+                else { layout.computed.y += sublayout.computed.y; layout.computed.x = std::max(layout.computed.x, sublayout.computed.x); }
+            }
+        }
+    }
+
+    void SetElementPosition(const LayoutDescriptor& layout, ImVec2 available, float unitwidth, float unitex,
+        WidgetDescriptor& widget, float& currposx, float& height, float& maxheight)
+    {
+        auto sz = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed :
+            widget.margin.GetSize();
+        auto& state = GlobalStates.GetState(widget.id).button;
+        auto& style = GlobalStates.GetStyle(widget.id, state.state);
+
+        auto w = sz.x;
+        if (widget.flex != FLT_MAX && widget.flex > 0.f) w = std::min(unitwidth * widget.flex, style.maxdim.x);
+        else if (widget.flex == FLT_MAX) w = std::min(w + unitex, style.maxdim.x);
+
+        if ((currposx + w - layout.geometry.Min.x) > available.x)
+        {
+            height += maxheight;
+            currposx = layout.geometry.Min.x;
+            maxheight = 0.f;
+        }
+        else
+            maxheight = std::max(maxheight, sz.y);
+
+        if (widget.wtype == WT_SubLayout)
+        {
+            GlobalStates.layouts[widget.id][widget.sibling].geometry = { ImVec2{ currposx, height }, ImVec2{ currposx + w, height + sz.y } };
+        }
+        else
+        {
+            widget.margin.Min += ImVec2{ currposx, height };
+            widget.border.Min += ImVec2{ currposx, height };
+            widget.padding.Min += ImVec2{ currposx, height };
+            widget.content.Min += ImVec2{ currposx, height };
+            currposx += w;
+            widget.margin.Max += ImVec2{ currposx, height };
+            widget.border.Max += ImVec2{ currposx, height };
+            widget.padding.Max += ImVec2{ currposx, height };
+            widget.content.Max += ImVec2{ currposx, height };
+        }  
+    }
+
+    void DoTopDownLayout(LayoutDescriptor& layout, int sibling, int depth)
+    {
+        auto available = layout.geometry.GetSize();
+
+        if (layout.isRowWise)
+        {
+            auto sum = 0.f, expanding = 0.f, occupied = 0.f, height = 0.f, fxwidth = 0.f;
+            auto widx = 0;
+
+            for (const auto& widget : layout.widgets)
+            {
+                sum += widget.flex > 0.f ? widget.flex : 0.f;
+                if (widget.flex == FLT_MAX) expanding += 1.f;
+                auto minw = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed.x :
+                    widget.margin.GetSize().x;
+                if (widget.flex < 0.f) fxwidth += minw;
+                occupied += minw;
+            }
+
+            // Available space through which we can expand
+            auto expandable = std::max(available.x - occupied, 0.f);
+            auto unitwidth = (available.x - fxwidth) / sum;
+            auto currposx = layout.geometry.Min.x;
+
+            if (occupied > available.x && !layout.wrap)
+            {
+                //layout.geometry.Max += ImVec2{ occupied - available.x, 0.f };
+                layout.overflowed = true;
+
+                for (auto& widget : layout.widgets)
+                {
+                    auto minw = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed.x :
+                        widget.margin.GetSize().x;
+                    widget.margin.Min.x += currposx;
+                    widget.border.Min.x += currposx;
+                    widget.padding.Min.x += currposx;
+                    widget.content.Min.x += currposx;
+                    currposx += minw;
+                    widget.margin.Max.x += currposx;
+                    widget.border.Max.x += currposx;
+                    widget.padding.Max.x += currposx;
+                    widget.content.Max.x += currposx;
+                }
+            }
+            else
+            {
+                auto height = layout.geometry.Min.y, maxheight = 0.f;
+                auto unitex = expandable / expanding;
+
+                for (auto& widget : layout.widgets)
+                {
+                    if (widget.flex == 0.f) continue;
+                    else SetElementPosition(layout, available, unitwidth, unitex, widget, currposx, height, maxheight);
+                }
+            }
+        }
+    }
+
+    void EndLayout()
+    {
+        // process the geometry of tthe layottu hierarchy?
+        // there are no widgets here...
+        GlobalStates.currLayoutDepth--;
+
+        // Top-level
+        if (GlobalStates.currLayoutDepth == -1)
+        {
+            assert(GlobalStates.layouts[0].size() == 1u);
+
+            ImRect maxInLine[64][4];
+
+            auto available = ImGui::GetCurrentWindow()->Size;
+            GlobalStates.layouts[0][0].geometry.Max = available;
+            GlobalStates.layouts[0][0].geometry.Min = ImVec2{ 0.f, 0.f };
+
+            // Precompute min constraints of widgets and layouts
+            for (auto& layout : GlobalStates.layouts[1])
+                ComputeMinSizes(layout);
+
+            // From top-level layout which spans entire window, start re-positioning
+            for (auto depth = 1; depth < 16; ++depth)
+            {
+                auto lidx = 0;
+                for (auto& layout : GlobalStates.layouts[depth])
+                {
+                    DoTopDownLayout(layout, lidx, depth);
+
+                    for (const auto& widget : layout.widgets)
+                    {
+                        switch (widget.wtype)
+                        {
+                        case WT_Button:
+                        {
+                            ButtonImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, *GlobalWindowConfig.renderer);
+                            break;
+                        }
+                        default:
+                            break;
+                        }
+                    }
+
+                    ++lidx;
+                }
+            }
+        }
+    }*/
 
     StyleDescriptor::StyleDescriptor()
     {
-        std::memset(&index, 0, sizeof(index));
+        font.size = GlobalWindowConfig.defaultFontSz;
+        index.animation = index.custom = 0;
     }
-
-#define PushOrUpdate(src, object, dest, index, checkForDuplicate) \
-    do {                                                     \
-        using S = decltype(index);                           \
-        S res;                                               \
-        bool found = false;                                  \
-        if (checkForDuplicate) {                             \
-            for (S idx = 0; idx < (S)dest.size(); ++idx)     \
-                if (std::memcmp(&(dest[idx]), &object, sizeof(object)) == 0) { \
-                    index = idx;                             \
-                    found = true;                            \
-                    break;                                   \
-                }                                            \
-        }                                                    \
-        if (!found) {                                        \
-            if (index < (S)dest.size()) {                    \
-                dest[index] = object;                        \
-                res = index;                                 \
-                index++;                                     \
-            }                                                \
-            else {                                           \
-                res = (S)dest.size();                        \
-                dest.emplace_back(object);                   \
-            }                                                \
-        }                                                    \
-    } while (0)                                              \
 
     StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
     {
-        FourSidedBorder border;
         border.setThickness(thick); border.setColor(ToRGBA(color));
-        PushOrUpdate(index.border, border, GlobalStates.borders, GlobalStates.occupied.border, true);
         return *this;
     }
 
@@ -3032,12 +3763,11 @@ namespace glimmer
 
     StyleDescriptor& StyleDescriptor::From(std::string_view css, bool checkForDuplicate)
     {
+        if (css.empty()) return *this;
+
         auto sidx = 0;
         int prop = 0;
-        FontStyle font;
-        FourSidedBorder border;
-        BoxShadow shadow;
-        ColorGradient gradient;
+        CommonWidgetStyleDescriptor desc{};
 
         while (sidx < (int)css.size())
         {
@@ -3058,30 +3788,56 @@ namespace glimmer
                 while ((sidx < (int)css.size()) && css[sidx] != ';') sidx++;
                 stylePropVal = css.substr(stbegin, sidx - stbegin);
 
-                if (css[sidx] == ';') sidx++;
+                if ((sidx < (int)css.size()) && css[sidx] == ';') sidx++;
             }
 
             if (stylePropVal.has_value())
-            {
-                prop |= PopulateSegmentStyle(*this, font, gradient, border, shadow, stylePropName, stylePropVal.value());
-            }
+                prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value());
         }
 
         if (prop != 0)
         {
-            if (prop & StyleFontFamily || prop & StyleFontSize || prop & StyleFontStyle || prop & StyleFontWeight)
-                 PushOrUpdate(index.font, font, GlobalStates.fonts, GlobalStates.occupied.font, checkForDuplicate);
+            if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
+            {
+                auto found = false;
+                
+                if (checkForDuplicate)
+                {
+                    for (auto idx = 0; idx < GlobalStates.toggleButtonStyles.size(); ++idx)
+                        if (std::memcmp(&(GlobalStates.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
+                        {
+                            found = true;
+                            index.custom = idx;
+                        }
+                }
 
-            if (prop & StyleBoxShadow)
-                 PushOrUpdate(index.shadow, shadow, GlobalStates.shadows, GlobalStates.occupied.shadow, checkForDuplicate);
-
-            if (prop & StyleBorder || prop & StyleBorderRadius)
-                 PushOrUpdate(index.border, border, GlobalStates.borders, GlobalStates.occupied.border, checkForDuplicate);
-
-            if (prop & StyleBackground && gradient.totalStops > 0)
-                 PushOrUpdate(index.gradient, gradient, GlobalStates.gradients, GlobalStates.occupied.gradient, checkForDuplicate);
+                if (!found)
+                {
+                    index.custom = (uint16_t)GlobalStates.toggleButtonStyles.size();
+                    GlobalStates.toggleButtonStyles.push_back(desc.toggle);
+                }
+            }
         }
 
+        specified = prop;
         return *this;
     }
+
+    WidgetStateData::WidgetStateData(WidgetType type)
+    {
+        switch (type)
+        {
+        case glimmer::WT_Label: label = LabelState{}; break;
+        case glimmer::WT_Button: button = ButtonState{}; break;
+        case glimmer::WT_RadioButton:
+            break;
+        case glimmer::WT_ToggleButton:
+            break;
+        default:
+            break;
+        }
+    }
+
+#pragma endregion
+    
 }
