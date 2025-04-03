@@ -97,12 +97,12 @@ namespace glimmer
     //       should be preloaded for ImGui, dynamic font atlas updates are not supported.
     [[nodiscard]] void* GetFont(std::string_view family, float size, FontType type);
 
-//#ifndef IM_FONTMANAGER_STANDALONE
-//    // Get font to display overlay i.e. style info in side panel
-//    [[nodiscard]] void* GetOverlayFont(const RenderConfig& config);
-//#endif
+    //#ifndef IM_FONTMANAGER_STANDALONE
+    //    // Get font to display overlay i.e. style info in side panel
+    //    [[nodiscard]] void* GetOverlayFont(const RenderConfig& config);
+    //#endif
 
-    // Return status of font atlas construction
+        // Return status of font atlas construction
     [[nodiscard]] bool IsFontLoaded();
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
@@ -254,7 +254,7 @@ namespace glimmer
         uint32_t from, to;
         float pos = -1.f;
     };
-    
+
     struct ColorGradient
     {
         ColorStop colorStops[IM_RICHTEXT_MAX_COLORSTOPS];
@@ -455,7 +455,9 @@ namespace glimmer
 
     enum WidgetType
     {
-        WT_Label, WT_Button, WT_RadioButton, WT_ToggleButton,
+        WT_Invalid = -1,
+        WT_Sublayout = -2,
+        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton,
         WT_TotalTypes
     };
 
@@ -465,13 +467,15 @@ namespace glimmer
         unsigned custom : 16;
     };
 
+    enum class OverflowMode { Clip, Wrap, Scroll };
+
     struct StyleDescriptor
     {
         uint64_t specified = 0;
         uint32_t bgcolor = IM_COL32_BLACK_TRANS;
         uint32_t fgcolor = IM_COL32_BLACK;
         CustomStyleDataIndices index;
-        ImVec2 dimension{ 0.f, 0.f };
+        ImVec2 dimension{ -1.f, -1.f };
         ImVec2 mindim{ 0.f, 0.f };
         ImVec2 maxdim{ FLT_MAX, FLT_MAX };
         int32_t alignment = TextAlignLeading;
@@ -531,7 +535,7 @@ namespace glimmer
 
     enum WidgetState : int32_t
     {
-        WS_Default = 0, 
+        WS_Default = 0,
         WS_Disabled = 1,
         WS_Focused = 1 << 1,
         WS_Hovered = 1 << 2,
@@ -552,7 +556,7 @@ namespace glimmer
         long long _hoverDuration = 0; // for tooltip
         bool floating = false;
     };
-    
+
     struct ButtonState : public CommonWidgetData
     {
         std::string_view text;
@@ -574,6 +578,7 @@ namespace glimmer
 
     struct WidgetDrawResult
     {
+        int32_t id = -1;
         WidgetEvent event = WidgetEvent::None;
         ImRect geometry, content;
     };
@@ -595,12 +600,31 @@ namespace glimmer
     void EndFrame();
     int32_t GetNextId(WidgetType type);
 
-    WidgetDrawResult Label(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
-    WidgetDrawResult Button(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
-    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
-    WidgetDrawResult CheckBox(int32_t id, ImVec2 pos, float width = 0.f, float height = 0.f);
+    enum WidgetGeometry : int32_t
+    {
+        ExpandH = 2, ExpandV = 4, ExpandAll = ExpandH | ExpandV,
+        ToLeft = 8, ToRight = 16, ToBottom = 32, ToTop = 64,
+        FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
+        ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,
+        ToTopLeft = ToTop | ToLeft, ToTopRight = ToTop | ToRight
+    };
 
-    void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "", 
+    struct NeighborWidgets
+    {
+        int32_t top = -1, left = -1, right = -1, bottom = -1;
+    };
+
+    WidgetDrawResult Label(int32_t id, ImVec2 pos, int32_t geometry = 0);
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, int32_t geometry = 0);
+    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, int32_t geometry = 0);
+    WidgetDrawResult CheckBox(int32_t id, ImVec2 pos, int32_t geometry = 0);
+
+    void Label(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void Button(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void ToggleButton(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void CheckBox(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+
+    void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
     StyleDescriptor& GetStyle(int32_t id, int32_t state = WS_Default);
     void PopStyle(int depth = 1);
@@ -608,12 +632,31 @@ namespace glimmer
     WidgetStateData& CreateWidget(WidgetType type, int16_t id);
     WidgetStateData& CreateWidget(int32_t id);
 
-    struct FlowLayout
-    {
-        int32_t rows = 0, cols = 0;
-        int32_t currrow = -1, currcol = -1;
-        ImVec2 dimension;
-        bool isRowWise = true;
-    };
+    enum class Layout { Invalid, Horizontal, Vertical, Grid };
+    enum FillDirection : int32_t { FD_None = 0, FD_Horizontal = 1, FD_Vertical = 2 };
+
+    constexpr float EXPAND_SZ = FLT_MAX;
+    constexpr float FIT_SZ = -1.f;
+    constexpr float SHRINK_SZ = -2.f;
+
+    // Ad-hoc Layout
+    void PushSpan(int32_t direction); // Combination of FillDirection
+    void SetSpan(int32_t direction); // Combination of FillDirection
+    void PushDir(int32_t direction); // Combination of WidgetGeometry
+    void SetDir(int32_t direction); // Combination of WidgetGeometry
+    void Move(int32_t direction); // Combination of FillDirection
+    void Move(int32_t id, int32_t direction); // Combination of FillDirection
+    void Move(int32_t hid, int32_t vid, bool toRight, bool toBottom); // Combination of WidgetGeometry flags
+    void Move(ImVec2 amount, int32_t direction); // Combination of WidgetGeometry
+    void Move(ImVec2 pos);
+    void PopSpan(int depth = 1);
+
+    // Structured Layout inside container
+    ImRect BeginLayout(Layout layout, FillDirection fill, int32_t alignment = TextAlignLeading, 
+        ImVec2 spacing = { 0.f, 0.f }, const NeighborWidgets& neighbors = NeighborWidgets{});
+    ImRect BeginLayout(Layout layout, std::string_view desc, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void PushSizing(float width, float height, bool relativew = false, bool relativeh = false);
+    void PopSizing(int depth = -1);
+    ImRect EndLayout(int depth = 1);
 }
 

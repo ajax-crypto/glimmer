@@ -19,6 +19,36 @@
 #include <unordered_map>
 #include <map>
 
+/*
+                    BeginLayout(FillDirection::Horizontal, Layout::Horizontal, "content-align: center")
+                        Label(id); Label(id); Label(id);
+                        BeginLayout(FillDirection::None, Layout::Horizontal)
+                            Label(id); Button(id);
+                        EndLayout();
+                    EndLayout();
+
+                    SetGeometryMode();
+                    auto pos1 = Label(...); ...
+                    ResetGeometryMode();
+
+                    auto diff = (total - pos.x) / (count + 1);
+                    Translate(id1, idn, { diff, 0.f }); ...
+
+                    <div layout="horizontal" fill="horizontal" alignment="center">
+                        <label id="...">Some Text</label>
+                        ...
+                    </div>
+
+                    div {
+                        layout: horizontal;
+                        fill: horizontal;
+                        alignment: center;
+                        label : {
+                            text: "haha";
+                        }
+                    }
+                */
+
 // [Win32] Our example includes a copy of glfw3.lib pre-compiled with VS2010 to maximize ease of testing and compatibility with old VS compilers.
 // To link with VS2010-era libraries, VS2015+ requires linking with legacy_stdio_definitions.lib, which we do using this pragma.
 // Your own project should not be affected, as you are likely to link with a newer binary of GLFW that is adequate for your version of Visual Studio.
@@ -109,10 +139,11 @@ public:
         ImVec4 clear_color = ImVec4(1.f, 1.f, 1.f, 1.00f);
 
         glimmer::FontFileNames names;
-        names.BasePath = "C:\\Users\\akpradha\\Downloads\\font\\";
-        names.Monospace.Files[glimmer::FT_Normal] = "Iosevka-Medium.ttf";
+        names.BasePath = "C:\\Users\\ajax1\\Downloads\\font\\";
+        names.Monospace.Files[glimmer::FT_Normal] = "Iosevka-Regular.ttf";
+        names.Proportional.Files[glimmer::FT_Normal] = "Iosevka-Regular.ttf";
         glimmer::FontDescriptor desc;
-        desc.flags = glimmer::FLT_Monospace;
+        desc.flags = glimmer::FLT_Monospace | glimmer::FLT_Proportional;
         desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
@@ -122,6 +153,7 @@ public:
 
         glimmer::ImGuiRenderer renderer{};
         glimmer::GetWindowConfig().renderer = &renderer;
+        glimmer::GetWindowConfig().defaultFontSz = 32.f;
 
         enum Labels { UPPER, LEFT, CONTENT, BOTTOM };
         int32_t labels[4];
@@ -185,14 +217,26 @@ public:
                 renderer.UserData = ImGui::GetWindowDrawList();
                 renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
 
-                glimmer::PushStyle("border: 2px solid gray; padding: 5px;", "border: 2px solid black");
-                ImVec2 pos{ 0.f, 0.f };
+                glimmer::PushStyle("border: 2px solid gray; padding: 5px; alignment: center;", "border: 2px solid black");
+                /*ImVec2 pos{ 0.f, 0.f };
                 auto upperdim = glimmer::Label(labels[UPPER], pos, FLT_MAX, 0.f).geometry;
                 pos.y += upperdim.GetHeight();
                 pos.x += glimmer::Label(labels[LEFT], pos, 0.f, FLT_MAX).geometry.GetWidth();
                 pos.y += glimmer::Label(labels[CONTENT], pos, FLT_MAX, (float)height - (2.f * upperdim.GetHeight())).geometry.GetHeight();
-                glimmer::Label(labels[BOTTOM], pos, FLT_MAX, upperdim.GetHeight());
-                glimmer::PopStyle();
+                glimmer::Label(labels[BOTTOM], pos, FLT_MAX, upperdim.GetHeight());*/
+                // SpanH; Label; MoveDown; SpanV; Label; MoveLeft; AnchorBottom; SpanH; Label; MoveUp; SpanAll; Label;
+
+                using namespace glimmer;
+
+                Label(labels[UPPER], ExpandH);
+                Move(FD_Vertical);
+                Label(labels[LEFT], ExpandV);
+                Move(FD_Horizontal | FD_Vertical);
+                Label(labels[BOTTOM], ExpandH | FromBottom);
+                Move(labels[LEFT], labels[UPPER], true, true);
+                Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
+                
+                PopStyle();
             }
 
             ImGui::End();

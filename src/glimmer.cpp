@@ -24,6 +24,8 @@
 #include <chrono>
 #include <cassert>
 #include <bit>
+#include <memory>
+#include <span>
 
 #ifdef _DEBUG
 #include <iostream>
@@ -168,86 +170,203 @@ namespace glimmer
         CommonWidgetStyleDescriptor() {}
     };
 
-    //// Solve the problem: only leaf can be a widget
-    //struct WidgetDescriptor
-    //{
-    //    WidgetType wtype;
-    //    int32_t id;
-    //    int32_t sibling;
-    //    ImVec2 constraint;
-    //    ImRect border, margin, padding, content;
-    //    float flex = 1.f;
-    //    bool isComputed = false;
-    //    // keep adding members
-    //};
-
-    //struct LayoutDescriptor
-    //{
-    //    std::vector<WidgetDescriptor> widgets;
-    //    LayoutType type;
-    //    ImVec2 currpos;
-    //    ImVec2 maxdim;
-    //    ImVec2 computed;
-    //    ImVec2 constraint{ -1.f, -1.f };
-    //    ImRect geometry;
-    //    int32_t parent = -1;
-    //    bool wrap = true;
-    //    bool isRowWise = true;
-    //    bool overflowed = false;
-    //};
-
-    /*template <typename T, int16_t SegmentSz>
-    class GVector
+    struct LayoutItemDescriptor
     {
-        T  initial[SegmentSz];
-        T* segments[31];
-        int size = 0;
+        WidgetType wtype = WidgetType::WT_Invalid;
+        int32_t id = -1;
+        ImRect border, margin, padding, content, text;
+        //ImVec2 viewport;
+        int32_t sizing = 0;
+        int16_t row = 0, col = 0;
+        int16_t from = -1, to = -1;
+        bool isComputed = false;
+        // keep adding members
+    };
 
-    public:
+    struct LayoutDescriptor
+    {
+        Layout type = Layout::Invalid;
+        int32_t fill = FD_None;
+        int32_t alignment = TextAlignLeading;
+        int16_t from = -1, to = -1, itemidx = -1;
+        int16_t currow = -1, currcol = -1;
+        int32_t sizing;
+        ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
+        ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
+        ImVec2 spacing{ 0.f, 0.f };
+        ImVec2 maxdim{ 0.f, 0.f };
+        ImVec2 cumulative{ 0.f, 0.f };
+        ImVec2 rows[8];
+        ImVec2 cols[8];
+        OverflowMode hofmode = OverflowMode::Scroll;
+        OverflowMode vofmode = OverflowMode::Scroll;
+        FourSidedBorder border;
+        bool popSizingOnEnd = false;
+    };
 
-        GVector() {}
+    struct Sizing
+    {
+        float horizontal = FIT_SZ;
+        float vertical = FIT_SZ;
+        bool relativeh = false;
+        bool relativev = false;
+    };
+
+    struct ElementSpan
+    {
+        int32_t direction = 0;
+        bool popWhenUsed = false;
+    };
+
+#ifndef GLIMMER_MAX_LAYOUT_NESTING 
+#define GLIMMER_MAX_LAYOUT_NESTING 16
+#endif
+
+    template <typename T, typename Sz, Sz blocksz = 128>
+    struct Vector
+    {
+        static_assert(blocksz > 0, "Block size has to non-zero");
+        static_assert(std::is_integral_v<Sz>, "Sz must be integral type");
+        static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable");
+
+        using value_type = T;
+        using size_type = Sz;
+        using difference_type = std::conditional_t<std::is_unsigned_v<Sz>, std::make_signed_t<Sz>, Sz>;
+
+        struct Iterator
+        {
+            Sz current = 0;
+            Vector& parent;
+
+            using DiffT = std::make_signed_t<Sz>;
+
+            Iterator(Vector& p, Sz curr) : current{ curr }, parent{ p } {}
+            Iterator(const Iterator& copy) : current{ copy.current }, parent{ copy.parent } {}
+
+            Iterator& operator++() { current++; return *this; }
+            Iterator& operator+=(Sz idx) { current += idx; return *this; }
+            Iterator operator++(int) { auto temp = *this; current++; return temp; }
+            Iterator operator+(Sz idx) { auto temp = *this; temp.current += idx; return temp; }
+
+            Iterator& operator--() { current--; return *this; }
+            Iterator& operator-=(Sz idx) { current -= idx; return *this; }
+            Iterator operator--(int) { auto temp = *this; current--; return temp; }
+            Iterator operator-(Sz idx) { auto temp = *this; temp.current -= idx; return temp; }
+
+            difference_type operator-(const Iterator& other) const 
+            { return (difference_type)current - (difference_type)other.current; }
+
+            bool operator!=(const Iterator& other) const 
+            { return current != other.current || parent._data != other.parent._data; }
+
+            T& operator*() { return parent._data[current]; }
+            T* operator->() { return parent._data + current; }
+        };
+
+        ~Vector() 
+        { 
+            if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
+            std::free(_data);
+        }
+
+        Vector(Sz initialsz = blocksz) 
+            : _capacity{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+        { 
+            _default_init(0, _capacity);
+        }
+
+        Vector(Sz initialsz, const T& el)
+            : _capacity{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+        {
+            std::fill(_data, _data + _capacity, el);
+        }
+
+        void resize(Sz count, const T& el)
+        {
+            if (_data == nullptr)
+            {
+                _data = (T*)std::malloc(sizeof(T) * count);
+                std::fill(_data, _data + count, el);
+            }
+            else if (_capacity < count)
+            {
+                auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
+                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _capacity);
+                _data = ptr;
+                std::fill(_data + _size, _data + count, el);
+            }
+            else
+            {
+                std::fill(_data + _size, _data + count, el);
+            }
+
+            _size = _capacity = count;
+        }
 
         template <typename... ArgsT>
-        T& emplace_back(ArgsT&&... args)
+        T& emplace_back(ArgsT&&... args) 
+        { 
+            _reallocate(); 
+            ::new(_data + _size) T{ std::forward<ArgsT>(args)... }; 
+            _size++;
+            return _data[_size - 1];
+        }
+
+        void push_back(const T& el) { _reallocate(); _data[_size] = el; _size++; }
+        void pop_back() { if constexpr (std::is_default_constructible_v<T>) _data[_size - 1] = T{}; --_size; }
+        void clear() { _default_init(0, _size); _size = 0; }
+        void reset(const T& el) { std::fill(_data, _data + _size, el); }
+        void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); }
+
+        Iterator begin() { return Iterator{ *this, 0 }; }
+        Iterator end() { return Iterator{ *this, _size }; }
+
+        const T& operator[](Sz idx) const { assert(idx < _size); return _data[idx]; }
+        T& operator[](Sz idx) { assert(idx < _size); return _data[idx]; }
+
+        T& front() { assert(_size > 0); return _data[0]; }
+        T& back() { assert(_size > 0); return _data[size - 1]; }
+        T* data() { return data; }
+
+        Sz size() const { return _size; }
+        Sz capacity() const { return _capacity; }
+        bool empty() const { return _size == 0; }
+        std::span<T> span() const { return std::span<T>{ _data, _size }; }
+
+    private:
+
+        void _default_init(int from, int to)
         {
-            if (size < SegmentSz)
-            {
-                initial[size] = T{ std::forward<ArgsT>(args)... };
-                return initial[size];
-            }
-            else
-            {
-                auto segidx = (size - SegmentSz) / SegmentSz;
-                auto elidx = (size - SegmentSz) % SegmentSz;
-                assert(segidx < 31);
+            if constexpr (std::is_default_constructible_v<T>)
+                std::fill(_data + from, _data + to, T{});
+        }
 
-                if (segments[segidx] == nullptr)
-                    segments[segidx] = new T[SegmentSz]{};
+        void _reallocate()
+        {
+            T* ptr = nullptr;
+            if (_size == _capacity) ptr = (T*)std::realloc(_data, (_capacity + blocksz) * sizeof(T));
 
-                segments[segidx][elidx] = T{ std::forward<ArgsT>(args)... };
-                return segments[segidx][elidx];
+            if (ptr != nullptr)
+            {
+                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _capacity);
+                _data = ptr;
+                _default_init(_capacity, _capacity + blocksz);
+                _capacity += blocksz;
             }
         }
 
-        T& operator[](int index)
-        {
-            assert(index < size);
-            if (size < SegmentSz) return initial[size];
-            else
-            {
-                auto segidx = (size - SegmentSz) / SegmentSz;
-                auto elidx = (size - SegmentSz) % SegmentSz;
-                std::div(1, 23);
-                return segments[segidx][elidx];
-            }
-        }
-    };*/
+        T* _data = nullptr;
+        Sz _size = 0;
+        Sz _capacity = 0;
+    };
 
-    struct WidgetStates
+    struct WidgetContextData
     {
         // This is quasi-persistent
         std::vector<WidgetStateData> states[WT_TotalTypes];
         std::vector<StyleDescriptor> styles[WT_TotalTypes];
+        Vector<LayoutItemDescriptor, int16_t> items{ 128 };
+        Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
@@ -266,8 +385,16 @@ namespace glimmer
         // Whether we are in a frame being rendered
         bool InsideFrame = false;
 
-        //std::vector<LayoutDescriptor> layouts[16]; // stack of layout (upto 16 deep)
-        //int32_t currLayoutDepth = -1;
+        int32_t currLayoutDepth = -1;
+        LayoutDescriptor layouts[GLIMMER_MAX_LAYOUT_NESTING];
+
+        int32_t currSizingDepth = 0;
+        Sizing sizing[GLIMMER_MAX_LAYOUT_NESTING];
+
+        int32_t currSpanDepth = -1;
+        ElementSpan spans[GLIMMER_MAX_LAYOUT_NESTING];
+        ImVec2 nextpos{ 0.f, 0.f };
+        int32_t lastItemId = -1;
 
         WidgetStateData& GetState(int32_t id)
         {
@@ -286,7 +413,46 @@ namespace glimmer
             return res;
         }
 
-        WidgetStates()
+        const StyleDescriptor& GetCurrentStyle(int32_t id) const
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            int32_t state = WS_Default;
+
+            switch (wtype)
+            {
+            case glimmer::WT_Label: state = states[wtype][index].label.state; break;
+            case glimmer::WT_Button: state = states[wtype][index].button.state; break;
+            case glimmer::WT_RadioButton: state = states[wtype][index].radio.state; break;
+            case glimmer::WT_ToggleButton: state = states[wtype][index].toggle.state; break;
+            default: break;
+            }
+
+            return styles[wtype][index + log2((unsigned)state)];
+        }
+
+        void AddItemGeometry(int id, const ImRect& geometry)
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            itemGeometries[wtype][index] = geometry;
+            lastItemId = id;
+
+            if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
+            {
+                spans[currSpanDepth] = ElementSpan{};
+                --currSpanDepth;
+            }
+        }
+
+        const ImRect& GetGeometry(int32_t id) const
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return itemGeometries[wtype][index];
+        }
+
+        WidgetContextData()
         {
             std::memset(maxids, 0, WT_TotalTypes);
             std::memset(tempids, INT_MAX, WT_TotalTypes);
@@ -296,11 +462,10 @@ namespace glimmer
                 maxids[idx] = 0;
                 states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
                 styles[idx].resize(32 * 6, StyleDescriptor{});
+                itemGeometries[idx].resize(32, ImRect{ {0.f, 0.f}, {0.f, 0.f} });
 
                 for (auto sidx = 0; sidx < 32 * 6; sidx++)
                 {
-                    //styles[idx][sidx].wtype = (WidgetType)idx;
-
                     switch (idx)
                     {
                     case WT_ToggleButton:
@@ -314,7 +479,7 @@ namespace glimmer
         }
     };
 
-    static WidgetStates GlobalStates{};
+    static WidgetContextData Context{};
 
     // =============================================================================================
     // FONT FUNCTIONS
@@ -540,7 +705,7 @@ namespace glimmer
         fconfig.RasterizerMultiply = sz <= 16.f ? 2.f : 1.f;
         fconfig.GlyphRanges = glyphs;
 #ifdef IMGUI_ENABLE_FREETYPE
-        fconfig.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
+        fconfig.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_NoHinting;
 #endif
 #endif
 
@@ -2696,6 +2861,256 @@ namespace glimmer
         return prop;
     }
 
+    static void UsePushedStyle(int32_t wid)
+    {
+        // If a set of styles is already pushed, add it to widget being created
+        if (Context.currstyleDepth >= 6)
+        {
+            Context.GetStyle(wid, WS_Default) = Context.currstyle[Context.currstyleDepth - 6];
+            Context.GetStyle(wid, WS_Disabled) = Context.currstyle[Context.currstyleDepth - 5];
+            Context.GetStyle(wid, WS_Hovered) = Context.currstyle[Context.currstyleDepth - 4];
+            Context.GetStyle(wid, WS_Pressed) = Context.currstyle[Context.currstyleDepth - 3];
+            Context.GetStyle(wid, WS_Focused) = Context.currstyle[Context.currstyleDepth - 2];
+            Context.GetStyle(wid, WS_Checked) = Context.currstyle[Context.currstyleDepth - 1];
+        }
+    }
+
+    static void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
+    {
+        if (dest.specified & StyleUpdatedFromBase) return;
+
+        for (int64_t idx = 0; idx <= StyleTotal; ++idx)
+        {
+            auto prop = (StyleProperty)((1ll << idx));
+            if ((dest.specified & prop) == 0)
+            {
+                switch (prop)
+                {
+                case glimmer::StyleBackground:
+                    dest.bgcolor = src.bgcolor;
+                    dest.gradient = src.gradient;
+                    break;
+                case glimmer::StyleFgColor:
+                    dest.fgcolor = src.fgcolor;
+                    break;
+                case glimmer::StyleFontSize:
+                case glimmer::StyleFontFamily:
+                case glimmer::StyleFontWeight:
+                case glimmer::StyleFontStyle:
+                    dest.font = src.font;
+                    break;
+                case glimmer::StyleHeight:
+                    dest.dimension.y = src.dimension.y;
+                    break;
+                case glimmer::StyleWidth:
+                    dest.dimension.x = src.dimension.x;
+                    break;
+                case glimmer::StyleHAlignment:
+                    (src.alignment & TextAlignLeft) ? dest.alignment |= TextAlignLeft : dest.alignment &= ~TextAlignLeft;
+                    (src.alignment & TextAlignRight) ? dest.alignment |= TextAlignRight : dest.alignment &= ~TextAlignRight;
+                    (src.alignment & TextAlignHCenter) ? dest.alignment |= TextAlignHCenter : dest.alignment &= ~TextAlignHCenter;
+                    break;
+                case glimmer::StyleVAlignment:
+                    (src.alignment & TextAlignTop) ? dest.alignment |= TextAlignTop : dest.alignment &= ~TextAlignTop;
+                    (src.alignment & TextAlignBottom) ? dest.alignment |= TextAlignBottom : dest.alignment &= ~TextAlignBottom;
+                    (src.alignment & TextAlignVCenter) ? dest.alignment |= TextAlignVCenter : dest.alignment &= ~TextAlignVCenter;
+                    break;
+                case glimmer::StylePadding:
+                    dest.padding = src.padding;
+                    break;
+                case glimmer::StyleMargin:
+                    dest.margin = src.margin;
+                    break;
+                case glimmer::StyleBorder:
+                    dest.border = src.border;
+                    break;
+                case glimmer::StyleOverflow:
+                    break;
+                case glimmer::StyleBorderRadius:
+                {
+                    const auto& srcborder = src.border;
+                    auto& dstborder = dest.border;
+                    dstborder.cornerRadius[0] = srcborder.cornerRadius[0];
+                    dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
+                    dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
+                    dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
+                    break;
+                }
+                case glimmer::StyleCellSpacing:
+                    break;
+                case glimmer::StyleTextWrap:
+                    break;
+                case glimmer::StyleBoxShadow:
+                    dest.shadow = src.shadow;
+                    break;
+                case glimmer::StyleTextOverflow:
+                    break;
+                case glimmer::StyleMinWidth:
+                    dest.mindim.x = src.mindim.x;
+                    break;
+                case glimmer::StyleMaxWidth:
+                    dest.maxdim.x = src.maxdim.x;
+                    break;
+                case glimmer::StyleMinHeight:
+                    dest.mindim.y = src.mindim.y;
+                    break;
+                case glimmer::StyleMaxHeight:
+                    dest.maxdim.y = src.maxdim.y;
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+
+        dest.specified |= StyleUpdatedFromBase;
+    }
+
+    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, std::string_view focusedcss,
+        std::string_view checkedcss, std::string_view disblcss)
+    {
+        if (Context.currstyleDepth > 0)
+        {
+            // Inherit from parent push style, this is the "cascading part"
+            Context.currstyle[Context.currstyleDepth] = Context.currstyle[Context.currstyleDepth - 6];
+            Context.currstyle[Context.currstyleDepth + 1] = Context.currstyle[Context.currstyleDepth - 5];
+            Context.currstyle[Context.currstyleDepth + 2] = Context.currstyle[Context.currstyleDepth - 4];
+            Context.currstyle[Context.currstyleDepth + 3] = Context.currstyle[Context.currstyleDepth - 3];
+            Context.currstyle[Context.currstyleDepth + 4] = Context.currstyle[Context.currstyleDepth - 2];
+            Context.currstyle[Context.currstyleDepth + 5] = Context.currstyle[Context.currstyleDepth - 1];
+
+            // TODO reset non-inheritable styles
+        }
+        else
+        {
+            Context.currstyle[Context.currstyleDepth] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth + 1] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth + 2] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth + 3] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth + 4] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth + 5] = StyleDescriptor{};
+        }
+
+        Context.currstyle[Context.currstyleDepth].From(defcss);
+        Context.currstyle[Context.currstyleDepth + 1].From(disblcss);
+        Context.currstyle[Context.currstyleDepth + 2].From(hovercss);
+        Context.currstyle[Context.currstyleDepth + 3].From(pressedcss);
+        Context.currstyle[Context.currstyleDepth + 4].From(focusedcss);
+        Context.currstyle[Context.currstyleDepth + 5].From(checkedcss);
+
+        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 1]);
+        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 2]);
+        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 3]);
+        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 4]);
+        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 5]);
+        Context.currstyleDepth += 6;
+    }
+
+    StyleDescriptor& GetStyle(int32_t id, int32_t state)
+    {
+        auto styleidx = log2((unsigned)state);
+        auto& src = Context.GetStyle(id, state);
+
+        for (auto stidx = styleidx + 1; stidx < 5; ++stidx)
+            CopyStyle(src, Context.GetStyle(id, 1 << stidx));
+
+        return src;
+    }
+
+    void PopStyle(int depth)
+    {
+        while (Context.currstyleDepth >= 6 && depth > 0)
+        {
+            Context.currstyle[Context.currstyleDepth - 1] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth - 2] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth - 3] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth - 4] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth - 5] = StyleDescriptor{};
+            Context.currstyle[Context.currstyleDepth - 6] = StyleDescriptor{};
+            Context.currstyleDepth -= 6;
+            depth--;
+        }
+    }
+
+    StyleDescriptor::StyleDescriptor()
+    {
+        font.size = GlobalWindowConfig.defaultFontSz;
+        index.animation = index.custom = 0;
+    }
+
+    StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
+    {
+        border.setThickness(thick); border.setColor(ToRGBA(color));
+        return *this;
+    }
+
+    StyleDescriptor& StyleDescriptor::Raised(float amount)
+    {
+        return *this;
+    }
+
+    StyleDescriptor& StyleDescriptor::From(std::string_view css, bool checkForDuplicate)
+    {
+        if (css.empty()) return *this;
+
+        auto sidx = 0;
+        int prop = 0;
+        CommonWidgetStyleDescriptor desc{};
+
+        while (sidx < (int)css.size())
+        {
+            sidx = SkipSpace(css, sidx);
+            auto stbegin = sidx;
+            while ((sidx < (int)css.size()) && (css[sidx] != ':') &&
+                !std::isspace(css[sidx])) sidx++;
+            auto stylePropName = css.substr(stbegin, sidx - stbegin);
+
+            sidx = SkipSpace(css, sidx);
+            if (css[sidx] == ':') sidx++;
+            sidx = SkipSpace(css, sidx);
+
+            auto stylePropVal = GetQuotedString(css.data(), sidx, (int)css.size());
+            if (!stylePropVal.has_value() || stylePropVal.value().empty())
+            {
+                stbegin = sidx;
+                while ((sidx < (int)css.size()) && css[sidx] != ';') sidx++;
+                stylePropVal = css.substr(stbegin, sidx - stbegin);
+
+                if ((sidx < (int)css.size()) && css[sidx] == ';') sidx++;
+            }
+
+            if (stylePropVal.has_value())
+                prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value());
+        }
+
+        if (prop != 0)
+        {
+            if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
+            {
+                auto found = false;
+
+                if (checkForDuplicate)
+                {
+                    for (auto idx = 0; idx < Context.toggleButtonStyles.size(); ++idx)
+                        if (std::memcmp(&(Context.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
+                        {
+                            found = true;
+                            index.custom = idx;
+                        }
+                }
+
+                if (!found)
+                {
+                    index.custom = (uint16_t)Context.toggleButtonStyles.size();
+                    Context.toggleButtonStyles.push_back(desc.toggle);
+                }
+            }
+        }
+
+        specified = prop;
+        return *this;
+    }
+
 #pragma endregion
 
     // =============================================================================================
@@ -2785,33 +3200,33 @@ namespace glimmer
         return res;
     }
 
-    void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, uint32_t bgcolor, IRenderer& renderer)
+    void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const FourSidedBorder& border, uint32_t bgcolor, IRenderer& renderer)
     {
-        if (style.border.isUniform && style.border.top.thickness > 0.f && IsColorVisible(style.border.top.color) &&
-            style.border.top.color != bgcolor)
+        if (border.isUniform && border.top.thickness > 0.f && IsColorVisible(border.top.color) &&
+            border.top.color != bgcolor)
         {
-            if (!style.border.isRounded())
-                renderer.DrawRect(startpos, endpos, style.border.top.color, false, style.border.top.thickness);
+            if (!border.isRounded())
+                renderer.DrawRect(startpos, endpos, border.top.color, false, border.top.thickness);
             else
-                renderer.DrawRoundedRect(startpos, endpos, style.border.top.color, false,
-                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
-                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner],
-                    style.border.top.thickness);
+                renderer.DrawRoundedRect(startpos, endpos, border.top.color, false,
+                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
+                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner],
+                    border.top.thickness);
         }
         else
         {
             auto width = endpos.x - startpos.x, height = endpos.y - startpos.y;
 
-            if (style.border.top.thickness > 0.f && style.border.top.color != bgcolor && IsColorVisible(style.border.top.color))
-                renderer.DrawLine(startpos, startpos + ImVec2{ width, 0.f }, style.border.top.color, style.border.top.thickness);
-            if (style.border.right.thickness > 0.f && style.border.right.color != bgcolor && IsColorVisible(style.border.right.color))
-                renderer.DrawLine(startpos + ImVec2{ width - style.border.right.thickness, 0.f }, endpos -
-                    ImVec2{ style.border.right.thickness, 0.f }, style.border.right.color, style.border.right.thickness);
-            if (style.border.left.thickness > 0.f && style.border.left.color != bgcolor && IsColorVisible(style.border.left.color))
-                renderer.DrawLine(startpos, startpos + ImVec2{ 0.f, height }, style.border.left.color, style.border.left.thickness);
-            if (style.border.bottom.thickness > 0.f && style.border.bottom.color != bgcolor && IsColorVisible(style.border.bottom.color))
-                renderer.DrawLine(startpos + ImVec2{ 0.f, height - style.border.bottom.thickness }, endpos -
-                    ImVec2{ 0.f, style.border.bottom.thickness }, style.border.bottom.color, style.border.bottom.thickness);
+            if (border.top.thickness > 0.f && border.top.color != bgcolor && IsColorVisible(border.top.color))
+                renderer.DrawLine(startpos, startpos + ImVec2{ width, 0.f }, border.top.color, border.top.thickness);
+            if (border.right.thickness > 0.f && border.right.color != bgcolor && IsColorVisible(border.right.color))
+                renderer.DrawLine(startpos + ImVec2{ width - border.right.thickness, 0.f }, endpos -
+                    ImVec2{ border.right.thickness, 0.f }, border.right.color, border.right.thickness);
+            if (border.left.thickness > 0.f && border.left.color != bgcolor && IsColorVisible(border.left.color))
+                renderer.DrawLine(startpos, startpos + ImVec2{ 0.f, height }, border.left.color, border.left.thickness);
+            if (border.bottom.thickness > 0.f && border.bottom.color != bgcolor && IsColorVisible(border.bottom.color))
+                renderer.DrawLine(startpos + ImVec2{ 0.f, height - border.bottom.thickness }, endpos -
+                    ImVec2{ 0.f, border.bottom.thickness }, border.bottom.color, border.bottom.thickness);
         }
     }
 
@@ -2886,7 +3301,7 @@ namespace glimmer
             auto diffcolor = GlobalWindowConfig.bgcolor - 1;
             auto border = style.border;
             border.setColor(GlobalWindowConfig.bgcolor);
-            DrawBorderRect(startpos, endpos, style, diffcolor, renderer);
+            DrawBorderRect(startpos, endpos, style.border, diffcolor, renderer);
             if (!border.isRounded())
                 renderer.DrawRect(startpos, endpos, GlobalWindowConfig.bgcolor, true);
             else
@@ -2949,7 +3364,8 @@ namespace glimmer
                     style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
     }
 
-    void DrawText(ImVec2 startpos, ImVec2 endpos, std::string_view text, bool disabled, const StyleDescriptor& style, IRenderer& renderer)
+    void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled, 
+        const StyleDescriptor& style, IRenderer& renderer)
     {
         ImRect content{ startpos, endpos };
         
@@ -2959,8 +3375,9 @@ namespace glimmer
         if ((style.font.flags & FontStyleOverflowMarquee) != 0 &&
             !disabled && style.index.animation != InvalidIdx)
         {
-            auto& animation = GlobalStates.animations[style.index.animation];
-            ImVec2 textsz = renderer.GetTextSize(text, style.font.font, style.font.size);
+            auto& animation = Context.animations[style.index.animation];
+            ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
+                textrect.GetSize();
 
             if (textsz.x > content.GetWidth())
             {
@@ -2969,32 +3386,34 @@ namespace glimmer
                 renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
             }
             else
-                renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
+                renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
         }
         else if (style.font.flags & FontStyleOverflowEllipsis)
         {
-            float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
-            auto renderedText = false;
+            ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
+                textrect.GetSize();
 
-            for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
+            if (textsz.x > content.GetWidth())
             {
-                // TODO: This is only valid for ASCII, this should be fixed for UTF-8
-                auto w = renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
-                if (width + w > available)
-                {
-                    renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, -1.f);
-                    renderer.DrawText("...", content.Min + ImVec2{ width, 0.f }, style.fgcolor, -1.f);
-                    renderedText = true;
-                    break;
-                }
-                width += w;
-            }
+                float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
 
-            if (!renderedText)
-                renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
+                for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
+                {
+                    // TODO: This is only valid for ASCII, this should be fixed for UTF-8
+                    auto w = renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
+                    if (width + w > available)
+                    {
+                        renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, -1.f);
+                        renderer.DrawText("...", content.Min + ImVec2{ width, 0.f }, style.fgcolor, -1.f);
+                        break;
+                    }
+                    width += w;
+                }
+            }
+            else renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
         }
         else
-            renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
+            renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
 
         renderer.ResetFont();
         renderer.ResetClipRect();
@@ -3003,771 +3422,509 @@ namespace glimmer
 #pragma endregion
 
     // =============================================================================================
-    // WIDGET FUNCTIONS
+    // LAYOUT FUNCTIONS
     // =============================================================================================
 
-#pragma region Widgets
+#pragma region Layout functions
 
-    /* Here is the box model that is followed here:
-
-            +--------------------------------+
-            |            margin              |
-            |   +------------------------+   |
-            |   |       border           |   |
-            |   |   +--------------+     |   |
-            |   |   |   padding    |     |   |
-            |   |   |  +--------+  |     |   |
-            |   |   |  |        |  |     |   |
-            |   |   |  |content |  |     |   |
-            |   |   |  |        |  |     |   |
-            |   |   |  +--------+  |     |   |
-            |   |   |              |     |   |
-            |   |   +--------------+     |   |
-            |   |                        |   |
-            |   +------------------------+   |
-            |                                |
-            +--------------------------------+
-
-    */
-    static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style, 
-        std::string_view text, IRenderer& renderer, float width, float height)
+    void PushSpan(int32_t direction)
     {
-        ImRect content, padding, border, margin;
-        const auto& borderstyle = style.border;
-        const auto& font = style.font;
-
-        margin.Min = pos;
-        border.Min = pos + ImVec2{ style.margin.left, style.margin.top };
-        padding.Min = border.Min + ImVec2{ borderstyle.left.thickness, borderstyle.top.thickness };
-        content.Min = padding.Min + ImVec2{ style.padding.left, style.padding.top };
-        auto textsz = renderer.GetTextSize(text, font.font, font.size,
-            margin.Max.x == 0.f ? -1.f : margin.Max.x);
-
-        if (width == 0.f)
-        {
-            content.Max.x = style.dimension.x != 0.f ? style.dimension.x : 
-                std::clamp(content.Min.x + textsz.x, style.mindim.x, style.maxdim.x);
-            padding.Max.x = content.Max.x + style.padding.right;
-            border.Max.x = padding.Max.x + borderstyle.right.thickness;
-            margin.Max.x = border.Max.x + style.margin.right;
-        }
-        else
-        {
-            margin.Max.x = width == FLT_MAX ? std::min(ImGui::GetCurrentWindow()->Size.x, margin.Min.x + style.maxdim.x) : 
-                margin.Min.x + width;
-            border.Max.x = margin.Max.x - style.margin.right;
-            padding.Max.x = border.Max.x - borderstyle.right.thickness;
-            content.Max.x = padding.Max.x - style.padding.right;
-        }
-
-        if (height == 0.f)
-        {
-            content.Max.y = style.dimension.y != 0.f ? style.dimension.y :
-                std::clamp(content.Min.y + textsz.y, style.mindim.y, style.maxdim.y);
-            padding.Max.y = content.Max.y + style.padding.bottom;
-            border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
-            margin.Max.y = border.Max.y + style.margin.bottom;
-        }
-        else
-        {
-            margin.Max.y = height == FLT_MAX ? std::min(ImGui::GetCurrentWindow()->Size.y, margin.Min.y + style.maxdim.y) : 
-                margin.Min.y + height;
-            border.Max.y = margin.Max.y - style.margin.bottom;
-            padding.Max.y = border.Max.y - borderstyle.left.thickness;
-            content.Max.y = padding.Max.y - style.padding.bottom;
-        }
-
-        return std::make_tuple(content, padding, border, margin);
+        Context.currSpanDepth++;
+        Context.spans[Context.currSpanDepth].direction = direction;
     }
 
-    void ShowTooltip(long long& hoverDuration, const ImRect& margin, ImVec2 pos, std::string_view tooltip, IRenderer& renderer)
+    void SetSpan(int32_t direction)
     {
-        auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock().now().time_since_epoch()).count();
-        if (hoverDuration == 0) hoverDuration = currts;
-        else if ((int32_t)(currts - hoverDuration) >= GlobalWindowConfig.tooltipDelay)
+        PushSpan(direction);
+        Context.spans[Context.currSpanDepth].popWhenUsed = true;
+    }
+
+    void Move(int32_t direction)
+    {
+        assert(Context.lastItemId != -1);
+        Move(Context.lastItemId, direction);
+    }
+
+    void Move(int32_t id, int32_t direction)
+    {
+        const auto& geometry = Context.GetGeometry(id);
+        Context.nextpos = geometry.Min;
+        if (direction & FD_Horizontal) Context.nextpos.x = geometry.Max.x;
+        if (direction & FD_Vertical) Context.nextpos.y = geometry.Max.y;
+    }
+
+    void Move(int32_t hid, int32_t vid, bool toRight, bool toBottom)
+    {
+        const auto& hgeometry = Context.GetGeometry(hid);
+        const auto& vgeometry = Context.GetGeometry(vid);
+        Context.nextpos.x = toRight ? hgeometry.Max.x : hgeometry.Min.x;
+        Context.nextpos.y = toBottom ? vgeometry.Max.y : vgeometry.Min.y;
+    }
+
+    void Move(ImVec2 amount, int32_t direction)
+    {
+        if (direction & ToLeft) amount.x = -amount.x;
+        if (direction & ToTop) amount.y = -amount.y;
+        Context.nextpos += amount;
+    }
+
+    void Move(ImVec2 pos)
+    {
+        Context.nextpos = pos;
+    }
+
+    void PopSpan(int depth)
+    {
+        while (depth > 0 && Context.currSpanDepth > -1)
         {
-            auto font = GetFont(GlobalWindowConfig.tooltipFontFamily, GlobalWindowConfig.tooltipFontSz, FT_Normal);
-            auto textsz = renderer.GetTextSize(tooltip, font, GlobalWindowConfig.tooltipFontSz);
-            auto offsetx = std::max(0.f, margin.GetWidth() - textsz.x) * 0.5f;
-            auto tooltippos = pos + ImVec2{ offsetx, -(textsz.y + 2.f) };
-            renderer.DrawTooltip(tooltippos, tooltip);
+            Context.spans[Context.currSpanDepth] = ElementSpan{};
+            --Context.currSpanDepth;
+            --depth;
         }
     }
-    
-    static void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
-    {
-        if (dest.specified & StyleUpdatedFromBase) return;
 
-        for (int64_t idx = 0; idx <= StyleTotal; ++idx)
-        {
-            auto prop = (StyleProperty)((1ll << idx));
-            if ((dest.specified & prop) == 0)
-            {
-                switch (prop)
-                {
-                case glimmer::StyleBackground:
-                    dest.bgcolor = src.bgcolor;
-                    dest.gradient = src.gradient;
-                    break;
-                case glimmer::StyleFgColor:
-                    dest.fgcolor = src.fgcolor;
-                    break;
-                case glimmer::StyleFontSize:
-                case glimmer::StyleFontFamily:
-                case glimmer::StyleFontWeight:
-                case glimmer::StyleFontStyle:
-                    dest.font = src.font;
-                    break;
-                case glimmer::StyleHeight:
-                    dest.dimension.y = src.dimension.y;
-                    break;
-                case glimmer::StyleWidth:
-                    dest.dimension.x = src.dimension.x;
-                    break;
-                case glimmer::StyleHAlignment:
-                    break;
-                case glimmer::StyleVAlignment:
-                    break;
-                case glimmer::StylePadding:
-                    dest.padding = src.padding;
-                    break;
-                case glimmer::StyleMargin:
-                    dest.margin = src.margin;
-                    break;
-                case glimmer::StyleBorder:
-                    dest.border = src.border;
-                    break;
-                case glimmer::StyleOverflow:
-                    break;
-                case glimmer::StyleBorderRadius:
-                {
-                    const auto& srcborder = src.border;
-                    auto& dstborder = dest.border;
-                    dstborder.cornerRadius[0] = srcborder.cornerRadius[0];
-                    dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
-                    dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
-                    dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
-                    break;
-                }
-                case glimmer::StyleCellSpacing:
-                    break;
-                case glimmer::StyleTextWrap:
-                    break;
-                case glimmer::StyleBoxShadow:
-                    dest.shadow = src.shadow;
-                    break;
-                case glimmer::StyleTextOverflow:
-                    break;
-                case glimmer::StyleMinWidth:
-                    dest.mindim.x = src.mindim.x;
-                    break;
-                case glimmer::StyleMaxWidth:
-                    dest.maxdim.x = src.maxdim.x;
-                    break;
-                case glimmer::StyleMinHeight:
-                    dest.mindim.y = src.mindim.y;
-                    break;
-                case glimmer::StyleMaxHeight:
-                    dest.maxdim.y = src.maxdim.y;
-                    break;
-                default:
-                    break;
-                }
-            }
-        }
-
-        dest.specified |= StyleUpdatedFromBase;
-    }
-
-    /*WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-        auto& state = GlobalStates.GetState(id).button;
-        auto& style = GlobalStates.GetStyle(id, state.state);
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-        state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
-
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            result.event = WidgetEvent::Clicked;
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        result.geometry = margin;
-        return result;
-    }
-
-    void UpdateLayout(LayoutDescriptor& layout, ImVec2 sz)
+    static void AlignLayoutAxisItems(LayoutDescriptor& layout)
     {
         switch (layout.type)
         {
-        case glimmer::LayoutType::HBox:
-            layout.currpos.x += sz.x;
-            break;
-        case glimmer::LayoutType::VBox:
-            break;
-        case glimmer::LayoutType::Grid:
-            break;
-        case glimmer::LayoutType::Flex:
-            if (layout.isRowWise)
+        case Layout::Horizontal:
+        {
+            // If wrapping is enabled and the alignment is horizontally centered,
+            // perform h-centering of the current row of widgets and move to next row
+            // Otherwise, if output should be justified, move all widgets to specific
+            // location after distributing the diff equally...
+            if ((layout.alignment & TextAlignHCenter) && (layout.sizing & ExpandH))
             {
-                auto layoutsz = layout.geometry.GetSize();
-                if (layout.wrap && (sz.x + layout.currpos.x > layoutsz.x))
+                auto totalspacing = 2.f * layout.spacing.x * (float)layout.currcol;
+                auto hdiff = (layout.geometry.GetWidth() - layout.rows[layout.currow].x - totalspacing) * 0.5f;
+
+                if (hdiff > 0.f)
                 {
-                    layout.currpos.y += layout.maxdim.y;
-                    layout.currpos.x = 0.f;
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+
+                        if (widget.row == layout.currow)
+                        {
+                            widget.content.TranslateX(hdiff);
+                            widget.padding.TranslateX(hdiff);
+                            widget.border.TranslateX(hdiff);
+                            widget.margin.TranslateX(hdiff);
+                        }
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandH))
+            {
+                auto hdiff = (layout.geometry.GetWidth() - layout.rows[layout.currow].x) /
+                    ((float)layout.currcol + 1.f);
+
+                if (hdiff > 0.f)
+                {
+                    auto currposx = hdiff;
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+
+                        if (widget.row == layout.currow)
+                        {
+                            auto translatex = currposx - widget.margin.Min.x;
+                            widget.content.TranslateX(translatex);
+                            widget.padding.TranslateX(translatex);
+                            widget.border.TranslateX(translatex);
+                            widget.margin.TranslateX(translatex);
+                            currposx += widget.margin.GetWidth() + hdiff;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        case Layout::Vertical:
+        {
+            // Similar logic as for horizontal alignment, implemented for vertical here
+            if ((layout.alignment & TextAlignVCenter) && (layout.sizing & ExpandV))
+            {
+                auto totalspacing = 2.f * layout.spacing.x * (float)layout.currow;
+                auto hdiff = (layout.geometry.GetHeight() - layout.cols[layout.currcol].x - totalspacing) * 0.5f;
+
+                if (hdiff > 0.f)
+                {
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        if (widget.col == layout.currcol)
+                        {
+                            widget.content.TranslateY(hdiff);
+                            widget.padding.TranslateY(hdiff);
+                            widget.border.TranslateY(hdiff);
+                            widget.margin.TranslateY(hdiff);
+                        }
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandV))
+            {
+                auto hdiff = (layout.geometry.GetHeight() - layout.cols[layout.currcol].x) /
+                    ((float)layout.currow + 1.f);
+
+                if (hdiff > 0.f)
+                {
+                    auto currposx = hdiff;
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        if (widget.col == layout.currcol)
+                        {
+                            auto translatex = currposx - widget.margin.Min.y;
+                            widget.content.TranslateY(translatex);
+                            widget.padding.TranslateY(translatex);
+                            widget.border.TranslateY(translatex);
+                            widget.margin.TranslateY(translatex);
+                            currposx += widget.margin.GetHeight() + hdiff;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        }
+    }
+
+    static void AlignCrossAxisItems(LayoutDescriptor& layout, int depth)
+    {
+        if ((layout.sizing & ExpandH) == 0)
+            layout.geometry.Max.x = Context.items[layout.itemidx].margin.Max.x = layout.maxdim.x;
+        if ((layout.sizing & ExpandV) == 0)
+            layout.geometry.Max.y = Context.items[layout.itemidx].margin.Max.y = layout.maxdim.y;
+
+        switch (layout.type)
+        {
+        case Layout::Horizontal:
+        {
+            if ((layout.alignment & TextAlignVCenter) && (layout.sizing & ExpandV))
+            {
+                auto totalspacing = (float)layout.currow * layout.spacing.y;
+                auto cumulativey = layout.cumulative.y + layout.maxdim.y;
+                auto vdiff = (layout.geometry.GetHeight() - totalspacing - cumulativey) * 0.5f;
+
+                if (vdiff > 0.f)
+                {
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        widget.margin.TranslateY(vdiff);
+                        widget.border.TranslateY(vdiff);
+                        widget.padding.TranslateY(vdiff);
+                        widget.content.TranslateY(vdiff);
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandV))
+            {
+                auto cumulativey = layout.cumulative.y + layout.maxdim.y;
+                auto vdiff = (layout.geometry.GetHeight() - cumulativey) / ((float)layout.currow + 1.f);
+
+                if (vdiff > 0.f)
+                {
+                    auto currposy = vdiff;
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        auto translatey = currposy - widget.margin.Min.y;
+                        widget.margin.TranslateY(translatey);
+                        widget.border.TranslateY(translatey);
+                        widget.padding.TranslateY(translatey);
+                        widget.content.TranslateY(translatey);
+                        currposy += vdiff + widget.margin.GetHeight();
+                    }
+                }
+            }
+            break;
+        }
+
+        case Layout::Vertical:
+        {
+            if ((layout.alignment & TextAlignHCenter) && (layout.sizing & ExpandH))
+            {
+                auto totalspacing = (float)layout.currcol * layout.spacing.x;
+                auto cumulativex = layout.cumulative.x + layout.maxdim.x;
+                auto hdiff = (layout.geometry.GetWidth() - totalspacing - cumulativex) * 0.5f;
+
+                if (hdiff > 0.f)
+                {
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        widget.margin.TranslateX(hdiff);
+                        widget.border.TranslateX(hdiff);
+                        widget.padding.TranslateX(hdiff);
+                        widget.content.TranslateX(hdiff);
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandH))
+            {
+                auto cumulativex = layout.cumulative.x + layout.maxdim.x;
+                auto hdiff = (layout.geometry.GetWidth() - cumulativex) / ((float)layout.currcol + 1.f);
+
+                if (hdiff > 0.f)
+                {
+                    auto currposy = hdiff;
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.items[idx];
+                        auto translatex = currposy - widget.margin.Min.x;
+                        widget.margin.TranslateX(translatex);
+                        widget.border.TranslateX(translatex);
+                        widget.padding.TranslateX(translatex);
+                        widget.content.TranslateX(translatex);
+                        currposy += hdiff + widget.margin.GetWidth();
+                    }
+                }
+            }
+            break;
+        }
+        }
+    }
+
+    static ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item)
+    {
+        ImVec2 offset = layout.nextpos;
+
+        switch (layout.type)
+        {
+        case Layout::Horizontal:
+        {
+            auto width = item.margin.GetWidth();
+
+            if ((layout.sizing & ExpandH) && (layout.hofmode == OverflowMode::Wrap))
+            {
+                if (layout.nextpos.x + width > layout.geometry.Max.x)
+                {
+                    layout.geometry.Max.y += layout.maxdim.y;
+                    offset = ImVec2{ layout.geometry.Min.x, layout.geometry.Max.y - layout.maxdim.y };
+                    layout.nextpos.x = offset.x + width;
+                    layout.nextpos.y = offset.y;
+                    AlignLayoutAxisItems(layout);
+
+                    layout.cumulative.y += layout.maxdim.y;
+                    layout.maxdim.y = 0.f;
+                    layout.currcol = 0;
+                    layout.currow++;
+                    item.row = layout.currow;
+                    item.col = 0;
+                    layout.rows[layout.currow].x = 0.f;
                 }
                 else
                 {
-                    layout.maxdim.y = std::max(layout.maxdim.y, sz.y);
-                    layout.currpos.x += sz.x;
+                    layout.maxdim.y = std::max(layout.maxdim.y, item.margin.GetHeight());
+                    layout.nextpos.x += width;
+                    layout.rows[layout.currow].x += width;
+                    item.col = layout.currcol;
+                    item.row = layout.currow;
+                    layout.currcol++;
                 }
             }
+            else
+            {
+                if ((layout.sizing & ExpandH) == 0) layout.geometry.Max.x += width;
+                layout.nextpos.x += width;
+                layout.maxdim.y = std::max(layout.maxdim.y, item.margin.GetHeight());
+                if ((layout.sizing & ExpandV) == 0) layout.geometry.Max.y = layout.geometry.Min.y + layout.maxdim.y;
+                else layout.cumulative.y = layout.maxdim.y;
+            }
             break;
+        }
+
+        case Layout::Vertical:
+        {
+            auto height = item.margin.GetHeight();
+
+            if ((layout.sizing & ExpandV) && (layout.vofmode == OverflowMode::Wrap))
+            {
+                if (layout.nextpos.y + height > layout.geometry.Max.y)
+                {
+                    layout.geometry.Max.x += layout.maxdim.x;
+                    offset = ImVec2{ layout.geometry.Max.x - layout.maxdim.x, layout.geometry.Min.y };
+                    layout.nextpos.x = offset.x;
+                    layout.nextpos.y = offset.y + height;
+                    AlignLayoutAxisItems(layout);
+
+                    layout.maxdim.x = 0.f;
+                    layout.currow = 0;
+                    layout.currcol++;
+                    item.col = layout.currcol;
+                    layout.cols[layout.currcol].y = 0.f;
+                }
+                else
+                {
+                    layout.maxdim.x = std::max(layout.maxdim.x, item.margin.GetWidth());
+                    layout.nextpos.y += height;
+                    layout.cols[layout.currcol].y += height;
+                    item.col = layout.currcol;
+                    item.row = layout.currow;
+                    layout.currow++;
+                }
+            }
+            else
+            {
+                if ((layout.sizing & ExpandV) == 0) layout.geometry.Max.y += height;
+                layout.nextpos.y += height;
+                layout.maxdim.x = std::max(layout.maxdim.x, item.margin.GetWidth());
+                if ((layout.sizing & ExpandH) == 0) layout.geometry.Max.x = layout.geometry.Min.x + layout.maxdim.x;
+            }
+            break;
+        }
+
+        case Layout::Grid:
+        {
+            
+            
+            break;
+        }
         default:
             break;
         }
+
+        Context.items.push_back(item);
+        if (layout.from == -1) layout.from = layout.to = (int16_t)(Context.items.size() - 1);
+        else layout.to = (int16_t)(Context.items.size() - 1);
+        layout.itemidx = layout.to;
+        return offset;
     }
 
-    WidgetDrawResult Button(int32_t id, IRenderer& renderer, std::optional<ImVec2> geometry)
+    static void ComputeInitialGeometry(LayoutDescriptor& layout)
     {
-        assert(id <= (int)GlobalStates.states[WT_Button].size());
-
-        if (GlobalWindowConfig.layoutPolicy == LayoutPolicy::ImmediateMode)
+        if (Context.currLayoutDepth > 0)
         {
-            auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth].back();
-            auto& state = GlobalStates.GetState(id).button;
-            CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
+            auto& parent = Context.layouts[Context.currLayoutDepth - 1];
+            const auto& sizing = Context.sizing[Context.currSizingDepth];
 
-            // TODO: Adjust everything...
-            auto& style = GlobalStates.GetStyle(id, state.state);
-            auto [content, padding, border, margin] = GetBoxModelBounds(layout.currpos, style, state.text, renderer, 
-                geometry ? geometry.value() : ImVec2{ -1.f, -1.f });
-            auto res = ButtonImpl(id, margin, border, padding, content, renderer);
-            UpdateLayout(layout, res.geometry.GetSize());
-            return res;
+            // Ideally, for left or right alignment for parent, and expand for child
+            // The child should be flexible and shrink to accommodate siblings?
+            // TODO: Add a shrink flag to layouts?
+            if ((layout.fill & FD_Horizontal) && (parent.sizing & ExpandH))
+            {
+                layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
+                layout.geometry.Max.x = parent.prevpos.x - parent.spacing.x;
+            }
+            else if (parent.alignment & TextAlignLeft)
+            {
+                layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
+
+                if (sizing.horizontal != FIT_SZ)
+                {
+                    auto hmeasure = sizing.relativeh ?
+                        (parent.geometry.GetWidth() * sizing.horizontal) :
+                        sizing.horizontal;
+                    layout.geometry.Max.x = layout.geometry.Min.x + hmeasure;
+                }
+                else
+                {
+                    layout.sizing &= ~ExpandH;
+                    layout.geometry.Max.x = layout.geometry.Min.x + layout.spacing.x;
+                }
+
+                parent.nextpos.x = layout.geometry.Max.x + parent.spacing.x;
+            }
+            else if (parent.alignment & TextAlignRight)
+            {
+                layout.geometry.Max.x = parent.prevpos.x - layout.spacing.x;
+
+                if (layout.fill & FD_Horizontal) layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
+                else if (sizing.horizontal != FIT_SZ)
+                {
+                    auto hmeasure = sizing.relativeh ?
+                        (parent.geometry.GetWidth() * sizing.horizontal) :
+                        sizing.horizontal;
+                    layout.geometry.Min.x = layout.geometry.Max.x - hmeasure;
+                }
+
+                parent.prevpos.x = layout.geometry.Min.x - parent.spacing.x;
+            }
+
+            if ((layout.fill & FD_Vertical) && (parent.sizing & ExpandV))
+            {
+                layout.geometry.Max.y = parent.prevpos.y - parent.spacing.y;
+                layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
+            }
+            else if (parent.alignment & TextAlignTop)
+            {
+                layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
+
+                if (sizing.vertical != FIT_SZ)
+                {
+                    auto vmeasure = sizing.relativev ?
+                        (parent.geometry.GetHeight() * sizing.vertical) :
+                        sizing.vertical;
+                    layout.geometry.Max.y = layout.geometry.Min.y + vmeasure;
+                }
+                else
+                {
+                    layout.sizing &= ~ExpandV;
+                    layout.geometry.Max.y = layout.geometry.Min.y + layout.spacing.y;
+                }
+
+                parent.nextpos.y = layout.geometry.Max.y + parent.spacing.y;
+            }
+            else if (parent.alignment & TextAlignBottom)
+            {
+                layout.geometry.Max.y = parent.prevpos.y - layout.spacing.y;
+
+                if (layout.fill & FD_Vertical) layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
+                else if (sizing.vertical != FIT_SZ)
+                {
+                    auto vmeasure = sizing.relativev ?
+                        (parent.geometry.GetHeight() * sizing.vertical) :
+                        sizing.vertical;
+                    layout.geometry.Min.y = layout.geometry.Max.y - vmeasure;
+                }
+
+                parent.prevpos.y = layout.geometry.Max.y - parent.spacing.y;
+            }
         }
         else
         {
-            WidgetDescriptor wdesc;
-            wdesc.wtype = WT_Button;
-            wdesc.id = id;
-            wdesc.constraint = geometry ? geometry.value() : ImVec2{ -1.f, -1.f };
-            SubmitWidget(std::move(wdesc));
-
-            WidgetEvent result = WidgetEvent::None;
-            ImRect margin;
-
-            return { result, margin };
-        }
-    }
-
-    void SubmitWidget(WidgetDescriptor&& desc)
-    {
-        auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth];
-        layout.back().widgets.emplace_back(desc);
-    }*/
-
-    WindowConfig& GetWindowConfig()
-    {
-        return GlobalWindowConfig;
-    }
-
-    void BeginFrame()
-    {
-        GlobalStates.InsideFrame = true;
-    }
-
-    void EndFrame()
-    {
-        GlobalStates.InsideFrame = false;
-    }
-
-    int32_t GetNextId(WidgetType type)
-    {
-        return GlobalStates.maxids[type];
-    }
-
-    static void UsePushedStyle(int32_t wid)
-    {
-        // If a set of styles is already pushed, add it to widget being created
-        if (GlobalStates.currstyleDepth >= 6)
-        {
-            GlobalStates.GetStyle(wid, WS_Default) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 6];
-            GlobalStates.GetStyle(wid, WS_Disabled) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 5];
-            GlobalStates.GetStyle(wid, WS_Hovered) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 4];
-            GlobalStates.GetStyle(wid, WS_Pressed) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 3];
-            GlobalStates.GetStyle(wid, WS_Focused) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 2];
-            GlobalStates.GetStyle(wid, WS_Checked) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 1];
-        }
-    }
-
-    WidgetDrawResult Label(int32_t id, ImVec2 pos, float width, float height)
-    {
-        assert((id & 0xffff) <= (int)GlobalStates.states[WT_Label].size());
-
-        UsePushedStyle(id);
-        auto& state = GlobalStates.GetState(id).label;
-        auto& renderer = *GlobalWindowConfig.renderer;
-
-        // TODO: Adjust everything...
-        auto& style = GlobalStates.GetStyle(id, state.state);
-        auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, width, height);
-        WidgetDrawResult result;
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
-
-        if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        result.geometry = margin;
-        return result;
-    }
-
-    WidgetDrawResult Button(int32_t id, ImVec2 pos, float width, float height)
-    {
-        assert((id & 0xffff) <= (int)GlobalStates.states[WT_Button].size());
-
-        UsePushedStyle(id);
-        auto& state = GlobalStates.GetState(id).button;
-        auto& renderer = *GlobalWindowConfig.renderer;
-        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
-
-        // TODO: Adjust everything...
-        auto& style = GlobalStates.GetStyle(id, state.state);
-        auto [content, padding, border, margin] = GetBoxModelBounds(pos, style, state.text, renderer, width, height);
-        WidgetDrawResult result;
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-        state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, state.text, state.state & WS_Disabled, style, renderer);
-
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            result.event = WidgetEvent::Clicked;
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        result.geometry = margin;
-        return result;
-    }
-
-    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
-    {
-        assert(id <= (int)GlobalStates.states[WT_ToggleButton].size());
-
-        auto& state = GlobalStates.GetState(id).toggle;
-        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
-
-        WidgetEvent result = WidgetEvent::None;
-        auto& style = GlobalStates.GetStyle(id, state.state);
-
-        ImRect extent;
-        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
-        else
-        {
-            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
-            extent.Max = extent.Min + style.dimension;
-        }
-        
-        auto radius = ((extent.GetHeight()) * 0.5f) + GlobalStates.toggleButtonStyles[style.index.custom].thumbOffset;
-        auto center = extent.Min + ImVec2{ radius + 1.f, radius };
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
-        auto mouseover = extent.Contains(mousepos);
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
-            mouseover ? WS_Hovered : WS_Default;
-
-        auto& specificStyle = GlobalStates.toggleButtonStyles[style.index.custom + log2((unsigned)state.state)];
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackColor, true, radius, radius, radius, radius);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, radius, radius, radius, radius, 
-            specificStyle.trackBorderThickness);
-
-        if (mouseover && specificStyle.thumbExpand > 0.f)
-            renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
-
-        renderer.DrawCircle(center, radius, style.fgcolor, true);
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result = WidgetEvent::Clicked;
-            state.checked = !state.checked;
+            layout.geometry.Max = ImGui::GetCurrentWindow()->Size;
         }
 
-        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
-        return { result, extent };
+        layout.geometry.Min += ImVec2{ layout.border.left.thickness, layout.border.top.thickness };
+        layout.geometry.Max -= ImVec2{ layout.border.right.thickness, layout.border.bottom.thickness };
+        layout.nextpos = layout.geometry.Min + layout.spacing;
+
+        if (layout.sizing & ExpandH) layout.prevpos.x = layout.geometry.Max.x - layout.spacing.x;
+        if (layout.sizing & ExpandV) layout.prevpos.y = layout.geometry.Max.y - layout.spacing.y;
     }
 
-    WidgetDrawResult RadioButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    ImRect BeginLayout(Layout type, FillDirection fill, int32_t alignment, ImVec2 spacing, const NeighborWidgets& neighbors)
     {
-        assert(id <= (int)GlobalStates.states[WT_RadioButton].size());
+        assert(Context.currSizingDepth > -1);
+        Context.currLayoutDepth++;
 
-        auto& state = GlobalStates.GetState(id).radio;
-        CopyStyle(GlobalStates.GetStyle(id, WS_Default), GlobalStates.GetStyle(id, state.state));
-
-        WidgetEvent result = WidgetEvent::None;
-        auto& style = GlobalStates.GetStyle(id, state.state);
-
-        ImRect extent;
-        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
-        else
-        {
-            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
-            extent.Max = extent.Min + style.dimension;
-        }
-
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto mouseover = extent.Contains(mousepos);
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
-            mouseover ? WS_Hovered : WS_Default;
-
-        auto radius = extent.GetHeight() * 0.5f;
-        auto center = ImVec2{ radius * 0.5f, radius * 0.5f };
-        auto color = GlobalStates.GetStyle(id, state.state).fgcolor;
-        renderer.DrawCircle(center, radius, color, false, 1.f);
-        radius -= 1.f;
-        renderer.DrawCircle(center, radius, color, true);
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result = WidgetEvent::Clicked;
-            state.checked = !state.checked;
-        }
-
-        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
-        return { result, extent };
-    }
-
-    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, std::string_view focusedcss, 
-        std::string_view checkedcss, std::string_view disblcss)
-    {
-        GlobalStates.currstyle[GlobalStates.currstyleDepth].From(defcss);
-        GlobalStates.currstyle[GlobalStates.currstyleDepth + 1].From(disblcss);
-        GlobalStates.currstyle[GlobalStates.currstyleDepth + 2].From(hovercss);
-        GlobalStates.currstyle[GlobalStates.currstyleDepth + 3].From(pressedcss);
-        GlobalStates.currstyle[GlobalStates.currstyleDepth + 4].From(focusedcss);
-        GlobalStates.currstyle[GlobalStates.currstyleDepth + 5].From(checkedcss);
-        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 1]);
-        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 2]);
-        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 3]);
-        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 4]);
-        CopyStyle(GlobalStates.currstyle[GlobalStates.currstyleDepth], GlobalStates.currstyle[GlobalStates.currstyleDepth + 5]);
-        GlobalStates.currstyleDepth += 6;
-    }
-
-    StyleDescriptor& GetStyle(int32_t id, int32_t state)
-    {
-        auto styleidx = log2((unsigned)state);
-        auto& src = GlobalStates.GetStyle(id, state);
-
-        for (auto stidx = styleidx + 1; stidx < 5; ++stidx) 
-            CopyStyle(src, GlobalStates.GetStyle(id, 1 << stidx));
-
-        return src;
-    }
-
-    void PopStyle(int depth)
-    {
-        while (GlobalStates.currstyleDepth >= 6 && depth > 0)
-        {
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 1] = StyleDescriptor{};
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 2] = StyleDescriptor{};
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 3] = StyleDescriptor{};
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 4] = StyleDescriptor{};
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 5] = StyleDescriptor{};
-            GlobalStates.currstyle[GlobalStates.currstyleDepth - 6] = StyleDescriptor{};
-            GlobalStates.currstyleDepth -= 6;
-            depth--;
-        }
-    }
-
-    WidgetStateData& CreateWidget(WidgetType type, int16_t id)
-    {
-        // Create widgets before beginning a frame
-        assert(!GlobalStates.InsideFrame);
-
-        int32_t wid = id;
-        wid = wid | (type << 16);
-        GlobalStates.maxids[type]++;
-        if (GlobalStates.InsideFrame) GlobalStates.tempids[type] = std::min(GlobalStates.tempids[type], GlobalStates.maxids[type]);
-        
-        // If a set of styles is already pushed, add it to widget being created
-        if (GlobalStates.currstyleDepth >= 6)
-        {
-            GlobalStates.GetStyle(wid, WS_Default) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 6];
-            GlobalStates.GetStyle(wid, WS_Disabled) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 5];
-            GlobalStates.GetStyle(wid, WS_Hovered) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 4];
-            GlobalStates.GetStyle(wid, WS_Pressed) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 3];
-            GlobalStates.GetStyle(wid, WS_Focused) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 2];
-            GlobalStates.GetStyle(wid, WS_Checked) = GlobalStates.currstyle[GlobalStates.currstyleDepth - 1];
-        }
-
-        return GlobalStates.GetState(wid);
-    }
-
-    WidgetStateData& CreateWidget(int32_t id)
-    {
-        auto wtype = (WidgetType)(id >> 16);
-        GlobalStates.maxids[wtype]++;
-        return CreateWidget(wtype, (int16_t)(id & 0xffff));
-    }
-
-    /*void StartLayout(LayoutType type, ImVec2 size)
-    {
-        assert((GlobalWindowConfig.layoutPolicy == LayoutPolicy::DeferredMode ||
-            size != ImVec2{ -1.f, -1.f }));
-
-        GlobalStates.currLayoutDepth++;
-        auto& layout = GlobalStates.layouts[GlobalStates.currLayoutDepth].emplace_back();
+        auto& layout = Context.layouts[Context.currLayoutDepth];
         layout.type = type;
-        layout.currpos = GlobalStates.currLayoutDepth > 0 ? 
-            GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].back().currpos : ImVec2{0.f, 0.f};
+        layout.alignment = alignment;
+        layout.fill = fill;
+        layout.spacing = spacing;
 
-        if (size != ImVec2{ -1.f, -1.f })
-        {
-            layout.geometry.Min = layout.currpos;
-            layout.geometry.Max = layout.geometry.Min + size;
-        }
-        
-        // If all leaves are at same level, this is not required
-        if (GlobalStates.currLayoutDepth > 0)
-        {
-            layout.parent = (int32_t)GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].size() - 1;
-
-            WidgetDescriptor desc;
-            desc.wtype = WT_SubLayout;
-            desc.id = GlobalStates.currLayoutDepth;
-            desc.sibling = (int32_t)GlobalStates.layouts[GlobalStates.currLayoutDepth].size() - 1;
-            GlobalStates.layouts[GlobalStates.currLayoutDepth - 1].back().widgets.push_back(desc);
-        }
+        ComputeInitialGeometry(layout);
+        return layout.geometry;
     }
 
-    void ComputeMinSizes(LayoutDescriptor& layout)
+    ImRect BeginLayout(Layout type, std::string_view css, const NeighborWidgets& neighbors)
     {
-        for (auto& widget : layout.widgets)
-        {
-            if (widget.wtype != WT_SubLayout)
-            {
-                if (!widget.isComputed)
-                {
-                    switch (widget.wtype)
-                    {
-                    case WT_Label:
-                    case WT_Button:
-                    {
-                        auto& state = GlobalStates.GetState(widget.id).button;
-                        CopyStyle(GlobalStates.GetStyle(widget.id, WS_Default), GlobalStates.GetStyle(widget.id, state.state));
-
-                        auto& style = GlobalStates.GetStyle(widget.id, state.state);
-                        std::tie(widget.content, widget.padding, widget.border, widget.margin) = GetBoxModelBounds(ImVec2{ 0.f, 0.f },
-                            style, state.text, * GlobalWindowConfig.renderer, layout.constraint);
-                        widget.isComputed = true;
-                        break;
-                    }
-                    default:
-                        break;
-                    }
-                }
-
-                if (layout.isRowWise) { layout.computed.x += widget.margin.GetSize().x; layout.computed.y = std::max(layout.computed.y, widget.margin.GetSize().y); }
-                else { layout.computed.y += widget.margin.GetSize().y; layout.computed.x = std::max(layout.computed.x, widget.margin.GetSize().x); }
-            }
-            else
-            {
-                auto& sublayout = GlobalStates.layouts[widget.id][widget.sibling];
-                ComputeMinSizes(sublayout); // Can be avoided by storing parent layout ids in widgets
-                if (layout.isRowWise) { layout.computed.x += sublayout.computed.x; layout.computed.y = std::max(layout.computed.y, sublayout.computed.y); }
-                else { layout.computed.y += sublayout.computed.y; layout.computed.x = std::max(layout.computed.x, sublayout.computed.x); }
-            }
-        }
-    }
-
-    void SetElementPosition(const LayoutDescriptor& layout, ImVec2 available, float unitwidth, float unitex,
-        WidgetDescriptor& widget, float& currposx, float& height, float& maxheight)
-    {
-        auto sz = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed :
-            widget.margin.GetSize();
-        auto& state = GlobalStates.GetState(widget.id).button;
-        auto& style = GlobalStates.GetStyle(widget.id, state.state);
-
-        auto w = sz.x;
-        if (widget.flex != FLT_MAX && widget.flex > 0.f) w = std::min(unitwidth * widget.flex, style.maxdim.x);
-        else if (widget.flex == FLT_MAX) w = std::min(w + unitex, style.maxdim.x);
-
-        if ((currposx + w - layout.geometry.Min.x) > available.x)
-        {
-            height += maxheight;
-            currposx = layout.geometry.Min.x;
-            maxheight = 0.f;
-        }
-        else
-            maxheight = std::max(maxheight, sz.y);
-
-        if (widget.wtype == WT_SubLayout)
-        {
-            GlobalStates.layouts[widget.id][widget.sibling].geometry = { ImVec2{ currposx, height }, ImVec2{ currposx + w, height + sz.y } };
-        }
-        else
-        {
-            widget.margin.Min += ImVec2{ currposx, height };
-            widget.border.Min += ImVec2{ currposx, height };
-            widget.padding.Min += ImVec2{ currposx, height };
-            widget.content.Min += ImVec2{ currposx, height };
-            currposx += w;
-            widget.margin.Max += ImVec2{ currposx, height };
-            widget.border.Max += ImVec2{ currposx, height };
-            widget.padding.Max += ImVec2{ currposx, height };
-            widget.content.Max += ImVec2{ currposx, height };
-        }  
-    }
-
-    void DoTopDownLayout(LayoutDescriptor& layout, int sibling, int depth)
-    {
-        auto available = layout.geometry.GetSize();
-
-        if (layout.isRowWise)
-        {
-            auto sum = 0.f, expanding = 0.f, occupied = 0.f, height = 0.f, fxwidth = 0.f;
-            auto widx = 0;
-
-            for (const auto& widget : layout.widgets)
-            {
-                sum += widget.flex > 0.f ? widget.flex : 0.f;
-                if (widget.flex == FLT_MAX) expanding += 1.f;
-                auto minw = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed.x :
-                    widget.margin.GetSize().x;
-                if (widget.flex < 0.f) fxwidth += minw;
-                occupied += minw;
-            }
-
-            // Available space through which we can expand
-            auto expandable = std::max(available.x - occupied, 0.f);
-            auto unitwidth = (available.x - fxwidth) / sum;
-            auto currposx = layout.geometry.Min.x;
-
-            if (occupied > available.x && !layout.wrap)
-            {
-                //layout.geometry.Max += ImVec2{ occupied - available.x, 0.f };
-                layout.overflowed = true;
-
-                for (auto& widget : layout.widgets)
-                {
-                    auto minw = widget.wtype == WT_SubLayout ? GlobalStates.layouts[widget.id][widget.sibling].computed.x :
-                        widget.margin.GetSize().x;
-                    widget.margin.Min.x += currposx;
-                    widget.border.Min.x += currposx;
-                    widget.padding.Min.x += currposx;
-                    widget.content.Min.x += currposx;
-                    currposx += minw;
-                    widget.margin.Max.x += currposx;
-                    widget.border.Max.x += currposx;
-                    widget.padding.Max.x += currposx;
-                    widget.content.Max.x += currposx;
-                }
-            }
-            else
-            {
-                auto height = layout.geometry.Min.y, maxheight = 0.f;
-                auto unitex = expandable / expanding;
-
-                for (auto& widget : layout.widgets)
-                {
-                    if (widget.flex == 0.f) continue;
-                    else SetElementPosition(layout, available, unitwidth, unitex, widget, currposx, height, maxheight);
-                }
-            }
-        }
-    }
-
-    void EndLayout()
-    {
-        // process the geometry of tthe layottu hierarchy?
-        // there are no widgets here...
-        GlobalStates.currLayoutDepth--;
-
-        // Top-level
-        if (GlobalStates.currLayoutDepth == -1)
-        {
-            assert(GlobalStates.layouts[0].size() == 1u);
-
-            ImRect maxInLine[64][4];
-
-            auto available = ImGui::GetCurrentWindow()->Size;
-            GlobalStates.layouts[0][0].geometry.Max = available;
-            GlobalStates.layouts[0][0].geometry.Min = ImVec2{ 0.f, 0.f };
-
-            // Precompute min constraints of widgets and layouts
-            for (auto& layout : GlobalStates.layouts[1])
-                ComputeMinSizes(layout);
-
-            // From top-level layout which spans entire window, start re-positioning
-            for (auto depth = 1; depth < 16; ++depth)
-            {
-                auto lidx = 0;
-                for (auto& layout : GlobalStates.layouts[depth])
-                {
-                    DoTopDownLayout(layout, lidx, depth);
-
-                    for (const auto& widget : layout.widgets)
-                    {
-                        switch (widget.wtype)
-                        {
-                        case WT_Button:
-                        {
-                            ButtonImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, *GlobalWindowConfig.renderer);
-                            break;
-                        }
-                        default:
-                            break;
-                        }
-                    }
-
-                    ++lidx;
-                }
-            }
-        }
-    }*/
-
-    StyleDescriptor::StyleDescriptor()
-    {
-        font.size = GlobalWindowConfig.defaultFontSz;
-        index.animation = index.custom = 0;
-    }
-
-    StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
-    {
-        border.setThickness(thick); border.setColor(ToRGBA(color));
-        return *this;
-    }
-
-    StyleDescriptor& StyleDescriptor::Raised(float amount)
-    {
-        return *this;
-    }
-
-    StyleDescriptor& StyleDescriptor::From(std::string_view css, bool checkForDuplicate)
-    {
-        if (css.empty()) return *this;
-
         auto sidx = 0;
-        int prop = 0;
         CommonWidgetStyleDescriptor desc{};
+        Context.currLayoutDepth++;
+
+        auto& layout = Context.layouts[Context.currLayoutDepth];
+        layout.type = type;
+        auto pwidth = Context.currLayoutDepth > 0 ? Context.layouts[Context.currLayoutDepth - 1].geometry.GetWidth() : 1.f;
+        auto pheight = Context.currLayoutDepth > 0 ? Context.layouts[Context.currLayoutDepth - 1].geometry.GetHeight() : 1.f;
+        Sizing sizing;
+        auto hasSizing = false;
 
         while (sidx < (int)css.size())
         {
@@ -3792,35 +3949,842 @@ namespace glimmer
             }
 
             if (stylePropVal.has_value())
-                prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value());
-        }
-
-        if (prop != 0)
-        {
-            if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
             {
-                auto found = false;
-                
-                if (checkForDuplicate)
+                if (AreSame(stylePropName, "width"))
                 {
-                    for (auto idx = 0; idx < GlobalStates.toggleButtonStyles.size(); ++idx)
-                        if (std::memcmp(&(GlobalStates.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
-                        {
-                            found = true;
-                            index.custom = idx;
-                        }
+                    sizing.horizontal = ExtractFloatWithUnit(stylePropVal.value(), 0.f,
+                        GlobalWindowConfig.defaultFontSz, pwidth, 1.f);
+                    sizing.relativeh = stylePropVal.value().back() == '%';
+                    hasSizing = true;
                 }
-
-                if (!found)
+                else if (AreSame(stylePropName, "height"))
                 {
-                    index.custom = (uint16_t)GlobalStates.toggleButtonStyles.size();
-                    GlobalStates.toggleButtonStyles.push_back(desc.toggle);
+                    sizing.vertical = ExtractFloatWithUnit(stylePropVal.value(), 0.f,
+                        GlobalWindowConfig.defaultFontSz, pheight, 1.f);
+                    sizing.relativev = stylePropVal.value().back() == '%';
+                    hasSizing = true;
+                }
+                else if (AreSame(stylePropName, "spacing-x")) layout.spacing.x =
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                else if (AreSame(stylePropName, "spacing-y")) layout.spacing.x =
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                else if (AreSame(stylePropName, "spacing")) layout.spacing.x = layout.spacing.y =
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                else if (AreSame(stylePropName, "overflow-x")) layout.hofmode = AreSame(stylePropVal.value(), "clip") ?
+                    OverflowMode::Clip : AreSame(stylePropVal.value(), "scroll") ? OverflowMode::Scroll : OverflowMode::Wrap;
+                else if (AreSame(stylePropName, "overflow-y")) layout.vofmode = AreSame(stylePropVal.value(), "clip") ?
+                    OverflowMode::Clip : AreSame(stylePropVal.value(), "scroll") ? OverflowMode::Scroll : OverflowMode::Wrap;
+                else if (AreSame(stylePropName, "overflow")) layout.vofmode = layout.hofmode = AreSame(stylePropVal.value(), "clip") ?
+                    OverflowMode::Clip : AreSame(stylePropVal.value(), "scroll") ? OverflowMode::Scroll : OverflowMode::Wrap;
+                else if (AreSame(stylePropName, "halign") || AreSame(stylePropName, "horizontal-align"))
+                    layout.alignment |= AreSame(stylePropVal.value(), "right") ? TextAlignRight :
+                    AreSame(stylePropVal.value(), "center") ? TextAlignHCenter : TextAlignLeft;
+                else if (AreSame(stylePropName, "valign") || AreSame(stylePropName, "vertical-align"))
+                    layout.alignment |= AreSame(stylePropVal.value(), "bottom") ? TextAlignBottom :
+                    AreSame(stylePropVal.value(), "center") ? TextAlignVCenter : TextAlignTop;
+                else if (AreSame(stylePropName, "align") && AreSame(stylePropVal.value(), "center"))
+                    layout.alignment = TextAlignCenter;
+                else if (AreSame(stylePropName, "fill")) layout.fill = AreSame(stylePropVal.value(), "all") ?
+                    FD_Horizontal | FD_Vertical : AreSame(stylePropVal.value(), "horizontal") ?
+                    FD_Horizontal : AreSame(stylePropVal.value(), "vertical") ?
+                    FD_Vertical : FD_None;
+                else if (AreSame(stylePropName, "border"))
+                {
+                    layout.border.top = layout.border.bottom = layout.border.left = layout.border.right = ExtractBorder(stylePropVal.value(),
+                        GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.isUniform = true;
+                }
+                else if (AreSame(stylePropName, "border-top"))
+                {
+                    layout.border.top = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.isUniform = false;
+                }
+                else if (AreSame(stylePropName, "border-left"))
+                {
+                    layout.border.left = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.isUniform = false;
+                }
+                else if (AreSame(stylePropName, "border-right"))
+                {
+                    layout.border.right = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.isUniform = false;
+                }
+                else if (AreSame(stylePropName, "border-bottom"))
+                {
+                    layout.border.bottom = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.isUniform = false;
                 }
             }
         }
 
-        specified = prop;
-        return *this;
+        if (hasSizing)
+        {
+            PushSizing(sizing.horizontal, sizing.vertical, sizing.relativeh, sizing.relativev);
+            layout.popSizingOnEnd = true;
+        }
+
+        ComputeInitialGeometry(layout);
+        return layout.geometry;
+    }
+
+    void PushSizing(float width, float height, bool relativew, bool relativeh)
+    {
+        Context.currSizingDepth++;
+        auto& sizing = Context.sizing[Context.currSizingDepth];
+        sizing.horizontal = width;
+        sizing.vertical = height;
+        sizing.relativeh = relativew;
+        sizing.relativev = relativeh;
+    }
+
+    void PopSizing(int depth)
+    {
+        while (depth > 0 && Context.currSizingDepth > 0)
+        {
+            Context.sizing[Context.currSizingDepth] = Sizing{};
+            Context.currSizingDepth--;
+            depth--;
+        }
+    }
+
+    // Declarations of widget drawing impls:
+    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, const ImRect& textpos, IRenderer& renderer);
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, const ImRect& textpos, IRenderer& renderer);
+
+    ImRect EndLayout(int depth)
+    {
+        ImRect res;
+
+        while (depth > 0 && Context.currLayoutDepth > -1)
+        {
+            // Align items in last row/column and align overall items
+            // in cross-axis for flex-row/column layouts
+            auto& layout = Context.layouts[Context.currLayoutDepth];
+            AlignLayoutAxisItems(layout);
+            AlignCrossAxisItems(layout, depth);
+            //Context.items[layout.itemidx].viewport = layout.nextpos;
+
+            // Update parent's nextpos as this layout is complete. This step is
+            // necessary as sublayout may need to perform actual layout before
+            // knowing its own dimension
+            if (Context.currLayoutDepth > 0)
+                Context.layouts[Context.currLayoutDepth - 1].nextpos +=
+                    ImVec2{ layout.geometry.GetWidth(), layout.geometry.GetHeight() };
+
+            DrawBorderRect(layout.geometry.Min, layout.geometry.Max, layout.border, GlobalWindowConfig.bgcolor,
+                *GlobalWindowConfig.renderer);
+
+            if (layout.popSizingOnEnd) PopSizing();
+
+            if (Context.currLayoutDepth > 0)
+            {
+                auto& parent = Context.layouts[Context.currLayoutDepth];
+                LayoutItemDescriptor desc;
+                desc.wtype = WT_Sublayout;
+                desc.margin = layout.geometry;
+                desc.id = Context.currLayoutDepth;
+                AddItemToLayout(parent, desc);
+            }
+
+            if (Context.currLayoutDepth == 0)
+            {
+                /*ImVec2 initpos{0.f, 0.f};
+                //int layoutidxs[128];
+                //auto totalLayouts = 0;
+                //std::fill(std::begin(layoutidxs), std::end(layoutidxs), -1);
+
+                //// Extract all sublayouts
+                //for (auto idx = 0; idx < (int)Context.items.size(); ++idx)
+                //{
+                //    if (Context.items[idx].wtype == WT_Sublayout)
+                //    {
+                //        layoutidxs[totalLayouts++] = idx;
+                //        totalLayouts++;
+                //    }
+                //}
+
+                //// Sort by depth
+                //std::sort(std::begin(layoutidxs), std::begin(layoutidxs) + totalLayouts, [](int lhs, int rhs) {
+                //        auto lhsdepth = Context.items[lhs].id;
+                //        auto rhsdepth = Context.items[rhs].id;
+                //        return lhsdepth == rhsdepth ? lhs < rhs : lhsdepth < rhsdepth;
+                //    });
+
+                /*auto currdepth = 0;
+                for (auto layoutidx = 0; layoutidx < totalLayouts; layoutidx++)
+                {
+                    auto& layout = Context.items[layoutidx];
+
+                    if (layout.id > 0)
+                    {
+                        auto width = layout.margin.GetWidth();
+                        layout.margin.Min.x = initpos.x;
+                        layout.margin.Max.x = layout.margin.Min.x + width;
+
+                    }
+
+                    currdepth = layout.id;
+                }*/
+
+                // Handle scroll panes...
+                for (auto& widget : Context.items)
+                {
+                    switch (widget.wtype)
+                    {
+                    case WT_Label:
+                    {
+                        LabelImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
+                            *GlobalWindowConfig.renderer);
+                        break;
+                    }
+                    case WT_Button:
+                    {
+                        ButtonImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
+                            *GlobalWindowConfig.renderer);
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+            }
+
+            res = Context.layouts[Context.currLayoutDepth].geometry;
+            Context.layouts[Context.currLayoutDepth] = LayoutDescriptor{};
+            --Context.currLayoutDepth;
+            --depth;
+        }
+
+        return res;
+    }
+
+#pragma endregion
+
+    // =============================================================================================
+    // WIDGET FUNCTIONS
+    // =============================================================================================
+
+#pragma region Widgets
+
+    static bool IsValueBetween(float val, float from, float to)
+    {
+        return val > from && val < to;
+    }
+
+    /* Here is the box model that is followed here:
+
+            +--------------------------------+
+            |            margin              |
+            |   +------------------------+   |
+            |   |       border           |   |
+            |   |   +--------------+     |   |
+            |   |   |   padding    |     |   |
+            |   |   |  +--------+  |     |   |
+            |   |   |  |        |  |     |   |
+            |   |   |  |content |  |     |   |
+            |   |   |  |        |  |     |   |
+            |   |   |  +--------+  |     |   |
+            |   |   |              |     |   |
+            |   |   +--------------+     |   |
+            |   |                        |   |
+            |   +------------------------+   |
+            |                                |
+            +--------------------------------+
+
+    */
+    static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
+        std::string_view text, IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors = NeighborWidgets{})
+    {
+        ImRect content, padding, border, margin;
+        const auto& borderstyle = style.border;
+        const auto& font = style.font;
+        margin.Min = pos;
+
+        if (geometry & ToLeft)
+        {
+            border.Min.x = pos.x - style.margin.right;
+            padding.Min.x = border.Min.x - borderstyle.right.thickness;
+            content.Min.x = padding.Min.x - style.padding.right;
+        }
+        else
+        {
+            border.Min.x = pos.x + style.margin.left;
+            padding.Min.x = border.Min.x + borderstyle.left.thickness;
+            content.Min.x = padding.Min.x + style.padding.left;
+        }
+
+        if (geometry & ToTop)
+        {
+            border.Min.y = pos.y - style.margin.bottom;
+            padding.Min.y = border.Min.y - borderstyle.bottom.thickness;
+            content.Min.y = padding.Min.y - style.padding.bottom;
+        }
+        else
+        {
+            border.Min.y = pos.y + style.margin.top;
+            padding.Min.y = border.Min.y + borderstyle.top.thickness;
+            content.Min.y = padding.Min.y + style.padding.top;
+        }
+
+        auto hastextw = (style.specified & StyleWidth) && !((style.font.flags & FontStyleOverflowEllipsis) || 
+            (style.font.flags & FontStyleOverflowMarquee));
+        ImVec2 textsz{ 0.f, 0.f };
+        auto textMetricsComputed = false, hexpanded = false, vexpanded = false;
+
+        auto setHFromContent = [&] {
+            if (geometry & ToLeft)
+            {
+                content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
+                    content.Min.x - std::clamp(textsz.x, style.mindim.x, style.maxdim.x);
+                padding.Max.x = content.Max.x - style.padding.left;
+                border.Max.x = padding.Max.x - borderstyle.left.thickness;
+                margin.Max.x = border.Max.x - style.margin.left;
+            }
+            else
+            {
+                content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
+                    content.Min.x + std::clamp(textsz.x, style.mindim.x, style.maxdim.x);
+                padding.Max.x = content.Max.x + style.padding.right;
+                border.Max.x = padding.Max.x + borderstyle.right.thickness;
+                margin.Max.x = border.Max.x + style.margin.right;
+            }
+        };
+
+        auto setVFromContent = [&] {
+            if (geometry & ToTop)
+            {
+                content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
+                    content.Min.y - std::clamp(textsz.y, style.mindim.y, style.maxdim.y);
+                padding.Max.y = content.Max.y - style.padding.top;
+                border.Max.y = padding.Max.y - borderstyle.top.thickness;
+                margin.Max.y = border.Max.y - style.margin.top;
+            }
+            else
+            {
+                content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
+                    content.Min.y + std::clamp(textsz.y, style.mindim.y, style.maxdim.y);
+                padding.Max.y = content.Max.y + style.padding.bottom;
+                border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
+                margin.Max.y = border.Max.y + style.margin.bottom;
+            }
+        };
+
+        auto setHFromExpansion = [&](float max) {
+            if (geometry & ToLeft)
+            {
+                margin.Max.x = std::max(max, margin.Min.x - style.maxdim.x);
+                border.Max.x = margin.Max.x + style.margin.left;
+                padding.Max.x = border.Max.x + borderstyle.left.thickness;
+                content.Max.x = padding.Max.x + style.padding.left;
+            }
+            else
+            {
+                margin.Max.x = std::min(max, margin.Min.x + style.maxdim.x);
+                border.Max.x = margin.Max.x - style.margin.right;
+                padding.Max.x = border.Max.x - borderstyle.right.thickness;
+                content.Max.x = padding.Max.x - style.padding.right;
+            }
+        };
+
+        auto setVFromExpansion = [&](float max) {
+            if (geometry & ToTop)
+            {
+                margin.Max.y = std::max(max, margin.Min.y - style.maxdim.y);
+                border.Max.y = margin.Max.y + style.margin.top;
+                padding.Max.y = border.Max.y + borderstyle.top.thickness;
+                content.Max.y = padding.Max.y + style.padding.top;
+            }
+            else
+            {
+                margin.Max.y = std::min(max, margin.Min.y + style.maxdim.y);
+                border.Max.y = margin.Max.y - style.margin.bottom;
+                padding.Max.y = border.Max.y - borderstyle.bottom.thickness;
+                content.Max.y = padding.Max.y - style.padding.bottom;
+            }
+        };
+
+        if ((geometry & ExpandH) == 0)
+        {
+            textMetricsComputed = true;
+            textsz = renderer.GetTextSize(text, font.font, font.size, hastextw ? style.dimension.x : -1.f);
+            setHFromContent();
+        }
+        else
+        {
+            // If we are inside a layout, and layout has expand policy, then it has a geometry
+            // Use said geometry or set from content dimensions
+            if (Context.currLayoutDepth > -1)
+            {
+                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandH) == 0;
+                
+                if (!isLayoutFit)
+                {
+                    setHFromExpansion((geometry& ToLeft) ? Context.layouts[Context.currLayoutDepth].prevpos.x :
+                        Context.layouts[Context.currLayoutDepth].nextpos.x);
+                    hexpanded = true;
+                }
+                else
+                {
+                    textMetricsComputed = true;
+                    textsz = renderer.GetTextSize(text, font.font, font.size, hastextw ? style.dimension.x : -1.f);
+                    setHFromContent();
+                }
+            }
+            else
+            {
+                // If widget has a expand size policy then expand upto neighbors or upto window size
+                setHFromExpansion((geometry & ToLeft) ? neighbors.left == -1 ? 0.f : Context.GetGeometry(neighbors.left).Max.x 
+                    : neighbors.right == -1 ? ImGui::GetCurrentWindow()->Size.x : Context.GetGeometry(neighbors.right).Min.x);
+                hexpanded = true;
+            }
+        }
+
+        if ((geometry & ExpandV) == 0)
+        {
+            // When settings height from content, if text metrics are not already computed,
+            // computed them on the fixed width that was computed in previous step
+            if (!textMetricsComputed)
+            {
+                textMetricsComputed = true;
+                textsz = renderer.GetTextSize(text, font.font, font.size, content.GetWidth());
+            }
+                
+            setVFromContent();
+        }
+        else
+        {
+            // If we are inside a layout, and layout has expand policy, then it has a geometry
+            // Use said geometry or set from content dimensions
+            if (Context.currLayoutDepth > -1)
+            {
+                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandV) == 0;
+
+                if (!isLayoutFit)
+                {
+                    setVFromExpansion((geometry& ToTop) ? Context.layouts[Context.currLayoutDepth].prevpos.y :
+                        Context.layouts[Context.currLayoutDepth].nextpos.y);
+                    vexpanded = true;
+                }
+                else
+                {
+                    if (!textMetricsComputed)
+                    {
+                        textMetricsComputed = true;
+                        textsz = renderer.GetTextSize(text, font.font, font.size, content.GetWidth());
+                    }
+
+                    setVFromContent();
+                }
+            }
+            else
+            {
+                // If widget has a expand size policy then expand upto neighbors or upto window size
+                setVFromExpansion((geometry & ToTop) ? neighbors.top == -1 ? 0.f : Context.GetGeometry(neighbors.top).Max.y
+                    : neighbors.bottom == -1 ? ImGui::GetCurrentWindow()->Size.y : Context.GetGeometry(neighbors.bottom).Min.y);
+                vexpanded = true;
+            }
+        }
+
+        if (geometry & ToTop)
+        {
+            std::swap(margin.Min.y, margin.Max.y);
+            std::swap(border.Min.y, border.Max.y);
+            std::swap(padding.Min.y, padding.Max.y);
+            std::swap(content.Min.y, content.Max.y);
+        }
+
+        if (geometry & ToLeft)
+        {
+            std::swap(margin.Min.x, margin.Max.x);
+            std::swap(border.Min.x, border.Max.x);
+            std::swap(padding.Min.x, padding.Max.x);
+            std::swap(content.Min.x, content.Max.x);
+        }
+
+        ImVec2 textpos;
+
+        if (hexpanded)
+        {
+            auto cw = content.GetWidth();
+
+            if (style.alignment & TextAlignHCenter)
+            {
+                if (!textMetricsComputed)
+                {
+                    textMetricsComputed = true;
+                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                }
+
+                if (textsz.x < cw)
+                {
+                    auto hdiff = (cw - textsz.x) * 0.5f;
+                    textpos.x = content.Min.x + hdiff;
+                }
+            }
+            else if (style.alignment & TextAlignRight)
+            {
+                if (!textMetricsComputed)
+                {
+                    textMetricsComputed = true;
+                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                }
+
+                if (textsz.x < cw)
+                {
+                    auto hdiff = (cw - textsz.x);
+                    textpos.x = content.Min.x + hdiff;
+                }
+            }
+            else textpos.x = content.Min.x;
+        }
+        else textpos.x = content.Min.x;
+
+        if (vexpanded)
+        {
+            auto cw = content.GetWidth();
+            auto ch = content.GetHeight();
+
+            if (style.alignment & TextAlignVCenter)
+            {
+                if (!textMetricsComputed)
+                {
+                    textMetricsComputed = true;
+                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                }
+
+                if (textsz.y < ch)
+                {
+                    auto vdiff = (ch - textsz.y) * 0.5f;
+                    textpos.y = content.Min.y + vdiff;
+                }
+            }
+            else if (style.alignment & TextAlignBottom)
+            {
+                if (!textMetricsComputed)
+                {
+                    textMetricsComputed = true;
+                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                }
+
+                if (textsz.y < ch)
+                {
+                    auto vdiff = (ch - textsz.y);
+                    textpos.y = content.Min.y + vdiff;
+                }
+            }
+            else textpos.y = content.Min.y;
+        }
+        else textpos.y = content.Min.y;
+
+        ERROR("Created border: (%f, %f) to (%f, %f) (thickness: %f)\n", border.Min.x, border.Min.y, border.Max.x, border.Max.y,
+            style.border.top.thickness);
+
+        return std::make_tuple(content, padding, border, margin, ImRect{ textpos, textpos + textsz });
+    }
+
+    void ShowTooltip(long long& hoverDuration, const ImRect& margin, ImVec2 pos, std::string_view tooltip, IRenderer& renderer)
+    {
+        auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock().now().time_since_epoch()).count();
+        if (hoverDuration == 0) hoverDuration = currts;
+        else if ((int32_t)(currts - hoverDuration) >= GlobalWindowConfig.tooltipDelay)
+        {
+            auto font = GetFont(GlobalWindowConfig.tooltipFontFamily, GlobalWindowConfig.tooltipFontSz, FT_Normal);
+            auto textsz = renderer.GetTextSize(tooltip, font, GlobalWindowConfig.tooltipFontSz);
+            auto offsetx = std::max(0.f, margin.GetWidth() - textsz.x) * 0.5f;
+            auto tooltippos = pos + ImVec2{ offsetx, -(textsz.y + 2.f) };
+            renderer.DrawTooltip(tooltippos, tooltip);
+        }
+    }
+    
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, 
+        const ImRect& content, const ImRect& text, IRenderer& renderer)
+    {
+        assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
+
+        UsePushedStyle(id);
+        auto& state = Context.GetState(id).label;
+
+        // TODO: Adjust everything...
+        auto& style = Context.GetStyle(id, state.state);
+        WidgetDrawResult result;
+        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+
+        if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+        else state._hoverDuration == 0;
+
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, 
+        const ImRect& content, const ImRect& text, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        auto& state = Context.GetState(id).button;
+        auto& style = Context.GetStyle(id, state.state);
+        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+        state.state = !ismouseover ? WS_Default :
+            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+
+        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            result.event = WidgetEvent::Clicked;
+        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+        else state._hoverDuration == 0;
+
+        result.geometry = margin;
+        return result;
+    }
+
+    WindowConfig& GetWindowConfig()
+    {
+        return GlobalWindowConfig;
+    }
+
+    void BeginFrame()
+    {
+        Context.InsideFrame = true;
+        ERROR("\nFrame start\n");
+    }
+
+    void EndFrame()
+    {
+        Context.InsideFrame = false;
+        Context.lastItemId = -1;
+        Context.nextpos = { 0.f, 0.f };
+        Context.items.clear();
+        
+        for (auto idx = 0; idx < WT_TotalTypes; ++idx)
+        {
+            Context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
+        }
+
+        assert(Context.currLayoutDepth == -1);
+        assert(Context.currSizingDepth == 0);
+        assert(Context.currSpanDepth == -1);
+        assert(Context.currstyleDepth == 0);
+        ERROR("\nFrame end\n");
+    }
+
+    int32_t GetNextId(WidgetType type)
+    {
+        return Context.maxids[type];
+    }
+
+    WidgetDrawResult Label(int32_t id, ImVec2 pos, int32_t geometry)
+    {
+        assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
+
+        UsePushedStyle(id);
+        auto& state = Context.GetState(id).label;
+        auto& renderer = *GlobalWindowConfig.renderer;
+
+        // TODO: Adjust everything...
+        auto& style = Context.GetStyle(id, state.state);
+        auto [content, padding, border, margin, textsz] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
+        return LabelImpl(id, margin, border, padding, content, textsz, renderer);
+    }
+
+    WidgetDrawResult Button(int32_t id, ImVec2 pos, int32_t geometry)
+    {
+        assert((id & 0xffff) <= (int)Context.states[WT_Button].size());
+
+        UsePushedStyle(id);
+        auto& state = Context.GetState(id).button;
+        auto& renderer = *GlobalWindowConfig.renderer;
+        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+
+        // TODO: Adjust everything...
+        auto& style = Context.GetStyle(id, state.state);
+        auto [content, padding, border, margin, textsz] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
+        return ButtonImpl(id, margin, border, padding, content, textsz, renderer);
+    }
+
+    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    {
+        assert(id <= (int)Context.states[WT_ToggleButton].size());
+
+        auto& state = Context.GetState(id).toggle;
+        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+
+        WidgetEvent result = WidgetEvent::None;
+        auto& style = Context.GetStyle(id, state.state);
+
+        ImRect extent;
+        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
+        else
+        {
+            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
+            extent.Max = extent.Min + style.dimension;
+        }
+        
+        auto radius = ((extent.GetHeight()) * 0.5f) + Context.toggleButtonStyles[style.index.custom].thumbOffset;
+        auto center = extent.Min + ImVec2{ radius + 1.f, radius };
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
+        auto mouseover = extent.Contains(mousepos);
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+
+        auto& specificStyle = Context.toggleButtonStyles[style.index.custom + log2((unsigned)state.state)];
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackColor, true, radius, radius, radius, radius);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, radius, radius, radius, radius, 
+            specificStyle.trackBorderThickness);
+
+        if (mouseover && specificStyle.thumbExpand > 0.f)
+            renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
+
+        renderer.DrawCircle(center, radius, style.fgcolor, true);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+        }
+
+        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
+        return { id, result, extent };
+    }
+
+    WidgetDrawResult RadioButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
+    {
+        assert(id <= (int)Context.states[WT_RadioButton].size());
+
+        auto& state = Context.GetState(id).radio;
+        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+
+        WidgetEvent result = WidgetEvent::None;
+        auto& style = Context.GetStyle(id, state.state);
+
+        ImRect extent;
+        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
+        else
+        {
+            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
+            extent.Max = extent.Min + style.dimension;
+        }
+
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto mouseover = extent.Contains(mousepos);
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+
+        auto radius = extent.GetHeight() * 0.5f;
+        auto center = ImVec2{ radius * 0.5f, radius * 0.5f };
+        auto color = Context.GetStyle(id, state.state).fgcolor;
+        renderer.DrawCircle(center, radius, color, false, 1.f);
+        radius -= 1.f;
+        renderer.DrawCircle(center, radius, color, true);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+        }
+
+        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
+        return { id, result, extent };
+    }
+
+    void Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((id & 0xffff) <= (int)Context.states[type].size());
+
+        LayoutItemDescriptor wdesc;
+        wdesc.wtype = type;
+        wdesc.id = id;
+        wdesc.sizing = geometry;
+
+        UsePushedStyle(id);
+        auto& state = Context.GetState(id).button;
+        auto& renderer = *GlobalWindowConfig.renderer;
+        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+
+        auto& style = Context.GetStyle(id, state.state);
+
+        if (Context.currLayoutDepth != -1)
+        {
+            auto& layout = Context.layouts[Context.currLayoutDepth];
+            auto pos = layout.geometry.Min;
+            std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
+                style, state.text, renderer, geometry, neighbors);
+            AddItemToLayout(layout, wdesc);
+        }
+        else
+        {
+            std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(Context.nextpos,
+                style, state.text, renderer, geometry, neighbors);
+            Context.AddItemGeometry(id, wdesc.margin);
+
+            switch (type)
+            {
+            case glimmer::WT_Label: LabelImpl(id, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); break;
+            case glimmer::WT_Button: ButtonImpl(id, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); break;
+            case glimmer::WT_RadioButton:
+                break;
+            case glimmer::WT_ToggleButton:
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    void Label(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_Label, geometry, neighbors);
+    }
+
+    void Button(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_Button, geometry, neighbors);
+    }
+
+    WidgetStateData& CreateWidget(WidgetType type, int16_t id)
+    {
+        // Create widgets before beginning a frame
+        assert(!Context.InsideFrame);
+
+        int32_t wid = id;
+        wid = wid | (type << 16);
+        Context.maxids[type]++;
+        if (Context.InsideFrame) Context.tempids[type] = std::min(Context.tempids[type], Context.maxids[type]);
+        
+        // If a set of styles is already pushed, add it to widget being created
+        if (Context.currstyleDepth >= 6)
+        {
+            Context.GetStyle(wid, WS_Default) = Context.currstyle[Context.currstyleDepth - 6];
+            Context.GetStyle(wid, WS_Disabled) = Context.currstyle[Context.currstyleDepth - 5];
+            Context.GetStyle(wid, WS_Hovered) = Context.currstyle[Context.currstyleDepth - 4];
+            Context.GetStyle(wid, WS_Pressed) = Context.currstyle[Context.currstyleDepth - 3];
+            Context.GetStyle(wid, WS_Focused) = Context.currstyle[Context.currstyleDepth - 2];
+            Context.GetStyle(wid, WS_Checked) = Context.currstyle[Context.currstyleDepth - 1];
+        }
+
+        return Context.GetState(wid);
+    }
+
+    WidgetStateData& CreateWidget(int32_t id)
+    {
+        auto wtype = (WidgetType)(id >> 16);
+        Context.maxids[wtype]++;
+        return CreateWidget(wtype, (int16_t)(id & 0xffff));
     }
 
     WidgetStateData::WidgetStateData(WidgetType type)
@@ -3839,5 +4803,4 @@ namespace glimmer
     }
 
 #pragma endregion
-    
 }
