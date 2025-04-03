@@ -644,12 +644,13 @@ namespace glimmer
     void SetSpan(int32_t direction); // Combination of FillDirection
     void PushDir(int32_t direction); // Combination of WidgetGeometry
     void SetDir(int32_t direction); // Combination of WidgetGeometry
+    void PopSpan(int depth = 1);
+
     void Move(int32_t direction); // Combination of FillDirection
     void Move(int32_t id, int32_t direction); // Combination of FillDirection
     void Move(int32_t hid, int32_t vid, bool toRight, bool toBottom); // Combination of WidgetGeometry flags
     void Move(ImVec2 amount, int32_t direction); // Combination of WidgetGeometry
     void Move(ImVec2 pos);
-    void PopSpan(int depth = 1);
 
     // Structured Layout inside container
     ImRect BeginLayout(Layout layout, FillDirection fill, int32_t alignment = TextAlignLeading, 

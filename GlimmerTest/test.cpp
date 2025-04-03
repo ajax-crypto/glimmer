@@ -144,7 +144,7 @@ public:
         names.Proportional.Files[glimmer::FT_Normal] = "Iosevka-Regular.ttf";
         glimmer::FontDescriptor desc;
         desc.flags = glimmer::FLT_Monospace | glimmer::FLT_Proportional;
-        desc.names = names;
+        //desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
         desc.sizes.push_back(24.f);
@@ -217,7 +217,7 @@ public:
                 renderer.UserData = ImGui::GetWindowDrawList();
                 renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
 
-                glimmer::PushStyle("border: 2px solid gray; padding: 5px; alignment: center;", "border: 2px solid black");
+                glimmer::PushStyle("border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
                 /*ImVec2 pos{ 0.f, 0.f };
                 auto upperdim = glimmer::Label(labels[UPPER], pos, FLT_MAX, 0.f).geometry;
                 pos.y += upperdim.GetHeight();
@@ -228,15 +228,19 @@ public:
 
                 using namespace glimmer;
 
+                PushStyle("background-color: rgb(200, 200, 200)");
                 Label(labels[UPPER], ExpandH);
                 Move(FD_Vertical);
+                PushStyle("background-color: rgb(175, 175, 175)");
                 Label(labels[LEFT], ExpandV);
                 Move(FD_Horizontal | FD_Vertical);
+                PushStyle("background-color: rgb(150, 150, 150)");
                 Label(labels[BOTTOM], ExpandH | FromBottom);
                 Move(labels[LEFT], labels[UPPER], true, true);
+                PushStyle("background-color: rgb(125, 125, 125)");
                 Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
                 
-                PopStyle();
+                PopStyle(5);
             }
 
             ImGui::End();

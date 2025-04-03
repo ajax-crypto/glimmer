@@ -2866,12 +2866,23 @@ namespace glimmer
         // If a set of styles is already pushed, add it to widget being created
         if (Context.currstyleDepth >= 6)
         {
-            Context.GetStyle(wid, WS_Default) = Context.currstyle[Context.currstyleDepth - 6];
-            Context.GetStyle(wid, WS_Disabled) = Context.currstyle[Context.currstyleDepth - 5];
-            Context.GetStyle(wid, WS_Hovered) = Context.currstyle[Context.currstyleDepth - 4];
-            Context.GetStyle(wid, WS_Pressed) = Context.currstyle[Context.currstyleDepth - 3];
-            Context.GetStyle(wid, WS_Focused) = Context.currstyle[Context.currstyleDepth - 2];
-            Context.GetStyle(wid, WS_Checked) = Context.currstyle[Context.currstyleDepth - 1];
+            auto& defstyle = Context.GetStyle(wid, WS_Default);
+            defstyle = Context.currstyle[Context.currstyleDepth - 6];
+
+            auto& disabledstyle = Context.GetStyle(wid, WS_Disabled);
+            disabledstyle = Context.currstyle[Context.currstyleDepth - 5];
+
+            auto& hoveredstyle = Context.GetStyle(wid, WS_Hovered);
+            hoveredstyle = Context.currstyle[Context.currstyleDepth - 4];
+
+            auto& pressedstyle = Context.GetStyle(wid, WS_Pressed);
+            pressedstyle = Context.currstyle[Context.currstyleDepth - 3];
+
+            auto& focusedstyle = Context.GetStyle(wid, WS_Focused);
+            focusedstyle = Context.currstyle[Context.currstyleDepth - 2];
+
+            auto& checkedstyle = Context.GetStyle(wid, WS_Checked);
+            checkedstyle = Context.currstyle[Context.currstyleDepth - 1];
         }
     }
 
@@ -2980,6 +2991,19 @@ namespace glimmer
             Context.currstyle[Context.currstyleDepth + 5] = Context.currstyle[Context.currstyleDepth - 1];
 
             // TODO reset non-inheritable styles
+            Context.currstyle[Context.currstyleDepth].bgcolor = IM_COL32_BLACK_TRANS;
+            Context.currstyle[Context.currstyleDepth + 1].bgcolor = IM_COL32_BLACK_TRANS;
+            Context.currstyle[Context.currstyleDepth + 2].bgcolor = IM_COL32_BLACK_TRANS;
+            Context.currstyle[Context.currstyleDepth + 3].bgcolor = IM_COL32_BLACK_TRANS;
+            Context.currstyle[Context.currstyleDepth + 4].bgcolor = IM_COL32_BLACK_TRANS;
+            Context.currstyle[Context.currstyleDepth + 5].bgcolor = IM_COL32_BLACK_TRANS;
+
+            Context.currstyle[Context.currstyleDepth].specified &= ~StyleUpdatedFromBase;
+            Context.currstyle[Context.currstyleDepth + 1].specified &= ~StyleUpdatedFromBase;
+            Context.currstyle[Context.currstyleDepth + 2].specified &= ~StyleUpdatedFromBase;
+            Context.currstyle[Context.currstyleDepth + 3].specified &= ~StyleUpdatedFromBase;
+            Context.currstyle[Context.currstyleDepth + 4].specified &= ~StyleUpdatedFromBase;
+            Context.currstyle[Context.currstyleDepth + 5].specified &= ~StyleUpdatedFromBase;
         }
         else
         {
@@ -3036,6 +3060,7 @@ namespace glimmer
     {
         font.size = GlobalWindowConfig.defaultFontSz;
         index.animation = index.custom = 0;
+        border.cornerRadius[0] = border.cornerRadius[1] = border.cornerRadius[2] = border.cornerRadius[3] = 0.f;
     }
 
     StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
@@ -4480,9 +4505,6 @@ namespace glimmer
         }
         else textpos.y = content.Min.y;
 
-        ERROR("Created border: (%f, %f) to (%f, %f) (thickness: %f)\n", border.Min.x, border.Min.y, border.Max.x, border.Max.y,
-            style.border.top.thickness);
-
         return std::make_tuple(content, padding, border, margin, ImRect{ textpos, textpos + textsz });
     }
 
@@ -4506,12 +4528,9 @@ namespace glimmer
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
-        UsePushedStyle(id);
-        auto& state = Context.GetState(id).label;
-
-        // TODO: Adjust everything...
-        auto& style = Context.GetStyle(id, state.state);
         WidgetDrawResult result;
+        auto& state = Context.GetState(id).label;
+        auto& style = Context.GetStyle(id, state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
@@ -4560,7 +4579,7 @@ namespace glimmer
     void BeginFrame()
     {
         Context.InsideFrame = true;
-        ERROR("\nFrame start\n");
+        ERROR("\n===============================Frame start===============================\n");
     }
 
     void EndFrame()
@@ -4579,7 +4598,7 @@ namespace glimmer
         assert(Context.currSizingDepth == 0);
         assert(Context.currSpanDepth == -1);
         assert(Context.currstyleDepth == 0);
-        ERROR("\nFrame end\n");
+        ERROR("===============================Frame end===============================\n");
     }
 
     int32_t GetNextId(WidgetType type)
