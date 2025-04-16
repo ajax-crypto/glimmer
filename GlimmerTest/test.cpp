@@ -159,20 +159,44 @@ public:
         int32_t labels[4];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Upper";
+        glimmer::CreateWidget(lid).state.label.text = "Upper";
         labels[UPPER] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Left";
+        glimmer::CreateWidget(lid).state.label.text = "Left";
         labels[LEFT] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Content";
+        glimmer::CreateWidget(lid).state.label.text = "Content";
         labels[CONTENT] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(glimmer::WT_Label, lid).label.text = "Bottom";
+        glimmer::CreateWidget(lid).state.label.text = "Bottom";
         labels[BOTTOM] = lid;
+
+        auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
+        auto& grid = glimmer::CreateWidget(gridid).state.grid;
+        grid.cell = [](int32_t row, int16_t, int16_t) -> glimmer::ItemGridState::CellData& {
+            static glimmer::ItemGridState::CellData data;
+            row % 2 ? glimmer::SetNextStyle("background-color: white") :
+                glimmer::SetNextStyle("background-color: rgb(200, 200, 200)");
+            data.state.label.text = "Text";
+            return data;
+        };
+
+        auto& root = grid.config.headers.emplace_back();
+        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1" });
+        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2" });
+
+        auto& leaves = grid.config.headers.emplace_back();
+        leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1.1", .parent = 0 });
+        leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1.2", .parent = 0 });
+        leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.1", .parent = 1 });
+        leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.2", .parent = 1 });
+
+        grid.config.rows = 16;
+        grid.uniformRowHeights = true;
+        grid.setCellPadding(5.f);
 
         // BuildStyle(id).When(WS_Default).Style("cjndkjckdcf").When("hover").Style(",dcdcd");
         // SetStyle(id, "{ ... } :hover { ... } :pressed { ... }");
@@ -206,6 +230,7 @@ public:
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+            //ImGui::GetIO().MouseDrawCursor = true;
             ImGui::SetNextWindowSize(ImVec2{ (float)width, (float)height }, ImGuiCond_Always);
             ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
             glimmer::BeginFrame();
@@ -237,8 +262,9 @@ public:
                 PushStyle("background-color: rgb(150, 150, 150)");
                 Label(labels[BOTTOM], ExpandH | FromBottom);
                 Move(labels[LEFT], labels[UPPER], true, true);
-                PushStyle("background-color: rgb(125, 125, 125)");
-                Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
+                PushStyle("background-color: rgb(200, 200, 200)");
+                //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
+                ItemGrid(gridid, ExpandAll, { .bottom = labels[BOTTOM] });
                 
                 PopStyle(5);
             }

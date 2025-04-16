@@ -48,6 +48,9 @@
     <ClInclude Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\im_font_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\glimmer.cpp">
@@ -78,6 +81,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\src\libs\src\imgui_widgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\im_font_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -1,125 +1,13 @@
 #pragma once
 
-#include <string_view>
-#include <optional>
-#include <vector>
-
-#define IM_RICHTEXT_DEFAULT_FONTFAMILY "default-font-family"
-#define IM_RICHTEXT_MONOSPACE_FONTFAMILY "monospace-family"
 #define IM_RICHTEXT_MAX_COLORSTOPS 4
 
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "im_font_manager.h"
 
 namespace glimmer
 {
-    // =============================================================================================
-    // FONT MANAGEMENT
-    // =============================================================================================
-    enum FontType
-    {
-        FT_Normal, FT_Light, FT_Bold, FT_Italics, FT_BoldItalics, FT_Total
-    };
-
-    // Determines which UTF-8 characters are present in provided rich text
-    // NOTE: Irrespective of the enum value, text is expected to be UTF-8 encoded
-    enum class TextContentCharset
-    {
-        ASCII,        // Standard ASCII characters (0-127)
-        ASCIISymbols, // Extended ASCII + certain common characters i.e. math symbols, arrows, ™, etc.
-        UTF8Simple,   // Simple UTF8 encoded text without support for GPOS/kerning/ligatures (libgrapheme)
-        UnicodeBidir  // Standard compliant Unicode BiDir algorithm implementation (Harfbuzz)
-    };
-
-    struct FontCollectionFile
-    {
-        std::string_view Files[FT_Total];
-    };
-
-    struct FontFileNames
-    {
-        FontCollectionFile Proportional;
-        FontCollectionFile Monospace;
-        std::string_view BasePath;
-    };
-
-    struct RenderConfig;
-
-    enum FontLoadType : uint64_t
-    {
-        FLT_Proportional = 1,
-        FLT_Monospace = 2,
-
-        // Use this to auto-scale fonts, loading the largest size for a family
-        // NOTE: For ImGui backend, this will save on memory from texture
-        FLT_AutoScale = 2048,
-
-        // TODO: Handle absolute size font-size fonts (Look at imrichtext.cpp: PopulateSegmentStyle function)
-    };
-
-    struct FontDescriptor
-    {
-        std::optional<FontFileNames> names = std::nullopt;
-        std::vector<float> sizes;
-        TextContentCharset charset = TextContentCharset::ASCII;
-        uint64_t flags = FLT_Proportional;
-    };
-
-    // Load default fonts based on provided descriptor. Custom paths can also be 
-    // specified through FontDescriptor::names member. If not specified, a OS specific
-    // default path is selected i.e. C:\Windows\Fonts for Windows and 
-    // /usr/share/fonts/ for Linux.
-    bool LoadDefaultFonts(const FontDescriptor* descriptors, int totalNames = 1);
-
-    // Find out path to .ttf file for specified font family and font type
-    // The exact filepath returned is based on reading TTF OS/2 and name tables
-    // The matching is done on best effort basis.
-    // NOTE: This is not a replacement of fontconfig library and can only perform
-    //       rudimentary font fallback
-    [[nodiscard]] std::string_view FindFontFile(std::string_view family, FontType ft,
-        std::string_view* lookupPaths = nullptr, int lookupSz = 0);
-
-    //struct GlyphRangeMappedFont
-    //{
-    //    std::pair<int32_t, int32_t> Range;
-    //    std::string_view FontPath;
-    //};
-
-    //// Find a set of fonts which match the glyph ranges provided through the charset
-    //[[nodiscard]] std::vector<GlyphRangeMappedFont> FindFontFileEx(std::string_view family, 
-    //    FontType ft, TextContentCharset charset, std::string_view* lookupPaths = nullptr, 
-    //    int lookupSz = 0);
-
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-    // Get the closest matching font based on provided parameters. The return type is
-    // ImFont* cast to void* to better fit overall library.
-    // NOTE: size matching happens with lower_bound calls, this is done because all fonts
-    //       should be preloaded for ImGui, dynamic font atlas updates are not supported.
-    [[nodiscard]] void* GetFont(std::string_view family, float size, FontType type);
-
-    //#ifndef IM_FONTMANAGER_STANDALONE
-    //    // Get font to display overlay i.e. style info in side panel
-    //    [[nodiscard]] void* GetOverlayFont(const RenderConfig& config);
-    //#endif
-
-        // Return status of font atlas construction
-    [[nodiscard]] bool IsFontLoaded();
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-    using FontFamilyToFileMapper = std::string_view(*)(std::string_view);
-    struct FontExtraInfo { FontFamilyToFileMapper mapper = nullptr; std::string_view filepath; };
-
-    // Preload font lookup info which is used in FindFontFile and GetFont function to perform
-    // fast lookup + rudimentary fallback.
-    void PreloadFontLookupInfo(int timeoutMs);
-
-    // Get the closest matching font based on provided parameters. The return type is
-    // BLFont* cast to void* to better fit overall library.
-    // NOTE: The FontExtraInfo::mapper can be assigned to a function which loads fonts based
-    //       con content codepoints and can perform better fallback.
-    [[nodiscard]] void* GetFont(std::string_view family, float size, FontType type, FontExtraInfo extra);
-#endif
-
     // =============================================================================================
     // INTERFACES
     // =============================================================================================
@@ -458,6 +346,7 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton,
+        WT_ItemGrid,
         WT_TotalTypes
     };
 
@@ -488,6 +377,7 @@ namespace glimmer
         ColorGradient gradient;
 
         StyleDescriptor();
+        StyleDescriptor(std::string_view css);
 
         StyleDescriptor& BgColor(int r, int g, int b, int a = 255) { bgcolor = ToRGBA(r, g, b, a); return *this; }
         StyleDescriptor& FgColor(int r, int g, int b, int a = 255) { fgcolor = ToRGBA(r, g, b, a); return *this; }
@@ -536,12 +426,12 @@ namespace glimmer
     enum WidgetState : int32_t
     {
         WS_Default = 0,
-        WS_Disabled = 1,
         WS_Focused = 1 << 1,
         WS_Hovered = 1 << 2,
         WS_Pressed = 1 << 3,
-        WS_Dragged = 1 << 4,
-        WS_Checked = 1 << 5
+        WS_Checked = 1 << 4,
+        WS_Disabled = 1 << 5,
+        WS_Dragged = 1 << 6,
     };
 
     inline void ValidateState(int state)
@@ -571,27 +461,101 @@ namespace glimmer
 
     using RadioButtonState = ToggleButtonState;
 
+    enum ColumnProperty : int32_t
+    {
+        COL_Resizable = 1,
+        COL_Pinned = 2,
+        COL_Sortable = 1 << 2,
+        COL_Filterable = 1 << 3,
+        COL_Expandable = 1 << 4,
+        COL_WidthAbsolute = 1 << 5,
+        COL_WrapHeader = 1 << 6,
+    };
+
+    struct ItemGridState : public CommonWidgetData
+    {
+        struct CellData 
+        { 
+            WidgetType wtype = WT_Label; 
+            union CellState
+            {
+                LabelState label;
+                ButtonState button;
+                ToggleButtonState toggle;
+                RadioButtonState radio;
+                // add support for custom combinations of widgets
+
+                CellState() {}
+                ~CellState() {}
+            } state;
+            int16_t colspan = 1;
+            int16_t children = 0;
+
+            CellData() { state.label = LabelState{}; }
+            ~CellData() {}
+        };
+
+        struct ColumnConfig
+        {
+            std::string_view name;
+            ImRect content;
+            ImRect textrect;
+            int32_t props = 0;
+            int16_t width = 0;
+            int16_t parent = -1;
+            StyleDescriptor style;
+        };
+
+        struct Configuration
+        {
+            std::vector<std::vector<ColumnConfig>> headers;
+            int32_t rows = 0;
+        } config;
+
+        CellData& (*cell)(int32_t, int16_t, int16_t) = nullptr;
+        int32_t currow = -1;
+        int16_t currcol = -1;
+        int16_t sortedcol = -1;
+        int16_t coldrag = -1;
+        bool uniformRowHeights = false;
+
+        void setCellPadding(float padding);
+    };
+
     enum class WidgetEvent
     {
-        None, Clicked, Hovered, Pressed, DoubleClicked, Dragged, Edited
+        None, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited
     };
 
     struct WidgetDrawResult
     {
         int32_t id = -1;
         WidgetEvent event = WidgetEvent::None;
+        int32_t row = -1;
+        int16_t col = -1;
+        int16_t depth = -1;
         ImRect geometry, content;
     };
 
-    union WidgetStateData
+    struct WidgetStateData
     {
-        LabelState label;
-        ButtonState button;
-        ToggleButtonState toggle;
-        RadioButtonState radio;
-        // Add others...
+        WidgetType type;
+
+        union SharedWidgetState {
+            LabelState label;
+            ButtonState button;
+            ToggleButtonState toggle;
+            RadioButtonState radio;
+            ItemGridState grid;
+            // Add others...
+
+            SharedWidgetState() {}
+            ~SharedWidgetState() {}
+        } state;
 
         WidgetStateData(WidgetType type);
+        WidgetStateData(const WidgetStateData& src);
+        ~WidgetStateData();
     };
 
     WindowConfig& GetWindowConfig();
@@ -599,6 +563,7 @@ namespace glimmer
     void BeginFrame();
     void EndFrame();
     int32_t GetNextId(WidgetType type);
+    int16_t GetNextCount(WidgetType type);
 
     enum WidgetGeometry : int32_t
     {
@@ -614,6 +579,9 @@ namespace glimmer
         int32_t top = -1, left = -1, right = -1, bottom = -1;
     };
 
+    WidgetStateData& CreateWidget(WidgetType type, int16_t id);
+    WidgetStateData& CreateWidget(int32_t id);
+
     WidgetDrawResult Label(int32_t id, ImVec2 pos, int32_t geometry = 0);
     WidgetDrawResult Button(int32_t id, ImVec2 pos, int32_t geometry = 0);
     WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, int32_t geometry = 0);
@@ -623,14 +591,14 @@ namespace glimmer
     void Button(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
     void ToggleButton(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
     void CheckBox(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void ItemGrid(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
-    StyleDescriptor& GetStyle(int32_t id, int32_t state = WS_Default);
-    void PopStyle(int depth = 1);
-
-    WidgetStateData& CreateWidget(WidgetType type, int16_t id);
-    WidgetStateData& CreateWidget(int32_t id);
+    void SetNextStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
+        std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
+    StyleDescriptor& GetCurrentStyle(int32_t state = WS_Default);
+    void PopStyle(int depth = 1, int32_t state = WS_Default);
 
     enum class Layout { Invalid, Horizontal, Vertical, Grid };
     enum FillDirection : int32_t { FD_None = 0, FD_Horizontal = 1, FD_Vertical = 2 };

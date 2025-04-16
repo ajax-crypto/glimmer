@@ -154,6 +154,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\src\glimmer.h" />
+    <ClInclude Include="..\src\im_font_manager.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imconfig.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imgui.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imgui_impl_glfw.h" />
@@ -167,6 +168,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\glimmer.cpp" />
+    <ClCompile Include="..\src\im_font_manager.cpp" />
     <ClCompile Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.cpp" />
     <ClCompile Include="..\src\libs\src\imgui.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_demo.cpp" />

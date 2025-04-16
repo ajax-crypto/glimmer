@@ -5,113 +5,34 @@
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI
 #include "imgui.h"
-#ifdef IMGUI_ENABLE_FREETYPE
-#include "misc/freetype/imgui_freetype.h"
-#endif
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
 #include "blend2d.h"
 #endif
 
-#include <string>
 #include <cstring>
-#include <unordered_set>
 #include <unordered_map>
-#include <map>
-#include <filesystem>
-#include <fstream>
-#include <deque>
 #include <chrono>
 #include <cassert>
 #include <bit>
-#include <memory>
+#include <cstdlib>
 #include <span>
 
 #ifdef _DEBUG
-#include <iostream>
-#endif
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#undef ERROR
-#define ERROR(FMT, ...) { \
-    CONSOLE_SCREEN_BUFFER_INFO cbinfo; \
-    auto h = GetStdHandle(STD_ERROR_HANDLE); \
-    GetConsoleScreenBufferInfo(h, &cbinfo); \
-    SetConsoleTextAttribute(h, FOREGROUND_RED | FOREGROUND_INTENSITY); \
-    std::fprintf(stderr, FMT, __VA_ARGS__); \
-    SetConsoleTextAttribute(h, cbinfo.wAttributes); }
-#undef DrawText
-#else
+#define LOG(FMT, ...) std::fprintf(stderr, FMT, __VA_ARGS__)
+#define HIGHLIGHT(FMT, ...) std::fprintf(stderr, "\x1B[93m" FMT "\x1B[0m", __VA_ARGS__)
 #define ERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
+#else
+#define LOG(FMT, ...)
+#define HIGHLIGHT(FMT, ...)
+#define ERROR(FMT, ...)
 #endif
 
-#ifdef _WIN32
-#define WINDOWS_DEFAULT_FONT \
-    "c:\\Windows\\Fonts\\segoeui.ttf", \
-    "c:\\Windows\\Fonts\\segoeuil.ttf",\
-    "c:\\Windows\\Fonts\\segoeuib.ttf",\
-    "c:\\Windows\\Fonts\\segoeuii.ttf",\
-    "c:\\Windows\\Fonts\\segoeuiz.ttf"
-
-#define WINDOWS_DEFAULT_MONOFONT \
-    "c:\\Windows\\Fonts\\consola.ttf",\
-    "",\
-    "c:\\Windows\\Fonts\\consolab.ttf",\
-    "c:\\Windows\\Fonts\\consolai.ttf",\
-    "c:\\Windows\\Fonts\\consolaz.ttf"
-
-#elif __linux__
-#define FEDORA_DEFAULT_FONT \
-    "/usr/share/fonts/open-sans/OpenSans-Regular.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Light.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Bold.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Italic.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-BoldItalic.ttf"
-
-#define FEDORA_DEFAULT_MONOFONT \
-    "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",\
-    "",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-Bold.ttf",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-Italic.ttf",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-BoldItalic.ttf"
-
-#define POPOS_DEFAULT_FONT \
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",\
-    "",\
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf"
-
-#define POPOS_DEFAULT_MONOFONT \
-    "/usr/share/fonts/truetype/freefont/FreeMono.ttf",\
-    "",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoOblique.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoBoldOblique.ttf"
-
-#define MANJARO_DEFAULT_FONT \
-    "/usr/share/fonts/noto/NotoSans-Regular.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Light.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Bold.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Italic.ttf",\
-    "/usr/share/fonts/noto/NotoSans-BoldItalic.ttf"
-
-#define MANJARO_DEFAULT_MONOFONT \
-    "/usr/share/fonts/TTF/Hack-Regular.ttf",\
-    "",\
-    "/usr/share/fonts/TTF/Hack-Bold.ttf",\
-    "/usr/share/fonts/TTF/Hack-Italic.ttf",\
-    "/usr/share/fonts/TTF/Hack-BoldItalic.ttf",
-
-#include <sstream>
-#include <cstdio>
-#include <memory>
-#include <array>
-
-#endif
+template <typename T>
+T clamp(T val, T min, T max)
+{
+    return val > max ? max : val < min ? min : val;
+}
 
 namespace glimmer
 {
@@ -119,7 +40,7 @@ namespace glimmer
     // STATIC DATA
     // =============================================================================================
 
-    static WindowConfig GlobalWindowConfig{};
+    static WindowConfig Config{};
 
     struct AnimationData
     {
@@ -218,16 +139,30 @@ namespace glimmer
         bool popWhenUsed = false;
     };
 
+    struct ItemGridStyleDescriptor
+    {
+        uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
+    };
+
 #ifndef GLIMMER_MAX_LAYOUT_NESTING 
 #define GLIMMER_MAX_LAYOUT_NESTING 16
 #endif
 
+    enum WidgetStateIndex
+    {
+        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked, WSI_Disabled,
+        WSI_Total
+    };
+
     template <typename T, typename Sz, Sz blocksz = 128>
     struct Vector
     {
+        template <typename T, typename S, S v> friend struct DynamicStack;
+
         static_assert(blocksz > 0, "Block size has to non-zero");
         static_assert(std::is_integral_v<Sz>, "Sz must be integral type");
         static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable");
+        static_assert(!std::is_same_v<T, bool>, "T must not be bool, consider using std::bitset");
 
         using value_type = T;
         using size_type = Sz;
@@ -281,6 +216,24 @@ namespace glimmer
             std::fill(_data, _data + _capacity, el);
         }
 
+        void resize(Sz count, bool initialize = true)
+        {
+            if (_data == nullptr)
+            {
+                _data = (T*)std::malloc(sizeof(T) * count);
+                if (initialize) _default_init(_data, _data + count);
+            }
+            else if (_capacity < count)
+            {
+                auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
+                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
+                _data = ptr;
+                if (initialize) _default_init(_data + _size, _data + count);
+            }
+
+            _size = _capacity = count;
+        }
+
         void resize(Sz count, const T& el)
         {
             if (_data == nullptr)
@@ -291,7 +244,7 @@ namespace glimmer
             else if (_capacity < count)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
-                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _capacity);
+                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
                 std::fill(_data + _size, _data + count, el);
             }
@@ -303,16 +256,29 @@ namespace glimmer
             _size = _capacity = count;
         }
 
+        void expand(Sz count, bool initialize = true)
+        {
+            auto targetsz = _size + count;
+
+            if (_capacity < targetsz)
+            {
+                auto ptr = (T*)std::realloc(_data, sizeof(T) * targetsz);
+                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
+                _data = ptr;
+                if (initialize) _default_init(_data + _size, _data + targetsz);
+            }
+        }
+
         template <typename... ArgsT>
         T& emplace_back(ArgsT&&... args) 
         { 
-            _reallocate(); 
+            _reallocate(true); 
             ::new(_data + _size) T{ std::forward<ArgsT>(args)... }; 
             _size++;
             return _data[_size - 1];
         }
 
-        void push_back(const T& el) { _reallocate(); _data[_size] = el; _size++; }
+        void push_back(const T& el) { _reallocate(true); _data[_size] = el; _size++; }
         void pop_back() { if constexpr (std::is_default_constructible_v<T>) _data[_size - 1] = T{}; --_size; }
         void clear() { _default_init(0, _size); _size = 0; }
         void reset(const T& el) { std::fill(_data, _data + _size, el); }
@@ -325,8 +291,8 @@ namespace glimmer
         T& operator[](Sz idx) { assert(idx < _size); return _data[idx]; }
 
         T& front() { assert(_size > 0); return _data[0]; }
-        T& back() { assert(_size > 0); return _data[size - 1]; }
-        T* data() { return data; }
+        T& back() { assert(_size > 0); return _data[_size - 1]; }
+        T* data() { return _data; }
 
         Sz size() const { return _size; }
         Sz capacity() const { return _capacity; }
@@ -341,7 +307,7 @@ namespace glimmer
                 std::fill(_data + from, _data + to, T{});
         }
 
-        void _reallocate()
+        void _reallocate(bool initialize)
         {
             T* ptr = nullptr;
             if (_size == _capacity) ptr = (T*)std::realloc(_data, (_capacity + blocksz) * sizeof(T));
@@ -350,7 +316,7 @@ namespace glimmer
             {
                 if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _capacity);
                 _data = ptr;
-                _default_init(_capacity, _capacity + blocksz);
+                if (initialize) _default_init(_capacity, _capacity + blocksz);
                 _capacity += blocksz;
             }
         }
@@ -360,12 +326,180 @@ namespace glimmer
         Sz _capacity = 0;
     };
 
+    template <typename T, int capacity> 
+    struct Stack
+    {
+        T* _data = nullptr;
+        int _size = 0;
+
+        static_assert(capacity > 0, "capacity has to be a +ve value");
+
+        Stack()
+        {
+            _data = (T*)std::malloc(sizeof(T) * capacity);
+            if constexpr (std::is_default_constructible_v<T>)
+                std::fill(_data, _data + capacity, T{});
+        }
+
+        ~Stack() 
+        { 
+            if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
+            std::free(_data);
+        }
+
+        template <typename... ArgsT>
+        T& push(ArgsT&&... args)
+        {
+            assert(_size < (capacity - 1));
+            ::new(_data + _size) T{ std::forward<ArgsT>(args)... };
+            ++_size;
+            return _data[_size - 1];
+        }
+
+        void pop(int depth = 1)
+        {
+            while (depth >= 0 && _size > 0)
+            {
+                --_size;
+                if constexpr (std::is_default_constructible_v<T>)
+                    ::new(_data + _size) T{};
+                --depth;
+            }
+        }
+
+        void clear() { pop(_size); }
+
+        int size() const { return _size; }
+        T* begin() const { return _data; }
+        T* end() const { return _data + _size; }
+
+        T& operator[](int idx) { return _data[idx]; }
+        T const& operator[](int idx) const { return _data[idx]; }
+
+        T& top() { return _data[_size - 1]; }
+        T const& top() const { return _data[_size - 1]; }
+
+        T& next(int amount) { return _data[_data.size() - 1 - amount]; }
+        T const& next(int amount) const { return _data[_data.size() - 1 - amount]; }
+    };
+
+    template <typename T, typename Sz, Sz blocksz = 128>
+    struct DynamicStack
+    {
+        using IteratorT = typename Vector<T, Sz, blocksz>::Iterator;
+
+        DynamicStack(Sz capacity, const T& el)
+            : _data{ capacity, el }
+        {}
+
+        DynamicStack(Sz capacity = blocksz)
+            : _data{ capacity }
+        {}
+
+        template <typename... ArgsT>
+        T& push(ArgsT&&... args)
+        {
+            return _data.emplace_back(std::forward<ArgsT>(args)...);
+        }
+
+        void pop(int depth = 1)
+        {
+            while (depth >= 0 && _data._size > 0)
+            {
+                --_data._size;
+                if constexpr (std::is_default_constructible_v<T>)
+                    ::new(_data._data + _data._size) T{};
+                --depth;
+            }
+        }
+
+        void clear() { pop(_data._size); }
+
+        Sz size() const { return _data.size(); }
+        bool empty() const { return _data.size() == 0; }
+        IteratorT begin() { return _data.begin(); }
+        IteratorT end() { return _data.end(); }
+
+        T& operator[](int idx) { return _data[idx]; }
+        T const& operator[](int idx) const { return _data[idx]; }
+
+        T& top() { return _data.back(); }
+        T const& top() const { return _data.back(); }
+
+        T& next(int amount) { return _data[_data.size() - 1 - amount]; }
+        T const& next(int amount) const { return _data[_data.size() - 1 - amount]; }
+
+    private:
+
+        Vector<T, Sz, blocksz> _data;
+    };
+
+    WidgetStateData::WidgetStateData(WidgetType ty)
+        : type{ ty }
+    {
+        switch (type)
+        {
+        case WT_Label: ::new (&state.label) LabelState{}; break;
+        case WT_Button: ::new (&state.button) ButtonState{}; break;
+        case WT_RadioButton: break;
+        case WT_ToggleButton: break;
+        case WT_ItemGrid: ::new (&state.grid) ItemGridState{}; break;
+        default: break;
+        }
+    }
+
+    WidgetStateData::WidgetStateData(const WidgetStateData& src)
+        : WidgetStateData{ src.type }
+    {
+        switch (type)
+        {
+        case WT_Label: state.label = src.state.label; break;
+        case WT_Button: state.button = src.state.button; break;
+        case WT_RadioButton: break;
+        case WT_ToggleButton: break;
+        case WT_ItemGrid: state.grid = src.state.grid; break;
+        default: break;
+        }
+    }
+
+    WidgetStateData::~WidgetStateData()
+    {
+        switch (type)
+        {
+        case WT_Label: state.label.~LabelState(); break;
+        case WT_Button: state.button.~ButtonState(); break;
+        case WT_RadioButton: break;
+        case WT_ToggleButton: break;
+        case WT_ItemGrid: state.grid.~ItemGridState(); break;
+        default: break;
+        }
+    }
+
+    struct ItemGridInternalState
+    {
+        struct HeaderCellEventInfo
+        {
+            ImRect dragRect; // Current drag region when user changes column width
+            int16_t lastLevelResized = -1;
+            int16_t lastColResized = -1;
+            float modified = 0.f; // Records already modified column width
+            bool mouseDown = false; // If mouse is down on column boundary
+        };
+
+        std::vector<std::vector<HeaderCellEventInfo>> cols;
+    };
+
     struct WidgetContextData
     {
         // This is quasi-persistent
         std::vector<WidgetStateData> states[WT_TotalTypes];
-        std::vector<StyleDescriptor> styles[WT_TotalTypes];
-        Vector<LayoutItemDescriptor, int16_t> items{ 128 };
+        std::vector<ItemGridInternalState> gridStates;
+
+        DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
+        StyleDescriptor currStyle[WSI_Total];
+        int32_t currStyleStates = 0;
+
+        Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
         Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes];
 
         // This has to persistent
@@ -375,8 +509,8 @@ namespace glimmer
         std::vector<ToggleButtonStyleDescriptor> toggleButtonStyles;
 
         // These are used for push/pop style API
-        StyleDescriptor currstyle[32 * 6];
-        int currstyleDepth = 0;
+        //StyleDescriptor currstyle[16 * WSI_Total];
+        //int currstyleDepth = 0;
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
@@ -403,32 +537,18 @@ namespace glimmer
             return states[wtype][index];
         }
 
-        StyleDescriptor& GetStyle(int32_t id, int32_t state)
+        ItemGridInternalState& GridState(int32_t id)
         {
             auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
-            auto style = log2((unsigned)state);
-            auto& res = styles[wtype][index + style];
-            if (res.font.font == nullptr) res.font.font = GetFont(res.font.family, res.font.size, FT_Normal);
-            return res;
+            return gridStates[index];
         }
 
-        const StyleDescriptor& GetCurrentStyle(int32_t id) const
+        StyleDescriptor& GetStyle(int32_t state)
         {
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
-            int32_t state = WS_Default;
-
-            switch (wtype)
-            {
-            case glimmer::WT_Label: state = states[wtype][index].label.state; break;
-            case glimmer::WT_Button: state = states[wtype][index].button.state; break;
-            case glimmer::WT_RadioButton: state = states[wtype][index].radio.state; break;
-            case glimmer::WT_ToggleButton: state = states[wtype][index].toggle.state; break;
-            default: break;
-            }
-
-            return styles[wtype][index + log2((unsigned)state)];
+            auto style = log2((unsigned)state);
+            auto& res = (state & currStyleStates) ? currStyle[style] : pushedStyles[style].top();
+            if (res.font.font == nullptr) res.font.font = GetFont(res.font.family, res.font.size, FT_Normal);
+            return res;
         }
 
         void AddItemGeometry(int id, const ImRect& geometry)
@@ -456,21 +576,26 @@ namespace glimmer
         {
             std::memset(maxids, 0, WT_TotalTypes);
             std::memset(tempids, INT_MAX, WT_TotalTypes);
+            constexpr auto totalStyles = 16 * WSI_Total;
+
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+                pushedStyles[idx].push();
+
+            gridStates.resize(32);
 
             for (auto idx = 0; idx < WT_TotalTypes; ++idx)
             {
                 maxids[idx] = 0;
-                states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
-                styles[idx].resize(32 * 6, StyleDescriptor{});
+                WidgetStateData data{ (WidgetType)idx };
+                states[idx].resize(32, data);
                 itemGeometries[idx].resize(32, ImRect{ {0.f, 0.f}, {0.f, 0.f} });
 
-                for (auto sidx = 0; sidx < 32 * 6; sidx++)
+                for (auto sidx = 0; sidx < totalStyles; sidx++)
                 {
                     switch (idx)
                     {
                     case WT_ToggleButton:
-                        styles[idx][sidx].mindim = GlobalWindowConfig.toggleButtonSz;
-                        toggleButtonStyles.resize(32 * 6, ToggleButtonStyleDescriptor{});
+                        toggleButtonStyles.resize(totalStyles, ToggleButtonStyleDescriptor{});
                         break;
                     default: break;
                     }
@@ -480,945 +605,6 @@ namespace glimmer
     };
 
     static WidgetContextData Context{};
-
-    // =============================================================================================
-    // FONT FUNCTIONS
-    // =============================================================================================
-
-#pragma region Font Management
-    struct FontFamily
-    {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-        std::map<float, ImFont*> FontPtrs[FT_Total];
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-        std::map<float, BLFont> Fonts[FT_Total];
-        BLFontFace FontFace[FT_Total];
-#endif
-        FontCollectionFile Files;
-        bool AutoScale = false;
-    };
-
-    struct FontMatchInfo
-    {
-        std::string files[FT_Total];
-        std::string family;
-        bool serif = false;
-    };
-
-    struct FontLookupInfo
-    {
-        std::deque<FontMatchInfo> info;
-        std::unordered_map<std::string_view, int> ProportionalFontFamilies;
-        std::unordered_map<std::string_view, int> MonospaceFontFamilies;
-        std::unordered_set<std::string_view> LookupPaths;
-
-        void Register(const std::string& family, const std::string& filepath, FontType ft, bool isMono, bool serif)
-        {
-            auto& lookup = info.emplace_back();
-            lookup.files[ft] = filepath;
-            lookup.serif = serif;
-            lookup.family = family;
-            auto& index = !isMono ? ProportionalFontFamilies[lookup.family] :
-                MonospaceFontFamilies[lookup.family];
-            index = (int)info.size() - 1;
-        }
-    };
-
-    static std::unordered_map<std::string_view, FontFamily> FontStore;
-    static FontLookupInfo FontLookup;
-
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-    static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag)
-    {
-        if (ft == FT_Normal)
-        {
-            auto font = family.Files.Files[FT_Normal].empty() ? nullptr :
-                io.Fonts->AddFontFromFileTTF(family.Files.Files[FT_Normal].data(), size, &config);
-            assert(font != nullptr);
-            family.FontPtrs[FT_Normal][size] = font;
-        }
-        else
-        {
-            auto fallback = family.FontPtrs[FT_Normal][size];
-
-#ifdef IMGUI_ENABLE_FREETYPE
-            auto configFlags = config.FontBuilderFlags;
-
-            if (family.Files.Files[ft].empty()) {
-                config.FontBuilderFlags = configFlags | flag;
-                family.FontPtrs[ft][size] = io.Fonts->AddFontFromFileTTF(
-                    family.Files.Files[FT_Normal].data(), size, &config);
-            }
-            else family.FontPtrs[ft][size] = io.Fonts->AddFontFromFileTTF(
-                family.Files.Files[ft].data(), size, &config);
-#else
-            fonts[ft][size] = files.Files[ft].empty() ? fallback :
-                io.Fonts->AddFontFromFileTTF(files.Files[ft].data(), size, &config);
-#endif
-        }
-    }
-
-    bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, bool autoScale)
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        FontStore[family].Files = files;
-
-        auto& ffamily = FontStore[family];
-        ffamily.AutoScale = autoScale;
-        LoadFont(io, ffamily, FT_Normal, size, config, 0);
-
-#ifdef IMGUI_ENABLE_FREETYPE
-        LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeBuilderFlags_Bold);
-        LoadFont(io, ffamily, FT_Italics, size, config, ImGuiFreeTypeBuilderFlags_Oblique);
-        LoadFont(io, ffamily, FT_BoldItalics, size, config, ImGuiFreeTypeBuilderFlags_Bold | ImGuiFreeTypeBuilderFlags_Oblique);
-#else
-        LoadFont(io, ffamily, FT_Bold, size, config, 0);
-        LoadFont(io, ffamily, FT_Italics, size, config, 0);
-        LoadFont(io, ffamily, FT_BoldItalics, size, config, 0);
-#endif
-        LoadFont(io, ffamily, FT_Light, size, config, 0);
-        return true;
-    }
-
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-    static void CreateFont(FontFamily& family, FontType ft, float size)
-    {
-        auto& face = family.FontFace[ft];
-
-        if (ft == FT_Normal)
-        {
-            auto& font = family.Fonts[FT_Normal][size];
-            auto res = face.createFromFile(family.Files.Files[FT_Normal].c_str());
-            res = res == BL_SUCCESS ? font.createFromFace(face, size) : res;
-            assert(res == BL_SUCCESS);
-        }
-        else
-        {
-            const auto& fallback = family.Fonts[FT_Normal][size];
-
-            if (!files.Files[ft].empty())
-            {
-                auto res = face.createFromFile(family.Files.Files[ft].c_str());
-                if (res == BL_SUCCESS) res = family.Fonts[ft][size].createFromFace(face, size);
-                else family.Fonts[ft][size] = fallback;
-
-                if (res != BL_SUCCESS) family.Fonts[ft][size] = fallback;
-            }
-            else
-                family.Fonts[ft][size] = fallback;
-        }
-    }
-
-    bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size)
-    {
-        auto& ffamily = FontStore[family];
-        ffamily.Files = files;
-        CreateFont(ffamily, FT_Normal, size);
-        CreateFont(ffamily, FT_Light, size);
-        CreateFont(ffamily, FT_Bold, size);
-        CreateFont(ffamily, FT_Italics, size);
-        CreateFont(ffamily, FT_BoldItalics, size);
-    }
-#endif
-
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-    static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale)
-    {
-#ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale);
-#elif __linux__
-        std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
-        std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
-        std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz, fconfig) :
-            std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz, fconfig) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz, fconfig);
-#endif
-        // TODO: Add default fonts for other platforms
-    }
-
-    static void LoadDefaultMonospaceFont(float sz, const ImFontConfig& fconfig, bool autoScale)
-    {
-#ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale);
-#elif __linux__
-        std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
-        std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
-        std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz, fconfig) :
-            std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz, fconfig) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz, fconfig);
-#endif
-        // TODO: Add default fonts for other platforms
-    }
-#endif
-
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-    static void LoadDefaultProportionalFont(float sz)
-    {
-#ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz);
-#elif __linux__
-        std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
-        std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
-        std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz) :
-            std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz);
-#endif
-        // TODO: Add default fonts for other platforms
-    }
-
-    static void LoadDefaultMonospaceFont(float sz)
-    {
-#ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz);
-#elif __linux__
-        std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
-        std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
-        std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz) :
-            std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz);
-#endif
-        // TODO: Add default fonts for other platforms
-    }
-#endif
-
-#ifndef IM_RICHTEXT_TARGET_IMGUI
-    using ImWchar = uint32_t;
-#endif
-
-    static bool LoadDefaultFonts(float sz, const FontFileNames* names, bool skipProportional, bool skipMonospace,
-        bool autoScale, const ImWchar* glyphs)
-    {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-        ImFontConfig fconfig;
-        fconfig.OversampleH = 2;
-        fconfig.OversampleV = 1;
-        fconfig.RasterizerMultiply = sz <= 16.f ? 2.f : 1.f;
-        fconfig.GlyphRanges = glyphs;
-#ifdef IMGUI_ENABLE_FREETYPE
-        fconfig.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_NoHinting;
-#endif
-#endif
-
-        auto copyFileName = [](const std::string_view fontname, char* fontpath, int startidx) {
-            auto sz = std::min((int)fontname.size(), _MAX_PATH - startidx);
-
-            if (sz == 0) std::memset(fontpath, 0, _MAX_PATH);
-            else
-            {
-#ifdef _WIN32
-                if (fontpath[startidx - 1] != '\\') { fontpath[startidx] = '\\'; startidx++; }
-#else
-                if (fontpath[startidx - 1] != '/') { fontpath[startidx] = '/'; startidx++; }
-#endif
-                std::memcpy(fontpath + startidx, fontname.data(), sz);
-                fontpath[startidx + sz] = 0;
-            }
-
-            return fontpath;
-        };
-
-        if (names == nullptr)
-        {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-            if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale);
-            if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale);
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-            if (!skipProportional) LoadDefaultProportionalFont(sz);
-            if (!skipMonospace) LoadDefaultMonospaceFont(sz);
-#endif
-        }
-        else
-        {
-#if defined(_WIN32)
-            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "c:\\Windows\\Fonts\\", "c:\\Windows\\Fonts\\",
-                "c:\\Windows\\Fonts\\","c:\\Windows\\Fonts\\", "c:\\Windows\\Fonts\\" };
-#elif __APPLE__
-            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "/Library/Fonts/", "/Library/Fonts/",
-                "/Library/Fonts/", "/Library/Fonts/", "/Library/Fonts/" };
-#elif __linux__
-            static char BaseFontPaths[FT_Total][_MAX_PATH] = { "/usr/share/fonts/", "/usr/share/fonts/",
-                "/usr/share/fonts/", "/usr/share/fonts/", "/usr/share/fonts/" };
-#else
-#error "Platform unspported..."
-#endif
-
-            if (!names->BasePath.empty())
-            {
-                for (auto idx = 0; idx < FT_Total; ++idx)
-                {
-                    auto baseFontPath = BaseFontPaths[idx];
-                    std::memset(baseFontPath, 0, _MAX_PATH);
-                    auto sz = std::min((int)names->BasePath.size(), _MAX_PATH);
-                    strncpy_s(baseFontPath, _MAX_PATH - 1, names->BasePath.data(), sz);
-                    baseFontPath[sz] = '\0';
-                }
-            }
-
-            const int startidx = (int)std::strlen(BaseFontPaths[0]);
-            FontCollectionFile files;
-
-            if (!skipProportional && !names->Proportional.Files[FT_Normal].empty())
-            {
-                files.Files[FT_Normal] = copyFileName(names->Proportional.Files[FT_Normal], BaseFontPaths[FT_Normal], startidx);
-                files.Files[FT_Light] = copyFileName(names->Proportional.Files[FT_Light], BaseFontPaths[FT_Light], startidx);
-                files.Files[FT_Bold] = copyFileName(names->Proportional.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
-                files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
-                files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale);
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz);
-#endif
-            }
-            else
-            {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-                if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale);
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-                if (!skipProportional) LoadDefaultProportionalFont(sz);
-#endif
-            }
-
-            if (!skipMonospace && !names->Monospace.Files[FT_Normal].empty())
-            {
-                files.Files[FT_Normal] = copyFileName(names->Monospace.Files[FT_Normal], BaseFontPaths[FT_Normal], startidx);
-                files.Files[FT_Bold] = copyFileName(names->Monospace.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
-                files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
-                files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale);
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz);
-#endif
-            }
-            else
-            {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-                if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale);
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-                if (!skipMonospace) LoadDefaultMonospaceFont(sz);
-#endif
-            }
-        }
-
-        return true;
-    }
-
-    const static std::unordered_map<TextContentCharset, std::vector<ImWchar>> GlyphRanges
-    {
-        { TextContentCharset::ASCII, { 1, 127, 0 } },
-        { TextContentCharset::ASCIISymbols, { 1, 127, 0x20A0, 0x20CF, 0x2122, 0x2122,
-            0x2190, 0x21FF, 0x2200, 0x22FF, 0x2573, 0x2573, 0x25A0, 0x25FF, 0x2705, 0x2705,
-            0x2713, 0x2716, 0x274E, 0x274E, 0x2794, 0x2794, 0x27A4, 0x27A4, 0x27F2, 0x27F3,
-            0x2921, 0x2922, 0X2A7D, 0X2A7E, 0x2AF6, 0x2AF6, 0x2B04, 0x2B0D, 0x2B60, 0x2BD1,
-            0 } },
-        { TextContentCharset::UTF8Simple, { 1, 256, 0x100, 0x17F, 0x180, 0x24F,
-            0x370, 0x3FF, 0x400, 0x4FF, 0x500, 0x52F, 0x1E00, 0x1EFF, 0x1F00, 0x1FFF,
-            0x20A0, 0x20CF, 0x2122, 0x2122,
-            0x2190, 0x21FF, 0x2200, 0x22FF, 0x2573, 0x2573, 0x25A0, 0x25FF, 0x2705, 0x2705,
-            0x2713, 0x2716, 0x274E, 0x274E, 0x2794, 0x2794, 0x27A4, 0x27A4, 0x27F2, 0x27F3,
-            0x2921, 0x2922, 0x2980, 0x29FF, 0x2A00, 0x2AFF, 0X2A7D, 0X2A7E, 0x2AF6, 0x2AF6,
-            0x2B04, 0x2B0D, 0x2B60, 0x2BD1, 0x1F600, 0x1F64F, 0x1F800, 0x1F8FF,
-            0 } },
-        { TextContentCharset::UnicodeBidir, {} }, // All glyphs supported by font
-    };
-
-    static bool LoadDefaultFonts(const std::vector<float>& sizes, uint64_t flt, TextContentCharset charset,
-        const FontFileNames* names)
-    {
-        assert((names != nullptr) || (flt & FLT_Proportional) || (flt & FLT_Monospace));
-
-        auto it = GlyphRanges.find(charset);
-        auto glyphrange = it->second.empty() ? nullptr : it->second.data();
-
-        for (auto sz : sizes)
-        {
-            LoadDefaultFonts(sz, names, !(flt & FLT_Proportional), !(flt & FLT_Monospace),
-                flt & FLT_AutoScale, glyphrange);
-        }
-
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-        ImGui::GetIO().Fonts->Build();
-#endif
-        return true;
-    }
-
-    bool LoadDefaultFonts(const FontDescriptor* descriptors, int total)
-    {
-        assert(descriptors != nullptr);
-
-        for (auto idx = 0; idx < total; ++idx)
-        {
-            auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
-            LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
-        }
-        
-        return true;
-    }
-
-    // Structure to hold font data
-    struct FontInfo
-    {
-        std::string fontFamily;
-        int weight = 400;          // Default to normal (400)
-        bool isItalic = false;
-        bool isBold = false;
-        bool isMono = false;
-        bool isLight = false;
-        bool isSerif = true;
-    };
-
-    // Function to read a big-endian 16-bit unsigned integer
-    uint16_t ReadUInt16(const unsigned char* data, size_t offset)
-    {
-        return (data[offset] << 8) | data[offset + 1];
-    }
-
-    // Function to read a big-endian 32-bit unsigned integer
-    uint32_t ReadUInt32(const unsigned char* data, size_t offset)
-    {
-        return (static_cast<uint32_t>(data[offset]) << 24) |
-            (static_cast<uint32_t>(data[offset + 1]) << 16) |
-            (static_cast<uint32_t>(data[offset + 2]) << 8) |
-            static_cast<uint32_t>(data[offset + 3]);
-    }
-
-    // Read a Pascal string (length byte followed by string data)
-    std::string ReadPascalString(const unsigned char* data, size_t offset, size_t length)
-    {
-        std::string result;
-        for (size_t i = 0; i < length; i++)
-            if (data[offset + i] != 0)
-                result.push_back(static_cast<char>(data[offset + i]));
-        return result;
-    }
-
-    // Extract font information from a TTF file
-    FontInfo ExtractFontInfo(const std::string& filename)
-    {
-        FontInfo info;
-        std::ifstream file(filename, std::ios::binary);
-
-        if (!file.is_open())
-        {
-#ifdef _DEBUG
-            std::cerr << "Error: Could not open file " << filename << std::endl;
-#endif
-            return info;
-        }
-
-        // Get file size
-        file.seekg(0, std::ios::end);
-        size_t fileSize = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        // Read the entire file into memory
-        std::vector<unsigned char> buffer(fileSize);
-        file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
-        file.close();
-
-        // Check if this is a valid TTF file (signature should be 0x00010000 for TTF)
-        uint32_t sfntVersion = ReadUInt32(buffer.data(), 0);
-        if (sfntVersion != 0x00010000 && sfntVersion != 0x4F54544F)
-        { // TTF or OTF
-#ifdef _DEBUG
-            std::cerr << "Error: Not a valid TTF/OTF file" << std::endl;
-#endif
-            return info;
-        }
-
-        // Parse the table directory
-        uint16_t numTables = ReadUInt16(buffer.data(), 4);
-        bool foundName = false;
-        bool foundOS2 = false;
-        uint32_t nameTableOffset = 0;
-        uint32_t os2TableOffset = 0;
-
-        // Table directory starts at offset 12
-        for (int i = 0; i < numTables; i++)
-        {
-            size_t entryOffset = 12 + i * 16;
-            char tag[5] = { 0 };
-            memcpy(tag, buffer.data() + entryOffset, 4);
-
-            if (strcmp(tag, "name") == 0)
-            {
-                nameTableOffset = ReadUInt32(buffer.data(), entryOffset + 8);
-                foundName = true;
-            }
-            else if (strcmp(tag, "OS/2") == 0)
-            {
-                os2TableOffset = ReadUInt32(buffer.data(), entryOffset + 8);
-                foundOS2 = true;
-            }
-
-            if (foundName && foundOS2) break;
-        }
-
-        // Process the 'name' table if found
-        // Docs: https://learn.microsoft.com/en-us/typography/opentype/spec/name
-        if (foundName)
-        {
-            uint16_t nameCount = ReadUInt16(buffer.data(), nameTableOffset + 2);
-            uint16_t storageOffset = ReadUInt16(buffer.data(), nameTableOffset + 4);
-            uint16_t familyNameID = 1;  // Font Family name
-            uint16_t subfamilyNameID = 2;  // Font Subfamily name
-
-            for (int i = 0; i < nameCount; i++)
-            {
-                size_t recordOffset = nameTableOffset + 6 + i * 12;
-                uint16_t platformID = ReadUInt16(buffer.data(), recordOffset);
-                uint16_t encodingID = ReadUInt16(buffer.data(), recordOffset + 2);
-                uint16_t languageID = ReadUInt16(buffer.data(), recordOffset + 4);
-                uint16_t nameID = ReadUInt16(buffer.data(), recordOffset + 6);
-                uint16_t length = ReadUInt16(buffer.data(), recordOffset + 8);
-                uint16_t stringOffset = ReadUInt16(buffer.data(), recordOffset + 10);
-
-                // We prefer English Windows (platformID=3, encodingID=1, languageID=0x0409)
-                bool isEnglish = (platformID == 3 && encodingID == 1 && (languageID == 0x0409 || languageID == 0));
-
-                // If not English Windows, try platform-independent entries as fallback
-                if (!isEnglish && platformID == 0) isEnglish = true;
-
-                if (isEnglish)
-                {
-                    if (nameID == familyNameID && info.fontFamily.empty())
-                    {
-                        // Convert UTF-16BE to ASCII for simplicity
-                        std::string name;
-                        for (int j = 0; j < length; j += 2)
-                        {
-                            char c = buffer[nameTableOffset + storageOffset + stringOffset + j + 1];
-                            if (c) name.push_back(c);
-                        }
-                        info.fontFamily = name;
-                    }
-                    else if (nameID == subfamilyNameID)
-                    {
-                        // Convert UTF-16BE to ASCII for simplicity
-                        std::string name;
-                        for (int j = 0; j < length; j += 2)
-                        {
-                            char c = buffer[nameTableOffset + storageOffset + stringOffset + j + 1];
-                            if (c) name.push_back(c);
-                        }
-
-                        // Check if it contains "Italic" or "Oblique"
-                        if (name.find("Italic") != std::string::npos ||
-                            name.find("italic") != std::string::npos ||
-                            name.find("Oblique") != std::string::npos ||
-                            name.find("oblique") != std::string::npos)
-                            info.isItalic = true;
-                    }
-                }
-            }
-        }
-
-        // Process the 'OS/2' table if found
-        // Docs: https://learn.microsoft.com/en-us/typography/opentype/spec/os2
-        if (foundOS2)
-        {
-            // Weight is at offset 4 in the OS/2 table
-            info.weight = ReadUInt16(buffer.data(), os2TableOffset + 4);
-
-            // Check fsSelection bit field for italic flag (bit 0)
-            uint16_t fsSelection = ReadUInt16(buffer.data(), os2TableOffset + 62);
-            if ((fsSelection & 0x01) || (fsSelection & 0x100)) info.isItalic = true;
-            if (fsSelection & 0x10) info.isBold = true;
-
-            uint8_t panose[10];
-            std::memcpy(panose, buffer.data() + os2TableOffset + 32, 10);
-
-            // Refer to this: https://monotype.github.io/panose/pan2.htm for PANOSE docs
-            if (panose[0] == 2 && panose[3] == 9) info.isMono = true;
-            if (panose[0] == 2 && (panose[2] == 2 || panose[2] == 3 || panose[2] == 4)) info.isLight = true;
-            if (panose[0] == 2 && (panose[1] == 11 || panose[1] == 12 || panose[1] == 13)) info.isSerif = false;
-        }
-
-        return info;
-    }
-
-#if __linux__
-    struct FontFamilyInfo
-    {
-        std::string filename;
-        std::string fontName;
-        std::string style;
-    };
-
-    // Function to execute a command and return the output
-    static std::string ExecCommand(const char* cmd)
-    {
-        std::array<char, 8192> buffer;
-        std::string result;
-        FILE* pipe = popen(cmd, "r");
-
-        if (!pipe) return std::string{};
-
-        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
-            result += buffer.data();
-
-        pclose(pipe);
-        return result;
-    }
-
-    // Trim whitespace from a string_view and return as string
-    static std::string_view Trim(std::string_view sv)
-    {
-        // Find first non-whitespace
-        size_t start = 0;
-        while (start < sv.size() && std::isspace(sv[start]))
-            ++start;
-
-        // Find last non-whitespace
-        size_t end = sv.size();
-        while (end > start && std::isspace(sv[end - 1]))
-            --end;
-
-        return sv.substr(start, end - start);
-    }
-
-    // Parse a single line from fc-list output
-    static FontFamilyInfo ParseFcListLine(const std::string& line)
-    {
-        FontFamilyInfo info;
-        std::string_view lineView(line);
-
-        // fc-list typically outputs: filename: font name:style=style1,style2,...
-
-        // Find the first colon for filename
-        size_t firstColon = lineView.find(':');
-        if (firstColon != std::string_view::npos)
-        {
-            info.filename = Trim(lineView.substr(0, firstColon));
-
-            // Find the second colon for font name
-            size_t secondColon = lineView.find(':', firstColon + 1);
-            if (secondColon != std::string_view::npos)
-            {
-                info.fontName = Trim(lineView.substr(firstColon + 1, secondColon - firstColon - 1));
-
-                // Find "style=" after the second colon
-                std::string_view styleView = lineView.substr(secondColon + 1);
-                size_t stylePos = styleView.find("style=");
-
-                if (stylePos != std::string_view::npos)
-                {
-                    styleView = styleView.substr(stylePos + 6); // 6 is length of "style="
-
-                    // Find the first comma in the style list
-                    size_t commaPos = styleView.find(',');
-                    if (commaPos != std::string_view::npos)
-                        info.style = Trim(styleView.substr(0, commaPos));
-                    else
-                        info.style = Trim(styleView);
-                }
-                else
-                    info.style = "Regular"; // Default style if not specified
-            }
-            else
-            {
-                // If there's no second colon, use everything after first colon as font name
-                info.fontName = Trim(lineView.substr(firstColon + 1));
-                info.style = "Regular";
-            }
-        }
-
-        return info;
-    }
-
-    static bool PopulateFromFcList()
-    {
-        std::string output = ExecCommand("fc-list");
-
-        if (!output.empty())
-        {
-            std::istringstream iss(output);
-            std::string line;
-
-            while (std::getline(iss, line))
-            {
-                if (!line.empty())
-                {
-                    auto info = ParseFcListLine(line);
-                    auto isBold = info.style.find("Bold") != std::string::npos;
-                    auto isItalics = (info.style.find("Oblique") != std::string::npos) ||
-                        (info.style.find("Italic") != std::string::npos);
-                    auto isMonospaced = info.fontName.find("Mono") != std::string::npos;
-                    auto ft = isBold && isItalics ? FT_BoldItalics : isBold ? FT_Bold :
-                        isItalics ? FT_Italics : FT_Normal;
-                    auto isSerif = info.fontName.find("Serif") != std::string::npos;
-                    FontLookup.Register(info.fontName, info.filename, ft, isMonospaced, isSerif);
-                }
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-#endif
-
-#ifdef _WIN32
-    static const std::string_view CommonFontNames[11]{
-        "Arial", "Bookman Old Style", "Comic Sans MS", "Consolas", "Courier",
-        "Georgia", "Lucida", "Segoe UI", "Tahoma", "Times New Roman", "Verdana"
-    };
-#elif __linux__
-    static const std::string_view CommonFontNames[8]{
-        "OpenSans", "FreeSans", "NotoSans", "Hack",
-        "Bitstream Vera", "DejaVu", "Liberation", "Nimbus"
-        // Add other common fonts expected
-    };
-#endif
-
-    static void ProcessFileEntry(const std::filesystem::directory_entry& entry, bool cacheOnlyCommon)
-    {
-        auto fpath = entry.path().string();
-        auto info = ExtractFontInfo(fpath);
-#ifdef _DEBUG
-        std::cout << "Checking font file: " << fpath << std::endl;
-#endif
-
-        if (cacheOnlyCommon)
-        {
-            for (const auto& fname : CommonFontNames)
-            {
-                if (info.fontFamily.find(fname) != std::string::npos)
-                {
-                    auto isBold = info.isBold || (info.weight >= 600);
-                    auto ftype = isBold && info.isItalic ? FT_BoldItalics :
-                        isBold ? FT_Bold : info.isItalic ? FT_Italics :
-                        (info.weight < 400) || info.isLight ? FT_Light : FT_Normal;
-                    FontLookup.Register(info.fontFamily, fpath, ftype, info.isMono, info.isSerif);
-                    break;
-                }
-            }
-        }
-        else
-        {
-            auto isBold = info.isBold || (info.weight >= 600);
-            auto ftype = isBold && info.isItalic ? FT_BoldItalics :
-                isBold ? FT_Bold : info.isItalic ? FT_Italics :
-                (info.weight < 400) || info.isLight ? FT_Light : FT_Normal;
-            FontLookup.Register(info.fontFamily, fpath, ftype, info.isMono, info.isSerif);
-        }
-    }
-
-    static void PreloadFontLookupInfoImpl(int timeoutMs, std::string_view* lookupPaths, int lookupSz)
-    {
-        std::unordered_set<std::string_view> notLookedUp;
-        auto isDefaultPath = lookupSz == 0 || lookupPaths == nullptr;
-        assert((lookupPaths == nullptr && lookupSz == 0) || (lookupPaths != nullptr && lookupSz > 0));
-
-        for (auto idx = 0; idx < lookupSz; ++idx)
-        {
-            if (FontLookup.LookupPaths.count(lookupPaths[idx]) == 0)
-                notLookedUp.insert(lookupPaths[idx]);
-        }
-
-        if (isDefaultPath)
-#ifdef _WIN32
-            notLookedUp.insert("C:\\Windows\\Fonts");
-#elif __linux__
-            notLookedUp.insert("/usr/share/fonts/");
-#endif
-
-        if (!notLookedUp.empty())
-        {
-#ifdef _WIN32
-            auto start = std::chrono::system_clock().now().time_since_epoch().count();
-
-            for (auto path : notLookedUp)
-            {
-                for (const auto& entry : std::filesystem::directory_iterator{ path })
-                {
-                    if (entry.is_regular_file() && ((entry.path().extension() == ".TTF") ||
-                        (entry.path().extension() == ".ttf")))
-                    {
-                        ProcessFileEntry(entry, isDefaultPath);
-
-                        auto current = std::chrono::system_clock().now().time_since_epoch().count();
-                        if (timeoutMs != -1 && (int)(current - start) > timeoutMs) break;
-                    }
-                }
-            }
-#elif __linux__
-            if (isDefaultPath)
-            {
-                if (!PopulateFromFcList())
-                {
-                    auto start = std::chrono::system_clock().now().time_since_epoch().count();
-
-                    for (const auto& entry : std::filesystem::recursive_directory_iterator{ "/usr/share/fonts/" })
-                    {
-                        if (entry.is_regular_file() && entry.path().extension() == ".ttf")
-                        {
-                            ProcessFileEntry(entry, true);
-
-                            auto current = std::chrono::system_clock().now().time_since_epoch().count();
-                            if (timeoutMs != -1 && (int)(current - start) > timeoutMs) break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                auto start = std::chrono::system_clock().now().time_since_epoch().count();
-
-                for (auto path : notLookedUp)
-                {
-                    for (const auto& entry : std::filesystem::directory_iterator{ path })
-                    {
-                        if (entry.is_regular_file() && entry.path().extension() == ".ttf")
-                        {
-                            ProcessFileEntry(entry, false);
-
-                            auto current = std::chrono::system_clock().now().time_since_epoch().count();
-                            if (timeoutMs != -1 && (int)(current - start) > timeoutMs) break;
-                        }
-                    }
-                }
-            }
-#endif      
-        }
-    }
-
-    std::string_view FindFontFile(std::string_view family, FontType ft, std::string_view* lookupPaths, int lookupSz)
-    {
-        PreloadFontLookupInfoImpl(-1, lookupPaths, lookupSz);
-        auto it = FontLookup.ProportionalFontFamilies.find(family);
-
-        if (it == FontLookup.ProportionalFontFamilies.end())
-        {
-            it = FontLookup.MonospaceFontFamilies.find(family);
-
-            if (it == FontLookup.MonospaceFontFamilies.end())
-            {
-                auto isDefaultMonospace = family.find("monospace") != std::string_view::npos;
-                auto isDefaultSerif = family.find("serif") != std::string_view::npos &&
-                    family.find("sans") == std::string_view::npos;
-
-#ifdef _WIN32
-                it = isDefaultMonospace ? FontLookup.MonospaceFontFamilies.find("Consolas") :
-                    isDefaultSerif ? FontLookup.ProportionalFontFamilies.find("Times New Roman") :
-                    FontLookup.ProportionalFontFamilies.find("Segoe UI");
-#endif
-                // TODO: Implement for Linux
-            }
-        }
-
-        return FontLookup.info[it->second].files[ft];
-    }
-
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-    static auto LookupFontFamily(std::string_view family)
-    {
-        auto famit = FontStore.find(family);
-
-        if (famit == FontStore.end())
-        {
-            for (auto it = FontStore.begin(); it != FontStore.end(); ++it)
-            {
-                if (it->first.find(family) == 0u ||
-                    family.find(it->first) == 0u)
-                {
-                    return it;
-                }
-            }
-        }
-
-        if (famit == FontStore.end())
-            famit = FontStore.find(IM_RICHTEXT_DEFAULT_FONTFAMILY);
-
-        return famit;
-    }
-
-    void* GetFont(std::string_view family, float size, FontType ft)
-    {
-        auto famit = LookupFontFamily(family);
-        const auto& fonts = famit->second.FontPtrs[ft];
-        auto szit = fonts.find(size);
-
-        if (szit == fonts.end() && !fonts.empty())
-        {
-            if (famit->second.AutoScale)
-            {
-                return fonts.begin()->second;
-            }
-            else
-            {
-                szit = fonts.lower_bound(size);
-                szit = szit == fonts.begin() ? szit : std::prev(szit);
-            }
-        }
-
-        return szit->second;
-    }
-
-//#ifndef IM_FONTMANAGER_STANDALONE
-//    void* GetOverlayFont(const RenderConfig& config)
-//    {
-//        auto it = LookupFontFamily(IM_RICHTEXT_DEFAULT_FONTFAMILY);
-//        auto fontsz = GlobalWindowConfig.defaultFontSz * 0.8f * GlobalWindowConfig.fontScaling;
-//        return it->second.FontPtrs->lower_bound(fontsz)->second;
-//    }
-//#endif
-
-    bool IsFontLoaded()
-    {
-        return ImGui::GetIO().Fonts->IsBuilt();
-    }
-
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-    void PreloadFontLookupInfo(int timeoutMs)
-    {
-        PreloadFontLookupInfoImpl(timeoutMs, nullptr, 0);
-    }
-
-    void* GetFont(std::string_view family, float size, FontType type, FontExtraInfo extra)
-    {
-        auto famit = FontStore.find(family);
-
-        if (famit != FontStore.end())
-        {
-            if (famit->second.Fonts[ft])
-            {
-                auto szit = famit->second.Fonts[ft].find(size);
-                if (szit == famit->second.Fonts[ft].end())
-                    CreateFont(family, ft, sz);
-            }
-            else CreateFont(family, ft, sz);
-        }
-        else
-        {
-            auto& ffamily = FontStore[family];
-            ffamily.Files[ft] = extra.mapper != nullptr ? extra.mapper(family) :
-                extra.filepath.empty() ? FindFontFile(family, type) : extra.filepath;
-            assert(!ffamily.Files[ft].empty());
-            CreateFont(ffamily, ft, sz);
-        }
-
-        return &(FontStore.at(family).Fonts[ft].at(size));
-    }
-#endif
-#pragma endregion
 
     // =============================================================================================
     // INTERFACE IMPLEMENTATIONS
@@ -1745,7 +931,7 @@ namespace glimmer
     {
         if (!text.empty())
         {
-            //SetCurrentFont(config.DefaultFontFamily, GlobalWindowConfig.defaultFontSz, FT_Normal);
+            //SetCurrentFont(config.DefaultFontFamily, Config.defaultFontSz, FT_Normal);
             ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
             ResetFont();
         }
@@ -2580,17 +1766,17 @@ namespace glimmer
 
         if (AreSame(stylePropName, "font-size"))
         {
-            if (AreSame(stylePropVal, "xx-small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.6f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "x-small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.75f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "small")) style.font.size = GlobalWindowConfig.defaultFontSz * 0.89f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "medium")) style.font.size = GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "large")) style.font.size = GlobalWindowConfig.defaultFontSz * 1.2f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "x-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 1.5f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "xx-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 2.f * GlobalWindowConfig.fontScaling;
-            else if (AreSame(stylePropVal, "xxx-large")) style.font.size = GlobalWindowConfig.defaultFontSz * 3.f * GlobalWindowConfig.fontScaling;
+            if (AreSame(stylePropVal, "xx-small")) style.font.size = Config.defaultFontSz * 0.6f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "x-small")) style.font.size = Config.defaultFontSz * 0.75f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "small")) style.font.size = Config.defaultFontSz * 0.89f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "medium")) style.font.size = Config.defaultFontSz * Config.fontScaling;
+            else if (AreSame(stylePropVal, "large")) style.font.size = Config.defaultFontSz * 1.2f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "x-large")) style.font.size = Config.defaultFontSz * 1.5f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "xx-large")) style.font.size = Config.defaultFontSz * 2.f * Config.fontScaling;
+            else if (AreSame(stylePropVal, "xxx-large")) style.font.size = Config.defaultFontSz * 3.f * Config.fontScaling;
             else
-                style.font.size = ExtractFloatWithUnit(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                    GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.fontScaling);
+                style.font.size = ExtractFloatWithUnit(stylePropVal, Config.defaultFontSz * Config.fontScaling,
+                    Config.defaultFontSz * Config.fontScaling, 1.f, Config.fontScaling);
             prop = StyleFontSize;
         }
         else if (AreSame(stylePropName, "font-weight"))
@@ -2621,23 +1807,23 @@ namespace glimmer
         else if (AreSame(stylePropName, "background-color") || AreSame(stylePropName, "background"))
         {
             if (StartsWith(stylePropVal, "linear-gradient"))
-                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
-            else style.bgcolor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, Config.userData);
+            else style.bgcolor = ExtractColor(stylePropVal, GetColor, Config.userData);
             prop = StyleBackground;
         }
         else if (AreSame(stylePropName, "color"))
         {
-            style.fgcolor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            style.fgcolor = ExtractColor(stylePropVal, GetColor, Config.userData);
             prop = StyleFgColor;
         }
         else if (AreSame(stylePropName, "width"))
         {
-            style.dimension.x = ExtractFloatWithUnit(stylePropVal, 0, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.dimension.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             prop = StyleWidth;
         }
         else if (AreSame(stylePropName, "height"))
         {
-            style.dimension.y = ExtractFloatWithUnit(stylePropVal, 0, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            style.dimension.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             prop = StyleHeight;
         }
         else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
@@ -2662,31 +1848,31 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "padding"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.padding.top = style.padding.right = style.padding.left = style.padding.bottom = val;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-top"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.padding.top = val;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-bottom"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.padding.bottom = val;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-left"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.padding.left = val;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-right"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GlobalWindowConfig.scaling);
+            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.padding.right = val;
             prop = StylePadding;
         }
@@ -2701,41 +1887,41 @@ namespace glimmer
         else if (AreSame(stylePropName, "border"))
         {
             style.border.top = style.border.bottom = style.border.left = style.border.right = ExtractBorder(stylePropVal,
-                GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GetColor, GlobalWindowConfig.userData);
+                Config.defaultFontSz * Config.fontScaling, 1.f, GetColor, Config.userData);
             style.border.isUniform = true;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top"))
         {
-            style.border.top = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                1.f, GetColor, GlobalWindowConfig.userData);
+            style.border.top = ExtractBorder(stylePropVal, Config.defaultFontSz * Config.fontScaling,
+                1.f, GetColor, Config.userData);
             style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-left"))
         {
-            style.border.left = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                1.f, GetColor, GlobalWindowConfig.userData);
+            style.border.left = ExtractBorder(stylePropVal, Config.defaultFontSz * Config.fontScaling,
+                1.f, GetColor, Config.userData);
             style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-right"))
         {
-            style.border.right = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                1.f, GetColor, GlobalWindowConfig.userData);
+            style.border.right = ExtractBorder(stylePropVal, Config.defaultFontSz * Config.fontScaling,
+                1.f, GetColor, Config.userData);
             style.border.isUniform = false;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom"))
         {
-            style.border.bottom = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                1.f, GetColor, GlobalWindowConfig.userData);
+            style.border.bottom = ExtractBorder(stylePropVal, Config.defaultFontSz * Config.fontScaling,
+                1.f, GetColor, Config.userData);
             prop = StyleBorder;
             style.border.isUniform = false;
         }
         else if (AreSame(stylePropName, "border-radius"))
         {
-            auto radius = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            auto radius = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius | 
                 RSP_BorderBottomRightRadius);
@@ -2744,41 +1930,41 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "border-width"))
         {
-            auto width = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            auto width = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             style.border.setThickness(width);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-color"))
         {
-            auto color = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            auto color = ExtractColor(stylePropVal, GetColor, Config.userData);
             style.border.setColor(color);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-left-radius"))
         {
-            style.border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopLeftRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-right-radius"))
         {
-            style.border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-right-radius"))
         {
-            style.border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-left-radius"))
         {
-            style.border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
+            style.border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomLeftRadius;
             prop = StyleBorder;
@@ -2786,27 +1972,27 @@ namespace glimmer
         else if (AreSame(stylePropName, "margin"))
         {
             style.margin.left = style.margin.right = style.margin.top = style.margin.bottom =
-                ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+                ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-top"))
         {
-            style.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            style.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-left"))
         {
-            style.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            style.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-right"))
         {
-            style.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            style.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-bottom"))
         {
-            style.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            style.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "font-style"))
@@ -2820,37 +2006,37 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "box-shadow"))
         {
-            style.shadow = ExtractBoxShadow(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
+            style.shadow = ExtractBoxShadow(stylePropVal, Config.defaultFontSz, 1.f, GetColor, Config.userData);
             prop = StyleBoxShadow;
         }
         else if (AreSame(stylePropName, "thumb-color"))
         {
             if (StartsWith(stylePropVal, "linear-gradient"))
             {
-                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, Config.userData);
             }
-            else specific.toggle.thumbColor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            else specific.toggle.thumbColor = ExtractColor(stylePropVal, GetColor, Config.userData);
             prop = StyleThumbColor;
         }
         else if (AreSame(stylePropName, "track-color"))
         {
             if (StartsWith(stylePropVal, "linear-gradient"))
             {
-                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, GlobalWindowConfig.userData);
+                style.gradient = ExtractLinearGradient(stylePropVal, GetColor, Config.userData);
             }
-            else specific.toggle.trackColor = ExtractColor(stylePropVal, GetColor, GlobalWindowConfig.userData);
+            else specific.toggle.trackColor = ExtractColor(stylePropVal, GetColor, Config.userData);
             prop = StyleTrackColor;
         }
         else if (AreSame(stylePropName, "track-outline"))
         {
-            auto brd = ExtractBorder(stylePropVal, GlobalWindowConfig.defaultFontSz, 1.f, GetColor, GlobalWindowConfig.userData);
+            auto brd = ExtractBorder(stylePropVal, Config.defaultFontSz, 1.f, GetColor, Config.userData);
             specific.toggle.trackBorderColor = brd.color;
             specific.toggle.trackBorderThickness = brd.thickness;
             prop = StyleTrackOutlineColor;
         }
         else if (AreSame(stylePropName, "thumb-offset"))
         {
-            specific.toggle.thumbOffset = ExtractFloatWithUnit(stylePropVal, 0.f, GlobalWindowConfig.defaultFontSz* GlobalWindowConfig.fontScaling, 1.f, 1.f);
+            specific.toggle.thumbOffset = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz* Config.fontScaling, 1.f, 1.f);
             prop = StyleThumbOffset;
         }
         else
@@ -2863,27 +2049,27 @@ namespace glimmer
 
     static void UsePushedStyle(int32_t wid)
     {
-        // If a set of styles is already pushed, add it to widget being created
-        if (Context.currstyleDepth >= 6)
-        {
-            auto& defstyle = Context.GetStyle(wid, WS_Default);
-            defstyle = Context.currstyle[Context.currstyleDepth - 6];
+        //// If a set of styles is already pushed, add it to widget being created
+        //if (Context.currstyleDepth >= 6)
+        //{
+        //    auto& defstyle = Context.GetStyle(wid, WS_Default);
+        //    defstyle = Context.currstyle[Context.currstyleDepth - 6];
 
-            auto& disabledstyle = Context.GetStyle(wid, WS_Disabled);
-            disabledstyle = Context.currstyle[Context.currstyleDepth - 5];
+        //    auto& disabledstyle = Context.GetStyle(wid, WS_Disabled);
+        //    disabledstyle = Context.currstyle[Context.currstyleDepth - 5];
 
-            auto& hoveredstyle = Context.GetStyle(wid, WS_Hovered);
-            hoveredstyle = Context.currstyle[Context.currstyleDepth - 4];
+        //    auto& hoveredstyle = Context.GetStyle(wid, WS_Hovered);
+        //    hoveredstyle = Context.currstyle[Context.currstyleDepth - 4];
 
-            auto& pressedstyle = Context.GetStyle(wid, WS_Pressed);
-            pressedstyle = Context.currstyle[Context.currstyleDepth - 3];
+        //    auto& pressedstyle = Context.GetStyle(wid, WS_Pressed);
+        //    pressedstyle = Context.currstyle[Context.currstyleDepth - 3];
 
-            auto& focusedstyle = Context.GetStyle(wid, WS_Focused);
-            focusedstyle = Context.currstyle[Context.currstyleDepth - 2];
+        //    auto& focusedstyle = Context.GetStyle(wid, WS_Focused);
+        //    focusedstyle = Context.currstyle[Context.currstyleDepth - 2];
 
-            auto& checkedstyle = Context.GetStyle(wid, WS_Checked);
-            checkedstyle = Context.currstyle[Context.currstyleDepth - 1];
-        }
+        //    auto& checkedstyle = Context.GetStyle(wid, WS_Checked);
+        //    checkedstyle = Context.currstyle[Context.currstyleDepth - 1];
+        //}
     }
 
     static void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
@@ -2977,90 +2163,115 @@ namespace glimmer
         dest.specified |= StyleUpdatedFromBase;
     }
 
-    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, std::string_view focusedcss,
-        std::string_view checkedcss, std::string_view disblcss)
+    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, 
+        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
     {
-        if (Context.currstyleDepth > 0)
+        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
+
+        // When pushing style, the default style behaves slightly differently then rest
+        // The default style inherits from parent in the stack if present, parse the CSS and gets pushed
+        // The other styles, inherit from default and then parse the CSS and get pushed
+        for (auto style = 0; style < WSI_Total; ++style)
         {
-            // Inherit from parent push style, this is the "cascading part"
-            Context.currstyle[Context.currstyleDepth] = Context.currstyle[Context.currstyleDepth - 6];
-            Context.currstyle[Context.currstyleDepth + 1] = Context.currstyle[Context.currstyleDepth - 5];
-            Context.currstyle[Context.currstyleDepth + 2] = Context.currstyle[Context.currstyleDepth - 4];
-            Context.currstyle[Context.currstyleDepth + 3] = Context.currstyle[Context.currstyleDepth - 3];
-            Context.currstyle[Context.currstyleDepth + 4] = Context.currstyle[Context.currstyleDepth - 2];
-            Context.currstyle[Context.currstyleDepth + 5] = Context.currstyle[Context.currstyleDepth - 1];
+            if (!css[style].empty())
+            {
+                auto& pushed = Context.pushedStyles[style].push();
 
-            // TODO reset non-inheritable styles
-            Context.currstyle[Context.currstyleDepth].bgcolor = IM_COL32_BLACK_TRANS;
-            Context.currstyle[Context.currstyleDepth + 1].bgcolor = IM_COL32_BLACK_TRANS;
-            Context.currstyle[Context.currstyleDepth + 2].bgcolor = IM_COL32_BLACK_TRANS;
-            Context.currstyle[Context.currstyleDepth + 3].bgcolor = IM_COL32_BLACK_TRANS;
-            Context.currstyle[Context.currstyleDepth + 4].bgcolor = IM_COL32_BLACK_TRANS;
-            Context.currstyle[Context.currstyleDepth + 5].bgcolor = IM_COL32_BLACK_TRANS;
-
-            Context.currstyle[Context.currstyleDepth].specified &= ~StyleUpdatedFromBase;
-            Context.currstyle[Context.currstyleDepth + 1].specified &= ~StyleUpdatedFromBase;
-            Context.currstyle[Context.currstyleDepth + 2].specified &= ~StyleUpdatedFromBase;
-            Context.currstyle[Context.currstyleDepth + 3].specified &= ~StyleUpdatedFromBase;
-            Context.currstyle[Context.currstyleDepth + 4].specified &= ~StyleUpdatedFromBase;
-            Context.currstyle[Context.currstyleDepth + 5].specified &= ~StyleUpdatedFromBase;
-        }
-        else
-        {
-            Context.currstyle[Context.currstyleDepth] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth + 1] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth + 2] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth + 3] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth + 4] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth + 5] = StyleDescriptor{};
-        }
-
-        Context.currstyle[Context.currstyleDepth].From(defcss);
-        Context.currstyle[Context.currstyleDepth + 1].From(disblcss);
-        Context.currstyle[Context.currstyleDepth + 2].From(hovercss);
-        Context.currstyle[Context.currstyleDepth + 3].From(pressedcss);
-        Context.currstyle[Context.currstyleDepth + 4].From(focusedcss);
-        Context.currstyle[Context.currstyleDepth + 5].From(checkedcss);
-
-        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 1]);
-        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 2]);
-        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 3]);
-        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 4]);
-        CopyStyle(Context.currstyle[Context.currstyleDepth], Context.currstyle[Context.currstyleDepth + 5]);
-        Context.currstyleDepth += 6;
-    }
-
-    StyleDescriptor& GetStyle(int32_t id, int32_t state)
-    {
-        auto styleidx = log2((unsigned)state);
-        auto& src = Context.GetStyle(id, state);
-
-        for (auto stidx = styleidx + 1; stidx < 5; ++stidx)
-            CopyStyle(src, Context.GetStyle(id, 1 << stidx));
-
-        return src;
-    }
-
-    void PopStyle(int depth)
-    {
-        while (Context.currstyleDepth >= 6 && depth > 0)
-        {
-            Context.currstyle[Context.currstyleDepth - 1] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth - 2] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth - 3] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth - 4] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth - 5] = StyleDescriptor{};
-            Context.currstyle[Context.currstyleDepth - 6] = StyleDescriptor{};
-            Context.currstyleDepth -= 6;
-            depth--;
+                if (Context.pushedStyles[style].size() >= 2)
+                {
+                    pushed = Context.pushedStyles[WSI_Default].next(1);
+                    pushed.bgcolor = IM_COL32_BLACK_TRANS;
+                }
+                else if (style != WSI_Default)
+                    pushed = Context.pushedStyles[WSI_Default].top();
+                
+                pushed.From(css[style]);
+            }
         }
     }
+
+    void SetNextStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, 
+        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
+    {
+        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
+
+        for (auto style = 0; style < WSI_Total; ++style)
+        {
+            if (!css[style].empty())
+            {
+                Context.currStyleStates |= (1 << style);
+
+                if (style != WSI_Default)
+                {
+                    Context.currStyle[style] = GetCurrentStyle(WS_Default);
+                    Context.currStyle[style].bgcolor = IM_COL32_BLACK_TRANS;
+                }
+
+                Context.currStyle[style].From(css[style]);
+            }
+        }
+    }
+
+    StyleDescriptor& GetCurrentStyle(int32_t state)
+    {
+        return Context.GetStyle(state);
+    }
+
+    void PopStyle(int depth, int32_t state)
+    {
+        for (auto style = 0; style < WSI_Total; ++style)
+        {
+            if ((1 << style) & state)
+            {
+                auto limit = depth;
+                while (!Context.pushedStyles[style].empty() && limit > 0)
+                {
+                    Context.pushedStyles[style].pop();
+                    limit--;
+                }
+            }
+        }
+    }
+
+    /*void PushItemStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, 
+        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
+    {
+        Context.itemStyles.push(defcss);
+        Context.itemStyles.push(hovercss);
+        Context.itemStyles.push(pressedcss);
+        Context.itemStyles.push(focusedcss);
+        Context.itemStyles.push(checkedcss);
+        Context.itemStyles.push(disblcss);
+    }
+
+    void SetItemStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
+        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
+    {
+        Context.itemStyleStates = WS_Default | WS_Checked | WS_Disabled | WS_Focused | WS_Hovered | WS_Pressed;
+        Context.currItemStyle[WS_Default] = defcss;
+        Context.currItemStyle[1] = disblcss;
+        Context.currItemStyle[2] = focusedcss;
+        Context.currItemStyle[3] = hovercss;
+        Context.currItemStyle[4] = pressedcss;
+        Context.currItemStyle[5] = checkedcss;
+    }
+
+    void PopItemStyle(int depth)
+    {
+        Context.itemStyles.pop(depth * 6);
+    }*/
 
     StyleDescriptor::StyleDescriptor()
     {
-        font.size = GlobalWindowConfig.defaultFontSz;
+        font.size = Config.defaultFontSz;
         index.animation = index.custom = 0;
         border.cornerRadius[0] = border.cornerRadius[1] = border.cornerRadius[2] = border.cornerRadius[3] = 0.f;
+    }
+
+    StyleDescriptor::StyleDescriptor(std::string_view css)
+        : StyleDescriptor{}
+    {
+        From(css);
     }
 
     StyleDescriptor& StyleDescriptor::Border(float thick, std::tuple<int, int, int, int> color)
@@ -3281,7 +2492,7 @@ namespace glimmer
                 renderer.DrawRectGradient(brk.rects[3].Min, brk.rects[3].Max, style.shadow.color, outercol, DIR_Vertical);
 
                 // Corners: Top-left -> Top-right -> Bottom-right -> Bottom-left
-                switch (GlobalWindowConfig.shadowQuality)
+                switch (Config.shadowQuality)
                 {
                 case BoxShadowQuality::Balanced:
                 {
@@ -3323,14 +2534,14 @@ namespace glimmer
                     style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
                     style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
 
-            auto diffcolor = GlobalWindowConfig.bgcolor - 1;
+            auto diffcolor = Config.bgcolor - 1;
             auto border = style.border;
-            border.setColor(GlobalWindowConfig.bgcolor);
+            border.setColor(Config.bgcolor);
             DrawBorderRect(startpos, endpos, style.border, diffcolor, renderer);
             if (!border.isRounded())
-                renderer.DrawRect(startpos, endpos, GlobalWindowConfig.bgcolor, true);
+                renderer.DrawRect(startpos, endpos, Config.bgcolor, true);
             else
-                renderer.DrawRoundedRect(startpos, endpos, GlobalWindowConfig.bgcolor, true,
+                renderer.DrawRoundedRect(startpos, endpos, Config.bgcolor, true,
                     style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
                     style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
         }
@@ -3527,7 +2738,7 @@ namespace glimmer
                 {
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
 
                         if (widget.row == layout.currow)
                         {
@@ -3549,7 +2760,7 @@ namespace glimmer
                     auto currposx = hdiff;
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
 
                         if (widget.row == layout.currow)
                         {
@@ -3578,7 +2789,7 @@ namespace glimmer
                 {
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         if (widget.col == layout.currcol)
                         {
                             widget.content.TranslateY(hdiff);
@@ -3599,7 +2810,7 @@ namespace glimmer
                     auto currposx = hdiff;
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         if (widget.col == layout.currcol)
                         {
                             auto translatex = currposx - widget.margin.Min.y;
@@ -3620,9 +2831,9 @@ namespace glimmer
     static void AlignCrossAxisItems(LayoutDescriptor& layout, int depth)
     {
         if ((layout.sizing & ExpandH) == 0)
-            layout.geometry.Max.x = Context.items[layout.itemidx].margin.Max.x = layout.maxdim.x;
+            layout.geometry.Max.x = Context.layoutItems[layout.itemidx].margin.Max.x = layout.maxdim.x;
         if ((layout.sizing & ExpandV) == 0)
-            layout.geometry.Max.y = Context.items[layout.itemidx].margin.Max.y = layout.maxdim.y;
+            layout.geometry.Max.y = Context.layoutItems[layout.itemidx].margin.Max.y = layout.maxdim.y;
 
         switch (layout.type)
         {
@@ -3638,7 +2849,7 @@ namespace glimmer
                 {
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         widget.margin.TranslateY(vdiff);
                         widget.border.TranslateY(vdiff);
                         widget.padding.TranslateY(vdiff);
@@ -3656,7 +2867,7 @@ namespace glimmer
                     auto currposy = vdiff;
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         auto translatey = currposy - widget.margin.Min.y;
                         widget.margin.TranslateY(translatey);
                         widget.border.TranslateY(translatey);
@@ -3681,7 +2892,7 @@ namespace glimmer
                 {
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         widget.margin.TranslateX(hdiff);
                         widget.border.TranslateX(hdiff);
                         widget.padding.TranslateX(hdiff);
@@ -3699,7 +2910,7 @@ namespace glimmer
                     auto currposy = hdiff;
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
-                        auto& widget = Context.items[idx];
+                        auto& widget = Context.layoutItems[idx];
                         auto translatex = currposy - widget.margin.Min.x;
                         widget.margin.TranslateX(translatex);
                         widget.border.TranslateX(translatex);
@@ -3813,9 +3024,9 @@ namespace glimmer
             break;
         }
 
-        Context.items.push_back(item);
-        if (layout.from == -1) layout.from = layout.to = (int16_t)(Context.items.size() - 1);
-        else layout.to = (int16_t)(Context.items.size() - 1);
+        Context.layoutItems.push_back(item);
+        if (layout.from == -1) layout.from = layout.to = (int16_t)(Context.layoutItems.size() - 1);
+        else layout.to = (int16_t)(Context.layoutItems.size() - 1);
         layout.itemidx = layout.to;
         return offset;
     }
@@ -3978,23 +3189,23 @@ namespace glimmer
                 if (AreSame(stylePropName, "width"))
                 {
                     sizing.horizontal = ExtractFloatWithUnit(stylePropVal.value(), 0.f,
-                        GlobalWindowConfig.defaultFontSz, pwidth, 1.f);
+                        Config.defaultFontSz, pwidth, 1.f);
                     sizing.relativeh = stylePropVal.value().back() == '%';
                     hasSizing = true;
                 }
                 else if (AreSame(stylePropName, "height"))
                 {
                     sizing.vertical = ExtractFloatWithUnit(stylePropVal.value(), 0.f,
-                        GlobalWindowConfig.defaultFontSz, pheight, 1.f);
+                        Config.defaultFontSz, pheight, 1.f);
                     sizing.relativev = stylePropVal.value().back() == '%';
                     hasSizing = true;
                 }
                 else if (AreSame(stylePropName, "spacing-x")) layout.spacing.x =
-                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, Config.defaultFontSz, 1.f, 1.f);
                 else if (AreSame(stylePropName, "spacing-y")) layout.spacing.x =
-                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, Config.defaultFontSz, 1.f, 1.f);
                 else if (AreSame(stylePropName, "spacing")) layout.spacing.x = layout.spacing.y =
-                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, GlobalWindowConfig.defaultFontSz, 1.f, 1.f);
+                    ExtractFloatWithUnit(stylePropVal.value(), 0.f, Config.defaultFontSz, 1.f, 1.f);
                 else if (AreSame(stylePropName, "overflow-x")) layout.hofmode = AreSame(stylePropVal.value(), "clip") ?
                     OverflowMode::Clip : AreSame(stylePropVal.value(), "scroll") ? OverflowMode::Scroll : OverflowMode::Wrap;
                 else if (AreSame(stylePropName, "overflow-y")) layout.vofmode = AreSame(stylePropVal.value(), "clip") ?
@@ -4016,31 +3227,31 @@ namespace glimmer
                 else if (AreSame(stylePropName, "border"))
                 {
                     layout.border.top = layout.border.bottom = layout.border.left = layout.border.right = ExtractBorder(stylePropVal.value(),
-                        GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling, 1.f, GetColor, GlobalWindowConfig.userData);
+                        Config.defaultFontSz * Config.fontScaling, 1.f, GetColor, Config.userData);
                     layout.border.isUniform = true;
                 }
                 else if (AreSame(stylePropName, "border-top"))
                 {
-                    layout.border.top = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.top = ExtractBorder(stylePropVal.value(), Config.defaultFontSz * Config.fontScaling,
+                        1.f, GetColor, Config.userData);
                     layout.border.isUniform = false;
                 }
                 else if (AreSame(stylePropName, "border-left"))
                 {
-                    layout.border.left = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.left = ExtractBorder(stylePropVal.value(), Config.defaultFontSz * Config.fontScaling,
+                        1.f, GetColor, Config.userData);
                     layout.border.isUniform = false;
                 }
                 else if (AreSame(stylePropName, "border-right"))
                 {
-                    layout.border.right = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.right = ExtractBorder(stylePropVal.value(), Config.defaultFontSz * Config.fontScaling,
+                        1.f, GetColor, Config.userData);
                     layout.border.isUniform = false;
                 }
                 else if (AreSame(stylePropName, "border-bottom"))
                 {
-                    layout.border.bottom = ExtractBorder(stylePropVal.value(), GlobalWindowConfig.defaultFontSz * GlobalWindowConfig.fontScaling,
-                        1.f, GetColor, GlobalWindowConfig.userData);
+                    layout.border.bottom = ExtractBorder(stylePropVal.value(), Config.defaultFontSz * Config.fontScaling,
+                        1.f, GetColor, Config.userData);
                     layout.border.isUniform = false;
                 }
             }
@@ -4091,7 +3302,7 @@ namespace glimmer
             auto& layout = Context.layouts[Context.currLayoutDepth];
             AlignLayoutAxisItems(layout);
             AlignCrossAxisItems(layout, depth);
-            //Context.items[layout.itemidx].viewport = layout.nextpos;
+            //Context.layoutItems[layout.itemidx].viewport = layout.nextpos;
 
             // Update parent's nextpos as this layout is complete. This step is
             // necessary as sublayout may need to perform actual layout before
@@ -4100,8 +3311,8 @@ namespace glimmer
                 Context.layouts[Context.currLayoutDepth - 1].nextpos +=
                     ImVec2{ layout.geometry.GetWidth(), layout.geometry.GetHeight() };
 
-            DrawBorderRect(layout.geometry.Min, layout.geometry.Max, layout.border, GlobalWindowConfig.bgcolor,
-                *GlobalWindowConfig.renderer);
+            DrawBorderRect(layout.geometry.Min, layout.geometry.Max, layout.border, Config.bgcolor,
+                *Config.renderer);
 
             if (layout.popSizingOnEnd) PopSizing();
 
@@ -4123,9 +3334,9 @@ namespace glimmer
                 //std::fill(std::begin(layoutidxs), std::end(layoutidxs), -1);
 
                 //// Extract all sublayouts
-                //for (auto idx = 0; idx < (int)Context.items.size(); ++idx)
+                //for (auto idx = 0; idx < (int)Context.layoutItems.size(); ++idx)
                 //{
-                //    if (Context.items[idx].wtype == WT_Sublayout)
+                //    if (Context.layoutItems[idx].wtype == WT_Sublayout)
                 //    {
                 //        layoutidxs[totalLayouts++] = idx;
                 //        totalLayouts++;
@@ -4134,15 +3345,15 @@ namespace glimmer
 
                 //// Sort by depth
                 //std::sort(std::begin(layoutidxs), std::begin(layoutidxs) + totalLayouts, [](int lhs, int rhs) {
-                //        auto lhsdepth = Context.items[lhs].id;
-                //        auto rhsdepth = Context.items[rhs].id;
+                //        auto lhsdepth = Context.layoutItems[lhs].id;
+                //        auto rhsdepth = Context.layoutItems[rhs].id;
                 //        return lhsdepth == rhsdepth ? lhs < rhs : lhsdepth < rhsdepth;
                 //    });
 
                 /*auto currdepth = 0;
                 for (auto layoutidx = 0; layoutidx < totalLayouts; layoutidx++)
                 {
-                    auto& layout = Context.items[layoutidx];
+                    auto& layout = Context.layoutItems[layoutidx];
 
                     if (layout.id > 0)
                     {
@@ -4156,20 +3367,20 @@ namespace glimmer
                 }*/
 
                 // Handle scroll panes...
-                for (auto& widget : Context.items)
+                for (auto& widget : Context.layoutItems)
                 {
                     switch (widget.wtype)
                     {
                     case WT_Label:
                     {
                         LabelImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
-                            *GlobalWindowConfig.renderer);
+                            *Config.renderer);
                         break;
                     }
                     case WT_Button:
                     {
                         ButtonImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
-                            *GlobalWindowConfig.renderer);
+                            *Config.renderer);
                         break;
                     }
                     default:
@@ -4264,7 +3475,7 @@ namespace glimmer
             if (geometry & ToLeft)
             {
                 content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
-                    content.Min.x - std::clamp(textsz.x, style.mindim.x, style.maxdim.x);
+                    content.Min.x - clamp(textsz.x, style.mindim.x, style.maxdim.x);
                 padding.Max.x = content.Max.x - style.padding.left;
                 border.Max.x = padding.Max.x - borderstyle.left.thickness;
                 margin.Max.x = border.Max.x - style.margin.left;
@@ -4272,7 +3483,7 @@ namespace glimmer
             else
             {
                 content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
-                    content.Min.x + std::clamp(textsz.x, style.mindim.x, style.maxdim.x);
+                    content.Min.x + clamp(textsz.x, style.mindim.x, style.maxdim.x);
                 padding.Max.x = content.Max.x + style.padding.right;
                 border.Max.x = padding.Max.x + borderstyle.right.thickness;
                 margin.Max.x = border.Max.x + style.margin.right;
@@ -4283,7 +3494,7 @@ namespace glimmer
             if (geometry & ToTop)
             {
                 content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
-                    content.Min.y - std::clamp(textsz.y, style.mindim.y, style.maxdim.y);
+                    content.Min.y - clamp(textsz.y, style.mindim.y, style.maxdim.y);
                 padding.Max.y = content.Max.y - style.padding.top;
                 border.Max.y = padding.Max.y - borderstyle.top.thickness;
                 margin.Max.y = border.Max.y - style.margin.top;
@@ -4291,7 +3502,7 @@ namespace glimmer
             else
             {
                 content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
-                    content.Min.y + std::clamp(textsz.y, style.mindim.y, style.maxdim.y);
+                    content.Min.y + clamp(textsz.y, style.mindim.y, style.maxdim.y);
                 padding.Max.y = content.Max.y + style.padding.bottom;
                 border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
                 margin.Max.y = border.Max.y + style.margin.bottom;
@@ -4513,10 +3724,10 @@ namespace glimmer
         auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock().now().time_since_epoch()).count();
         if (hoverDuration == 0) hoverDuration = currts;
-        else if ((int32_t)(currts - hoverDuration) >= GlobalWindowConfig.tooltipDelay)
+        else if ((int32_t)(currts - hoverDuration) >= Config.tooltipDelay)
         {
-            auto font = GetFont(GlobalWindowConfig.tooltipFontFamily, GlobalWindowConfig.tooltipFontSz, FT_Normal);
-            auto textsz = renderer.GetTextSize(tooltip, font, GlobalWindowConfig.tooltipFontSz);
+            auto font = GetFont(Config.tooltipFontFamily, Config.tooltipFontSz, FT_Normal);
+            auto textsz = renderer.GetTextSize(tooltip, font, Config.tooltipFontSz);
             auto offsetx = std::max(0.f, margin.GetWidth() - textsz.x) * 0.5f;
             auto tooltippos = pos + ImVec2{ offsetx, -(textsz.y + 2.f) };
             renderer.DrawTooltip(tooltippos, tooltip);
@@ -4529,8 +3740,8 @@ namespace glimmer
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
         WidgetDrawResult result;
-        auto& state = Context.GetState(id).label;
-        auto& style = Context.GetStyle(id, state.state);
+        auto& state = Context.GetState(id).state.label;
+        auto& style = Context.GetStyle(state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
@@ -4550,8 +3761,8 @@ namespace glimmer
         const ImRect& content, const ImRect& text, IRenderer& renderer)
     {
         WidgetDrawResult result;
-        auto& state = Context.GetState(id).button;
-        auto& style = Context.GetStyle(id, state.state);
+        auto& state = Context.GetState(id).state.button;
+        auto& style = Context.GetStyle(state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
         state.state = !ismouseover ? WS_Default :
             ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
@@ -4571,15 +3782,466 @@ namespace glimmer
         return result;
     }
 
+    static void AlignVCenter(float height, int level, ItemGridState& state)
+    {
+        auto& headers = state.config.headers;
+
+        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+        {
+            auto& hdr = headers[level][col];
+            hdr.content.Max.y = height;
+
+            auto vdiff = (height - hdr.textrect.GetHeight() - hdr.style.padding.v()) * 0.5f;
+            if (vdiff > 0.f)
+                hdr.textrect.TranslateY(vdiff);
+        }
+    }
+
+    static bool IsBetween(float point, float min, float max, float tolerance = 0.f)
+    {
+        return (point < (max + tolerance)) && (point > (min - tolerance));
+    }
+
+    static bool operator!=(const ImRect& lhs, const ImRect& rhs)
+    {
+        return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
+    }
+
+    WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        auto& state = Context.GetState(id).state.grid;
+        auto& style = Context.GetStyle(state.state);
+        auto& gridstate = Context.GridState(id);
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto ismouseover = padding.Contains(mousepos);
+        state.state = !ismouseover ? WS_Default :
+            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
+        // Draw Headers
+        auto& headers = state.config.headers;
+        auto chcol = 0;
+        if (gridstate.cols.empty()) gridstate.cols.resize((int)headers.size());
+
+        for (auto level = (int)headers.size() - 1; level >= 0; --level)
+        {
+            if (gridstate.cols[level].empty())
+                gridstate.cols[level].resize(headers[level].size());
+
+            // If this is last level headers, it represents leaves, the upper levels
+            // represent grouping of the headers, whose width is determined by the 
+            // lower levels, hence start with bottom most levels.
+            // We compute the local x-coordinate of each "header cell" and local
+            // "text position" for text content. 
+            // The y-coordinate will be assigned while actual rendering, which will 
+            // start from highest level i.e. root to leaves.
+            if (level == ((int)headers.size() - 1))
+            {
+                auto sum = 0.f;
+                auto totalEx = 0;
+                auto height = 0.f;
+
+                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                {
+                    auto& hdr = headers[level][col];
+                    if (hdr.style.font.font == nullptr) hdr.style.font.font = GetFont(hdr.style.font.family, 
+                        hdr.style.font.size, FT_Normal);
+
+                    static char buffer[256];
+                    std::memset(buffer, ' ', 255);
+                    buffer[255] = 0;
+
+                    auto colwidth = hdr.props & COL_WidthAbsolute ? (float)hdr.width :
+                        renderer.GetTextSize(std::string_view{ buffer, buffer + hdr.width },
+                            hdr.style.font.font, hdr.style.font.size).x;
+                    auto hasWidth = colwidth > 0.f;
+                    colwidth += gridstate.cols[level][col].modified + gridstate.cols[level][col].dragRect.GetWidth();
+
+                    auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
+                    auto textsz = renderer.GetTextSize(hdr.name, hdr.style.font.font, hdr.style.font.size, wrap);
+                    hdr.content.Min.x = sum;
+                    hdr.textrect.Min.x = hdr.content.Min.x + hdr.style.padding.left;
+                    hdr.textrect.Max.x = hdr.textrect.Min.x + textsz.x;
+                    hdr.textrect.Min.y = hdr.style.padding.top;
+                    hdr.textrect.Max.y = textsz.y;
+                    hdr.content.Max.x = hdr.content.Min.x + (hasWidth ? colwidth : colwidth + 
+                        textsz.x + hdr.style.padding.h());
+
+                    if (hdr.content.GetWidth() - hdr.style.padding.h() > textsz.x)
+                    {
+                        auto hdiff = (hdr.content.GetWidth() - textsz.x - hdr.style.padding.h()) * 0.5f;
+                        hdr.textrect.TranslateX(hdiff);
+                    }
+
+                    hdr.content.Max.y = textsz.y + hdr.style.padding.v();
+                    sum += hdr.content.GetWidth();
+                    height = std::max(height, hdr.content.GetHeight());
+
+                    if (!gridstate.cols[level][col].mouseDown)
+                    {
+                        gridstate.cols[level][col].modified += gridstate.cols[level][col].dragRect.GetWidth();
+                        gridstate.cols[level][col].dragRect = ImRect{};
+                    }
+
+                    // If user has resized column, do not expand it
+                    if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
+                }
+
+                if (totalEx > 0)
+                {
+                    auto extra = (content.GetWidth() - sum) / (float)totalEx;
+                    sum = 0.f;
+
+                    if (extra > 0.f)
+                        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                        {
+                            auto& hdr = headers[level][col];
+                            auto width = hdr.content.Min.x;
+                            auto isColExpandable = ((hdr.props & COL_Expandable) && 
+                                gridstate.cols[level][col].modified == 0.f);
+                            hdr.content.Min.x = sum;
+                            hdr.content.Max.x = hdr.content.Max.x +
+                                isColExpandable ? extra : 0.f;
+                            if (!(hdr.props & COL_WrapHeader) && hdr.textrect.GetWidth() <
+                                (hdr.content.GetWidth() - hdr.style.padding.h()))
+                            {
+                                auto diff = (hdr.content.GetWidth() - hdr.style.padding.h() - hdr.textrect.GetWidth()) * 0.5f;
+                                hdr.textrect.TranslateX(diff);
+                            }
+                            sum = hdr.content.Max.x;
+
+                            hdr.content.Max.y = height;
+                            auto vdiff = (height - hdr.textrect.GetHeight() - hdr.style.padding.v()) * 0.5f;
+                            if (vdiff > 0.f)
+                                hdr.textrect.TranslateY(vdiff);
+                        }
+                    else AlignVCenter(height, level, state);
+                }
+                else AlignVCenter(height, level, state);
+            }
+            else
+            {
+                float lastx = 0.f, height = 0.f;
+                //auto adjustSubHeaders = false;
+
+                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                {
+                    float sum = 0.f;
+                    auto& hdr = headers[level][col];
+                    hdr.content.Min.x = lastx;
+                    if (hdr.style.font.font == nullptr) hdr.style.font.font = GetFont(hdr.style.font.family,
+                        hdr.style.font.size, FT_Normal);
+
+                    // Find sum of all descendant headers, which will be this headers width
+                    while ((chcol < (int16_t)headers[level + 1].size()) && (headers[level + 1][chcol].parent == col))
+                    {
+                        sum += headers[level + 1][chcol].content.GetWidth();
+                        chcol++;
+                    }
+
+                    auto extra = gridstate.cols[level][col].modified + gridstate.cols[level][col].dragRect.GetWidth();
+
+                    if (extra != 0.f && gridstate.cols[level][col].dragRect != ImRect{})
+                    {
+                        // If there is extra width available because user resized column,
+                        // then propapagate that to the subheaders
+                        auto parent = col;
+
+                        for (auto chlevel = level + 1; chlevel < (int)headers.size(); ++chlevel)
+                        {
+                            auto cchcol = 0, chcount = 0, startch = -1;
+                            while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent != parent)
+                                cchcol++;
+                            startch = cchcol;
+                            while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent == parent)
+                            {
+                                cchcol++; chcount++;
+                            }
+
+                            auto hdiff = extra / (float)chcount;
+
+                            while (startch < (int)headers[chlevel].size())
+                            {
+                                if (headers[chlevel][startch].parent == parent)
+                                    gridstate.cols[chlevel][startch].modified = hdiff;
+                                ++startch;
+                            }
+                        }
+                    }
+
+                    auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
+                    auto textsz = renderer.GetTextSize(hdr.name, hdr.style.font.font, hdr.style.font.size, wrap);
+
+                    // The available horizontal size is fixed by sum of descendant widths
+                    // The height of the current level of headers is decided by the max height across all
+                    hdr.content.Max.x = hdr.content.Min.x + sum;
+                    hdr.textrect.Min.x = hdr.content.Min.x + hdr.style.padding.left;
+                    hdr.textrect.Min.y = hdr.content.Min.y + hdr.style.padding.top;
+                    hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x) - hdr.style.padding.right;
+
+                    if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - hdr.style.padding.h()))
+                    {
+                        auto diff = (sum - hdr.style.padding.h() - textsz.x) * 0.5f;
+                        hdr.textrect.TranslateX(diff);
+                    }
+
+                    hdr.textrect.Max.y = hdr.textrect.Min.y + textsz.y;
+                    hdr.content.Max.y = hdr.content.Min.y + textsz.y + hdr.style.padding.v();
+                    height = std::max(height, hdr.content.GetHeight());
+                    lastx += sum;
+
+                    if (!gridstate.cols[level][col].mouseDown)
+                    {
+                        gridstate.cols[level][col].modified += gridstate.cols[level][col].dragRect.GetWidth();
+                        gridstate.cols[level][col].dragRect = ImRect{};
+                    }
+                }
+
+                AlignVCenter(height, level, state);
+            }
+        }
+
+        auto posy = content.Min.y;
+        for (auto level = 0; level < (int)headers.size(); ++level)
+        {
+            auto maxh = 0.f, posx = content.Min.x;
+
+            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+            {
+                auto& hdr = headers[level][col];
+                hdr.content.TranslateY(posy);
+                hdr.textrect.TranslateY(posy);
+                hdr.content.TranslateX(posx);
+                hdr.textrect.TranslateX(posx);
+                renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+
+                ImVec2 textend{ hdr.content.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom } };
+                DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, hdr.style, renderer);
+                maxh = std::max(maxh, hdr.content.GetHeight());
+
+                if (col > 0)
+                {
+                    auto isMouseNearColDrag = IsBetween(mousepos.x, hdr.content.Min.x, hdr.content.Min.x, 5.f) &&
+                        IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
+                    auto& evprop = gridstate.cols[level][col - 1];
+
+                    if (!evprop.mouseDown)
+                        ImGui::SetMouseCursor(isMouseNearColDrag ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
+
+                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    {
+                        if (!evprop.mouseDown)
+                        {
+                            if (isMouseNearColDrag)
+                            {
+                                evprop.mouseDown = true;
+                                evprop.dragRect.Min = mousepos;
+                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                                LOG("Drag start at %f for column #%d\n", mousepos.x, col);
+                            }
+                        }
+                        else
+                        {
+                            evprop.dragRect.Max = mousepos;
+                            //evprop.modified = evprop.dragRect.GetWidth();
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                            LOG("Dragging at %f for column #%d\n", mousepos.x, col);
+                        }
+                    }
+                    else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
+                    {
+                        if (mousepos.x != -FLT_MAX && mousepos.y != -FLT_MAX)
+                        {
+                            evprop.dragRect.Max = mousepos;
+                            //evprop.modified = evprop.dragRect.GetWidth();
+                            LOG("Drag end at %f for column #%d\n", mousepos.x, col);
+                        }
+                        else
+                        {
+                            evprop.dragRect = ImRect{};
+                        }
+
+                        evprop.mouseDown = false;
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+                    }
+                }
+            }
+
+            posy += maxh;
+        }
+
+        if (!state.uniformRowHeights)
+        {
+            // As each cell's height may be different, capture cell heights first,
+            // then determine row height as max cell height, align and draw contents
+            ImVec2 cellGeometries[128];
+            ItemGridState::CellData data[128];
+
+            for (auto row = 0; row < state.config.rows; ++row)
+            {
+                auto height = 0.f;
+                for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+                {
+                    auto& hdr = headers.back()[col];
+                    data[col] = state.cell(row, col, 0);
+
+                    switch (data[col].wtype)
+                    {
+                    case WT_Label:
+                    {
+                        auto& itemstyle = Context.GetStyle(data[col].state.label.state);
+                        if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
+                            itemstyle.font.size, FT_Normal);
+                        auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.content.GetWidth();
+                        auto textsz = renderer.GetTextSize(data[col].state.label.text, itemstyle.font.font,
+                            itemstyle.font.size, wrap);
+                        cellGeometries[col] = textsz;
+                        height = std::max(height, textsz.y + hdr.style.padding.v());
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+
+                for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+                {
+                    auto& hdr = headers.back()[col];
+                    auto content = hdr.content;
+                    content.Max.y = height;
+                    ImVec2 textstart{ content.Min.x + hdr.style.padding.left,
+                        content.Min.y + hdr.style.padding.top };
+
+                    if (cellGeometries[col].y < height)
+                    {
+                        auto vdiff = (height - cellGeometries[col].y) * 0.5f;
+                        textstart.y += vdiff;
+                    }
+
+                    if (cellGeometries[col].x < content.GetWidth())
+                    {
+                        auto hdiff = (content.GetWidth() - cellGeometries[col].x) * 0.5f;
+                        textstart.x += hdiff;
+                    }
+
+                    auto textend = content.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom };
+                    renderer.DrawRect(content.Min, content.Max, ToRGBA(100, 100, 100), false);
+                    
+                    switch (data[col].wtype)
+                    {
+                    case WT_Label:
+                    {
+                        const auto& itemstyle = Context.GetStyle(data[col].state.label.state);
+                        DrawText(textstart, textend, { textstart, textstart + cellGeometries[col] }, data[col].state.label.text,
+                            data[col].state.label.state& WS_Disabled, itemstyle, renderer);
+                        break;
+                    }
+                    }
+
+                    if (content.Contains(mousepos))
+                    {
+                        result.col = col;
+                        result.row = row;
+                        // ... add depth
+                    }
+                }
+
+                posy += height;
+            }
+        }
+        else
+        {
+            // Populate column wise for uniform row heights
+            for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+            {
+                float height = headers.back()[col].content.Max.y;
+
+                for (auto row = 0; row < state.config.rows; ++row)
+                {
+                    auto& hdr = headers.back()[col];
+                    auto& model = state.cell(row, col, 0);
+                    auto itemcontent = hdr.content;
+                    itemcontent.Min.y = height;
+
+                    switch (model.wtype)
+                    {
+                    case WT_Label:
+                    {
+                        auto& itemstyle = Context.GetStyle(model.state.label.state);
+                        if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
+                            itemstyle.font.size, FT_Normal);
+
+                        auto textsz = renderer.GetTextSize(model.state.label.text, itemstyle.font.font,
+                            itemstyle.font.size, -1.f);
+                        itemcontent.Max.y = itemcontent.Min.y + textsz.y + hdr.style.padding.v();
+                        ImVec2 textstart{ itemcontent.Min.x + hdr.style.padding.left,
+                            itemcontent.Min.y + hdr.style.padding.top };
+
+                        if (textsz.x < itemcontent.GetWidth())
+                        {
+                            auto hdiff = (itemcontent.GetWidth() - textsz.x) * 0.5f;
+                            textstart.x += hdiff;
+                        }
+
+                        auto textend = itemcontent.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom };
+                        renderer.DrawRect(itemcontent.Min, itemcontent.Max, ToRGBA(100, 100, 100), false);
+                        DrawBackground(itemcontent.Min, itemcontent.Max, itemstyle, renderer);
+                        DrawText(textstart, textend, { textstart, textstart + textsz }, model.state.label.text,
+                            model.state.label.state & WS_Disabled, itemstyle, renderer);
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+
+                    height += itemcontent.GetHeight();
+
+                    if (itemcontent.Contains(mousepos))
+                    {
+                        result.col = col;
+                        result.row = row;
+                        // ... add depth
+                    }
+                }
+            }
+        }
+
+        // Reset header calculations for next frame
+        for (auto level = 0; level < (int)headers.size(); ++level)
+        {
+            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+            {
+                auto& hdr = headers[level][col];
+                hdr.content = ImRect{};
+                hdr.textrect = ImRect{};
+            }
+        }
+
+        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            result.event = WidgetEvent::Clicked;
+        else if (ismouseover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            result.event = WidgetEvent::DoubleClicked;
+        else if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+            result.event = WidgetEvent::RightClicked;
+
+        result.geometry = margin;
+        return result;
+    }
+
     WindowConfig& GetWindowConfig()
     {
-        return GlobalWindowConfig;
+        return Config;
     }
 
     void BeginFrame()
     {
         Context.InsideFrame = true;
-        ERROR("\n===============================Frame start===============================\n");
+        //ERROR("\n===============================Frame start===============================\n");
     }
 
     void EndFrame()
@@ -4587,7 +4249,13 @@ namespace glimmer
         Context.InsideFrame = false;
         Context.lastItemId = -1;
         Context.nextpos = { 0.f, 0.f };
-        Context.items.clear();
+        Context.layoutItems.clear();
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            Context.pushedStyles[idx].clear();
+            Context.pushedStyles[idx].push();
+        }
         
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
@@ -4597,11 +4265,17 @@ namespace glimmer
         assert(Context.currLayoutDepth == -1);
         assert(Context.currSizingDepth == 0);
         assert(Context.currSpanDepth == -1);
-        assert(Context.currstyleDepth == 0);
-        ERROR("===============================Frame end===============================\n");
+        //ERROR("===============================Frame end===============================\n");
     }
 
     int32_t GetNextId(WidgetType type)
+    {
+        int32_t id = GetNextCount(type);
+        id = id | (type << 16);
+        return id;
+    }
+
+    int16_t GetNextCount(WidgetType type)
     {
         return Context.maxids[type];
     }
@@ -4611,11 +4285,11 @@ namespace glimmer
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
         UsePushedStyle(id);
-        auto& state = Context.GetState(id).label;
-        auto& renderer = *GlobalWindowConfig.renderer;
+        auto& state = Context.GetState(id).state.label;
+        auto& renderer = *Config.renderer;
 
         // TODO: Adjust everything...
-        auto& style = Context.GetStyle(id, state.state);
+        auto& style = Context.GetStyle(state.state);
         auto [content, padding, border, margin, textsz] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
         return LabelImpl(id, margin, border, padding, content, textsz, renderer);
     }
@@ -4625,12 +4299,12 @@ namespace glimmer
         assert((id & 0xffff) <= (int)Context.states[WT_Button].size());
 
         UsePushedStyle(id);
-        auto& state = Context.GetState(id).button;
-        auto& renderer = *GlobalWindowConfig.renderer;
-        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+        auto& state = Context.GetState(id).state.button;
+        auto& renderer = *Config.renderer;
+        CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
 
         // TODO: Adjust everything...
-        auto& style = Context.GetStyle(id, state.state);
+        auto& style = Context.GetStyle(state.state);
         auto [content, padding, border, margin, textsz] = GetBoxModelBounds(pos, style, state.text, renderer, geometry);
         return ButtonImpl(id, margin, border, padding, content, textsz, renderer);
     }
@@ -4639,11 +4313,11 @@ namespace glimmer
     {
         assert(id <= (int)Context.states[WT_ToggleButton].size());
 
-        auto& state = Context.GetState(id).toggle;
-        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+        auto& state = Context.GetState(id).state.toggle;
+        CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
 
         WidgetEvent result = WidgetEvent::None;
-        auto& style = Context.GetStyle(id, state.state);
+        auto& style = Context.GetStyle(state.state);
 
         ImRect extent;
         if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
@@ -4678,18 +4352,18 @@ namespace glimmer
         }
 
         if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
-        return { id, result, extent };
+        return { id, result };
     }
 
     WidgetDrawResult RadioButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
     {
         assert(id <= (int)Context.states[WT_RadioButton].size());
 
-        auto& state = Context.GetState(id).radio;
-        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+        auto& state = Context.GetState(id).state.radio;
+        CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
 
         WidgetEvent result = WidgetEvent::None;
-        auto& style = Context.GetStyle(id, state.state);
+        auto& style = Context.GetStyle(state.state);
 
         ImRect extent;
         if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
@@ -4706,7 +4380,7 @@ namespace glimmer
 
         auto radius = extent.GetHeight() * 0.5f;
         auto center = ImVec2{ radius * 0.5f, radius * 0.5f };
-        auto color = Context.GetStyle(id, state.state).fgcolor;
+        auto color = Context.GetStyle(state.state).fgcolor;
         renderer.DrawCircle(center, radius, color, false, 1.f);
         radius -= 1.f;
         renderer.DrawCircle(center, radius, color, true);
@@ -4718,51 +4392,100 @@ namespace glimmer
         }
 
         if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
-        return { id, result, extent };
+        return { id, result };
     }
 
     void Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
     {
         assert((id & 0xffff) <= (int)Context.states[type].size());
 
+        auto& renderer = *Config.renderer;
         LayoutItemDescriptor wdesc;
         wdesc.wtype = type;
         wdesc.id = id;
         wdesc.sizing = geometry;
 
-        UsePushedStyle(id);
-        auto& state = Context.GetState(id).button;
-        auto& renderer = *GlobalWindowConfig.renderer;
-        CopyStyle(Context.GetStyle(id, WS_Default), Context.GetStyle(id, state.state));
+        auto wid = (type << 16) | id;
+        //UsePushedStyle(wid);
 
-        auto& style = Context.GetStyle(id, state.state);
-
-        if (Context.currLayoutDepth != -1)
+        switch (type)
         {
-            auto& layout = Context.layouts[Context.currLayoutDepth];
-            auto pos = layout.geometry.Min;
-            std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                style, state.text, renderer, geometry, neighbors);
-            AddItemToLayout(layout, wdesc);
-        }
-        else
-        {
-            std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(Context.nextpos,
-                style, state.text, renderer, geometry, neighbors);
-            Context.AddItemGeometry(id, wdesc.margin);
+        case WT_Label: {
+            auto& state = Context.GetState(wid).state.label;
+            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
+            auto& style = Context.GetStyle(state.state);
 
-            switch (type)
+            if (Context.currLayoutDepth != -1)
             {
-            case glimmer::WT_Label: LabelImpl(id, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); break;
-            case glimmer::WT_Button: ButtonImpl(id, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); break;
-            case glimmer::WT_RadioButton:
-                break;
-            case glimmer::WT_ToggleButton:
-                break;
-            default:
-                break;
+                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto pos = layout.geometry.Min;
+                std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
+                    style, state.text, renderer, geometry, neighbors);
+                AddItemToLayout(layout, wdesc);
             }
+            else
+            {
+                std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(Context.nextpos,
+                    style, state.text, renderer, geometry, neighbors);
+                Context.AddItemGeometry(wid, wdesc.margin);
+                LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+            }
+            break;
         }
+        case WT_Button: {
+            auto& state = Context.GetState(wid).state.button;
+            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
+            auto& style = Context.GetStyle(state.state);
+
+            if (Context.currLayoutDepth != -1)
+            {
+                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto pos = layout.geometry.Min;
+                std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
+                    style, state.text, renderer, geometry, neighbors);
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(Context.nextpos,
+                    style, state.text, renderer, geometry, neighbors);
+                Context.AddItemGeometry(wid, wdesc.margin);
+                ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+            }
+            break;
+        }
+        case WT_RadioButton:break;
+        case WT_ToggleButton: break;
+        case WT_ItemGrid: {
+            auto& state = Context.GetState(wid).state.grid;
+            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
+            auto& style = Context.GetStyle(state.state);
+
+            wdesc.margin.Min = Context.nextpos;
+            if (neighbors.bottom != -1) wdesc.margin.Max.y = wdesc.margin.Min.y + Context.GetGeometry(neighbors.bottom).Min.y;
+            else wdesc.margin.Max.y = wdesc.margin.Min.y + ImGui::GetCurrentWindow()->Size.y;
+            if (neighbors.right != -1) wdesc.margin.Max.x = wdesc.margin.Min.x + Context.GetGeometry(neighbors.right).Min.x;
+            else wdesc.margin.Max.x = wdesc.margin.Min.x + ImGui::GetCurrentWindow()->Size.x;
+
+            wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+            wdesc.border.Max = wdesc.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+
+            wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+            wdesc.padding.Max = wdesc.border.Max - ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+
+            wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
+            wdesc.content.Max = wdesc.padding.Max - ImVec2{ style.padding.right, style.padding.bottom };
+
+            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+            ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); 
+            renderer.ResetClipRect();
+            break;
+        }
+        default: break;
+        }
+
+        Context.currStyleStates = 0;
+        for (auto idx = 0; idx < WSI_Total; ++idx) Context.currStyle[idx] = StyleDescriptor{};
     }
 
     void Label(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
@@ -4775,50 +4498,37 @@ namespace glimmer
         Widget(id, WT_Button, geometry, neighbors);
     }
 
+    void ItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_ItemGrid, geometry, neighbors);
+    }
+
     WidgetStateData& CreateWidget(WidgetType type, int16_t id)
     {
-        // Create widgets before beginning a frame
-        assert(!Context.InsideFrame);
-
         int32_t wid = id;
         wid = wid | (type << 16);
         Context.maxids[type]++;
-        if (Context.InsideFrame) Context.tempids[type] = std::min(Context.tempids[type], Context.maxids[type]);
-        
-        // If a set of styles is already pushed, add it to widget being created
-        if (Context.currstyleDepth >= 6)
-        {
-            Context.GetStyle(wid, WS_Default) = Context.currstyle[Context.currstyleDepth - 6];
-            Context.GetStyle(wid, WS_Disabled) = Context.currstyle[Context.currstyleDepth - 5];
-            Context.GetStyle(wid, WS_Hovered) = Context.currstyle[Context.currstyleDepth - 4];
-            Context.GetStyle(wid, WS_Pressed) = Context.currstyle[Context.currstyleDepth - 3];
-            Context.GetStyle(wid, WS_Focused) = Context.currstyle[Context.currstyleDepth - 2];
-            Context.GetStyle(wid, WS_Checked) = Context.currstyle[Context.currstyleDepth - 1];
-        }
+        if (Context.InsideFrame) 
+            Context.tempids[type] = std::min(Context.tempids[type], Context.maxids[type]);
 
-        return Context.GetState(wid);
+        auto& state = Context.GetState(wid);
+        return state;
     }
 
     WidgetStateData& CreateWidget(int32_t id)
     {
         auto wtype = (WidgetType)(id >> 16);
-        Context.maxids[wtype]++;
         return CreateWidget(wtype, (int16_t)(id & 0xffff));
     }
 
-    WidgetStateData::WidgetStateData(WidgetType type)
+    void ItemGridState::setCellPadding(float padding)
     {
-        switch (type)
-        {
-        case glimmer::WT_Label: label = LabelState{}; break;
-        case glimmer::WT_Button: button = ButtonState{}; break;
-        case glimmer::WT_RadioButton:
-            break;
-        case glimmer::WT_ToggleButton:
-            break;
-        default:
-            break;
-        }
+        for (auto level = 0; level < (int)config.headers.size(); ++level)
+            for (auto col = 0; col < (int)config.headers[level].size(); ++col)
+            {
+                auto& p = config.headers[level][col].style.padding;
+                p.top = p.bottom = p.left = p.right = padding;
+            }
     }
 
 #pragma endregion
