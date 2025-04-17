@@ -194,9 +194,10 @@ public:
         leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.1", .parent = 1 });
         leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.2", .parent = 1 });
 
-        grid.config.rows = 16;
+        grid.config.rows = 32;
         grid.uniformRowHeights = true;
         grid.setCellPadding(5.f);
+        grid.setColumnResizable(-1, true);
 
         // BuildStyle(id).When(WS_Default).Style("cjndkjckdcf").When("hover").Style(",dcdcd");
         // SetStyle(id, "{ ... } :hover { ... } :pressed { ... }");
@@ -262,7 +263,7 @@ public:
                 PushStyle("background-color: rgb(150, 150, 150)");
                 Label(labels[BOTTOM], ExpandH | FromBottom);
                 Move(labels[LEFT], labels[UPPER], true, true);
-                PushStyle("background-color: rgb(200, 200, 200)");
+                PushStyle("background-color: white");
                 //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
                 ItemGrid(gridid, ExpandAll, { .bottom = labels[BOTTOM] });
                 

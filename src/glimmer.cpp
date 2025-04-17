@@ -475,18 +475,25 @@ namespace glimmer
         }
     }
 
+    struct ScrollBarState
+    {
+        ImVec2 pos;
+        ImVec2 lastMousePos;
+        bool mouseDownOnGrip = false;
+    };
+
     struct ItemGridInternalState
     {
         struct HeaderCellEventInfo
         {
-            ImRect dragRect; // Current drag region when user changes column width
-            int16_t lastLevelResized = -1;
-            int16_t lastColResized = -1;
+            ImVec2 lastPos; // Last mouse position while dragging
             float modified = 0.f; // Records already modified column width
             bool mouseDown = false; // If mouse is down on column boundary
         };
 
         std::vector<std::vector<HeaderCellEventInfo>> cols;
+        ScrollBarState scroll;
+        ImVec2 totalsz;
     };
 
     struct WidgetContextData
@@ -3807,6 +3814,158 @@ namespace glimmer
         return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
     }
 
+    static bool UpdateSubHeadersDrag(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate, 
+        const ImRect& rect, int parent, int chlevel, bool mouseDown)
+    {
+        if (chlevel >= (int)headers.size()) return true;
+
+        auto cchcol = 0, chcount = 0, startch = -1;
+        while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent != parent)
+            cchcol++;
+
+        startch = cchcol;
+        while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent == parent)
+        {
+            cchcol++;
+            if (headers[chlevel][cchcol].props & COL_Resizable) chcount++;
+        }
+
+        if (chcount > 0)
+        {
+            auto hdiff = rect.GetWidth() / (float)chcount;
+
+            while (startch < (int)headers[chlevel].size())
+            {
+                auto& hdr = headers[chlevel][startch];
+                if (hdr.parent == parent)
+                {
+                    auto& props = gridstate.cols[chlevel][startch];
+                    props.modified += hdiff;
+                    startch++;
+                }
+                else break;
+            }
+        }
+
+        return chcount > 0;
+    }
+
+    static void HandleColumnResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridState::ColumnConfig& hdr, 
+        ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col)
+    {
+        auto isMouseNearColDrag = IsBetween(mousepos.x, hdr.content.Min.x, hdr.content.Min.x, 5.f) &&
+            IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
+        auto& evprop = gridstate.cols[level][col - 1];
+
+        if (!evprop.mouseDown)
+            ImGui::SetMouseCursor(isMouseNearColDrag ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
+
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            if (!evprop.mouseDown)
+            {
+                if (isMouseNearColDrag)
+                {
+                    evprop.mouseDown = true;
+                    evprop.lastPos = mousepos;
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    LOG("Drag start at %f for column #%d\n", mousepos.x, col);
+                }
+            }
+            else
+            {
+                ImRect extendRect{ evprop.lastPos, mousepos };
+                evprop.modified += (mousepos.x - evprop.lastPos.x);
+                evprop.lastPos = mousepos;
+                UpdateSubHeadersDrag(headers, gridstate, extendRect, col - 1, level + 1, true);
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            }
+        }
+        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
+        {
+            if (mousepos.x != -FLT_MAX && mousepos.y != -FLT_MAX)
+            {
+                ImRect extendRect{ evprop.lastPos, mousepos };
+                evprop.modified += (mousepos.x - evprop.lastPos.x);
+                evprop.lastPos = mousepos;
+                UpdateSubHeadersDrag(headers, gridstate, extendRect, col - 1, level + 1, false);
+                LOG("Drag end at %f for column #%d\n", mousepos.x, col);
+            }
+
+            evprop.mouseDown = false;
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+        }
+    }
+
+    static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content, ImVec2 sz)
+    {
+        auto btnsz = Config.scrollbarSz;
+
+        if ((mousepos.x <= content.Max.x && mousepos.x >= (content.Max.x - btnsz)) || scroll.mouseDownOnGrip)
+        {
+            ImRect top{ { content.Max.x - btnsz, content.Min.y }, { content.Max.x, content.Min.y + btnsz } };
+            ImRect bottom{ { content.Max.x - btnsz, content.Max.y - btnsz }, content.Max };
+            ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
+
+            auto sizeOfGrip = (content.GetHeight() / sz.y) * (content.GetHeight() - (2.f * btnsz));
+            ImRect grip{ { content.Max.x - btnsz, top.Max.y + scroll.pos.y },
+                { content.Max.x, sizeOfGrip + top.Max.y + scroll.pos.y } };
+
+            renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175), true);
+            renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
+                { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
+                { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100), true);
+
+            //renderer.DrawRect(path.Min, path.Max, ToRGBA(100, 200, 100), true);
+            renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175), true);
+            renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
+                { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
+                { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100), true);
+
+            if (grip.Contains(mousepos))
+            {
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                {
+                    if (!scroll.mouseDownOnGrip)
+                    {
+                        scroll.mouseDownOnGrip = true;
+                        scroll.lastMousePos.y = mousepos.y;
+                    }
+
+                    auto step = mousepos.y - scroll.lastMousePos.y;
+                    scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip);
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                    scroll.lastMousePos.y = mousepos.y;
+                }
+                else
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+            }
+            else
+            {
+                if (scroll.mouseDownOnGrip)
+                {
+                    auto step = mousepos.y - scroll.lastMousePos.y;
+                    scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip);
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                    scroll.lastMousePos.y = mousepos.y;
+                }
+                else
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+
+                if (top.Contains(mousepos) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, content.GetHeight() - btnsz - sizeOfGrip);
+                else if (bottom.Contains(mousepos) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, content.GetHeight() - btnsz - sizeOfGrip);
+            }
+
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnGrip)
+            {
+                scroll.mouseDownOnGrip = false;
+                renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+            }
+        }
+    }
+
     WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer)
     {
@@ -3823,11 +3982,11 @@ namespace glimmer
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
 
-        // Draw Headers
         auto& headers = state.config.headers;
         auto chcol = 0;
         if (gridstate.cols.empty()) gridstate.cols.resize((int)headers.size());
 
+        // Determine header geometry
         for (auto level = (int)headers.size() - 1; level >= 0; --level)
         {
             if (gridstate.cols[level].empty())
@@ -3860,7 +4019,7 @@ namespace glimmer
                         renderer.GetTextSize(std::string_view{ buffer, buffer + hdr.width },
                             hdr.style.font.font, hdr.style.font.size).x;
                     auto hasWidth = colwidth > 0.f;
-                    colwidth += gridstate.cols[level][col].modified + gridstate.cols[level][col].dragRect.GetWidth();
+                    colwidth += gridstate.cols[level][col].modified;
 
                     auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
                     auto textsz = renderer.GetTextSize(hdr.name, hdr.style.font.font, hdr.style.font.size, wrap);
@@ -3881,12 +4040,6 @@ namespace glimmer
                     hdr.content.Max.y = textsz.y + hdr.style.padding.v();
                     sum += hdr.content.GetWidth();
                     height = std::max(height, hdr.content.GetHeight());
-
-                    if (!gridstate.cols[level][col].mouseDown)
-                    {
-                        gridstate.cols[level][col].modified += gridstate.cols[level][col].dragRect.GetWidth();
-                        gridstate.cols[level][col].dragRect = ImRect{};
-                    }
 
                     // If user has resized column, do not expand it
                     if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
@@ -3927,7 +4080,6 @@ namespace glimmer
             else
             {
                 float lastx = 0.f, height = 0.f;
-                //auto adjustSubHeaders = false;
 
                 for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
                 {
@@ -3942,36 +4094,6 @@ namespace glimmer
                     {
                         sum += headers[level + 1][chcol].content.GetWidth();
                         chcol++;
-                    }
-
-                    auto extra = gridstate.cols[level][col].modified + gridstate.cols[level][col].dragRect.GetWidth();
-
-                    if (extra != 0.f && gridstate.cols[level][col].dragRect != ImRect{})
-                    {
-                        // If there is extra width available because user resized column,
-                        // then propapagate that to the subheaders
-                        auto parent = col;
-
-                        for (auto chlevel = level + 1; chlevel < (int)headers.size(); ++chlevel)
-                        {
-                            auto cchcol = 0, chcount = 0, startch = -1;
-                            while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent != parent)
-                                cchcol++;
-                            startch = cchcol;
-                            while (cchcol < (int)headers[chlevel].size() && headers[chlevel][cchcol].parent == parent)
-                            {
-                                cchcol++; chcount++;
-                            }
-
-                            auto hdiff = extra / (float)chcount;
-
-                            while (startch < (int)headers[chlevel].size())
-                            {
-                                if (headers[chlevel][startch].parent == parent)
-                                    gridstate.cols[chlevel][startch].modified = hdiff;
-                                ++startch;
-                            }
-                        }
                     }
 
                     auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
@@ -3994,18 +4116,13 @@ namespace glimmer
                     hdr.content.Max.y = hdr.content.Min.y + textsz.y + hdr.style.padding.v();
                     height = std::max(height, hdr.content.GetHeight());
                     lastx += sum;
-
-                    if (!gridstate.cols[level][col].mouseDown)
-                    {
-                        gridstate.cols[level][col].modified += gridstate.cols[level][col].dragRect.GetWidth();
-                        gridstate.cols[level][col].dragRect = ImRect{};
-                    }
                 }
 
                 AlignVCenter(height, level, state);
             }
         }
 
+        // Draw Headers
         auto posy = content.Min.y;
         for (auto level = 0; level < (int)headers.size(); ++level)
         {
@@ -4024,56 +4141,14 @@ namespace glimmer
                 DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, hdr.style, renderer);
                 maxh = std::max(maxh, hdr.content.GetHeight());
 
-                if (col > 0)
-                {
-                    auto isMouseNearColDrag = IsBetween(mousepos.x, hdr.content.Min.x, hdr.content.Min.x, 5.f) &&
-                        IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
-                    auto& evprop = gridstate.cols[level][col - 1];
-
-                    if (!evprop.mouseDown)
-                        ImGui::SetMouseCursor(isMouseNearColDrag ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
-
-                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
-                    {
-                        if (!evprop.mouseDown)
-                        {
-                            if (isMouseNearColDrag)
-                            {
-                                evprop.mouseDown = true;
-                                evprop.dragRect.Min = mousepos;
-                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-                                LOG("Drag start at %f for column #%d\n", mousepos.x, col);
-                            }
-                        }
-                        else
-                        {
-                            evprop.dragRect.Max = mousepos;
-                            //evprop.modified = evprop.dragRect.GetWidth();
-                            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-                            LOG("Dragging at %f for column #%d\n", mousepos.x, col);
-                        }
-                    }
-                    else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
-                    {
-                        if (mousepos.x != -FLT_MAX && mousepos.y != -FLT_MAX)
-                        {
-                            evprop.dragRect.Max = mousepos;
-                            //evprop.modified = evprop.dragRect.GetWidth();
-                            LOG("Drag end at %f for column #%d\n", mousepos.x, col);
-                        }
-                        else
-                        {
-                            evprop.dragRect = ImRect{};
-                        }
-
-                        evprop.mouseDown = false;
-                        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
-                    }
-                }
+                if (col > 0 && (headers[level][col - 1].props & COL_Resizable))
+                    HandleColumnResize(headers, hdr, gridstate, mousepos, level, col);
             }
 
             posy += maxh;
         }
+
+        float height = 0.f;
 
         if (!state.uniformRowHeights)
         {
@@ -4157,16 +4232,21 @@ namespace glimmer
         else
         {
             // Populate column wise for uniform row heights
+            ImVec2 startpos{};
+            startpos.y = -gridstate.scroll.pos.y * (gridstate.totalsz.y / content.GetHeight());
+            renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+
             for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
             {
-                float height = headers.back()[col].content.Max.y;
+                //height = headers.back()[col].content.Max.y;
+                height = 0.f;
 
                 for (auto row = 0; row < state.config.rows; ++row)
                 {
                     auto& hdr = headers.back()[col];
                     auto& model = state.cell(row, col, 0);
                     auto itemcontent = hdr.content;
-                    itemcontent.Min.y = height;
+                    itemcontent.Min.y = height + posy + startpos.y;
 
                     switch (model.wtype)
                     {
@@ -4179,6 +4259,7 @@ namespace glimmer
                         auto textsz = renderer.GetTextSize(model.state.label.text, itemstyle.font.font,
                             itemstyle.font.size, -1.f);
                         itemcontent.Max.y = itemcontent.Min.y + textsz.y + hdr.style.padding.v();
+
                         ImVec2 textstart{ itemcontent.Min.x + hdr.style.padding.left,
                             itemcontent.Min.y + hdr.style.padding.top };
 
@@ -4195,6 +4276,12 @@ namespace glimmer
                             model.state.label.state & WS_Disabled, itemstyle, renderer);
                         break;
                     }
+                    case WT_Custom:
+                    {
+                        auto sz = model.state.CustomWidget(itemcontent.Min, itemcontent.Max);
+                        itemcontent.Max.y = itemcontent.Min.y + hdr.style.padding.v() + sz.y;
+                        break;
+                    }
                     default:
                         break;
                     }
@@ -4209,7 +4296,13 @@ namespace glimmer
                     }
                 }
             }
+        
+            renderer.ResetClipRect();
         }
+
+        gridstate.totalsz.y = height;
+
+        if (height > content.GetHeight()) HandleScrollBars(gridstate.scroll, renderer, mousepos, content, ImVec2{ 0.f, height });
 
         // Reset header calculations for next frame
         for (auto level = 0; level < (int)headers.size(); ++level)
@@ -4462,10 +4555,10 @@ namespace glimmer
             auto& style = Context.GetStyle(state.state);
 
             wdesc.margin.Min = Context.nextpos;
-            if (neighbors.bottom != -1) wdesc.margin.Max.y = wdesc.margin.Min.y + Context.GetGeometry(neighbors.bottom).Min.y;
-            else wdesc.margin.Max.y = wdesc.margin.Min.y + ImGui::GetCurrentWindow()->Size.y;
-            if (neighbors.right != -1) wdesc.margin.Max.x = wdesc.margin.Min.x + Context.GetGeometry(neighbors.right).Min.x;
-            else wdesc.margin.Max.x = wdesc.margin.Min.x + ImGui::GetCurrentWindow()->Size.x;
+            if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
+            else wdesc.margin.Max.y = ImGui::GetCurrentWindow()->InnerClipRect.Max.y;
+            if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
+            else wdesc.margin.Max.x = ImGui::GetCurrentWindow()->InnerClipRect.Max.x;
 
             wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
             wdesc.border.Max = wdesc.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
@@ -4529,6 +4622,27 @@ namespace glimmer
                 auto& p = config.headers[level][col].style.padding;
                 p.top = p.bottom = p.left = p.right = padding;
             }
+    }
+
+    void ItemGridState::setColumnResizable(int16_t col, bool resizable)
+    {
+        if (col >= 0)
+        {
+            auto lastLevel = (int)config.headers.size() - 1;
+            config.headers[lastLevel][col].props |= COL_Resizable;
+            while (lastLevel > 0)
+            {
+                auto parent = config.headers[lastLevel][col].parent;
+                lastLevel--;
+                config.headers[lastLevel][parent].props |= COL_Resizable;
+            }
+        }
+        else
+        {
+            for (auto level = 0; level < (int)config.headers.size(); ++level)
+                for (auto lcol = 0; lcol < (int)config.headers[level].size(); ++lcol)
+                    config.headers[level][lcol].props |= COL_Resizable;
+        }
     }
 
 #pragma endregion

@@ -347,6 +347,7 @@ namespace glimmer
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton,
         WT_ItemGrid,
+        WT_Custom,
         WT_TotalTypes
     };
 
@@ -411,6 +412,7 @@ namespace glimmer
         float defaultFontSz = 16.f;
         float fontScaling = 2.f;
         float scaling = 1.f;
+        float scrollbarSz = 15.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
@@ -483,6 +485,7 @@ namespace glimmer
                 ButtonState button;
                 ToggleButtonState toggle;
                 RadioButtonState radio;
+                ImVec2 (*CustomWidget)(ImVec2, ImVec2);
                 // add support for custom combinations of widgets
 
                 CellState() {}
@@ -500,7 +503,7 @@ namespace glimmer
             std::string_view name;
             ImRect content;
             ImRect textrect;
-            int32_t props = 0;
+            int32_t props = COL_Resizable;
             int16_t width = 0;
             int16_t parent = -1;
             StyleDescriptor style;
@@ -520,6 +523,7 @@ namespace glimmer
         bool uniformRowHeights = false;
 
         void setCellPadding(float padding);
+        void setColumnResizable(int16_t col, bool resizable);
     };
 
     enum class WidgetEvent
