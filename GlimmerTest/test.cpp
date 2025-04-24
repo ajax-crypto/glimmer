@@ -155,8 +155,8 @@ public:
         glimmer::GetWindowConfig().renderer = &renderer;
         glimmer::GetWindowConfig().defaultFontSz = 32.f;
 
-        enum Labels { UPPER, LEFT, CONTENT, BOTTOM };
-        int32_t labels[4];
+        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE };
+        int32_t labels[5];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::CreateWidget(lid).state.label.text = "Upper";
@@ -174,19 +174,25 @@ public:
         glimmer::CreateWidget(lid).state.label.text = "Bottom";
         labels[BOTTOM] = lid;
 
+        auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
+        glimmer::CreateWidget(tid).state.toggle.checked = false;
+        labels[TOGGLE] = tid;
+
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
         auto& grid = glimmer::CreateWidget(gridid).state.grid;
-        grid.cell = [](int32_t row, int16_t, int16_t) -> glimmer::ItemGridState::CellData& {
+        grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
             static glimmer::ItemGridState::CellData data;
+            static char buffer[128];
+            auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
             row % 2 ? glimmer::SetNextStyle("background-color: white") :
                 glimmer::SetNextStyle("background-color: rgb(200, 200, 200)");
-            data.state.label.text = "Text";
+            data.state.label.text = std::string_view{ buffer, (size_t)sz };
             return data;
         };
 
         auto& root = grid.config.headers.emplace_back();
-        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1" });
-        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2" });
+        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerdede#1" });
+        root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerfefe#2" });
 
         auto& leaves = grid.config.headers.emplace_back();
         leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1.1", .parent = 0 });
@@ -198,6 +204,7 @@ public:
         grid.uniformRowHeights = true;
         grid.setCellPadding(5.f);
         grid.setColumnResizable(-1, true);
+        grid.setColumnProps(-1, glimmer::COL_Moveable, true);
 
         // BuildStyle(id).When(WS_Default).Style("cjndkjckdcf").When("hover").Style(",dcdcd");
         // SetStyle(id, "{ ... } :hover { ... } :pressed { ... }");
@@ -244,13 +251,6 @@ public:
                 renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
 
                 glimmer::PushStyle("border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
-                /*ImVec2 pos{ 0.f, 0.f };
-                auto upperdim = glimmer::Label(labels[UPPER], pos, FLT_MAX, 0.f).geometry;
-                pos.y += upperdim.GetHeight();
-                pos.x += glimmer::Label(labels[LEFT], pos, 0.f, FLT_MAX).geometry.GetWidth();
-                pos.y += glimmer::Label(labels[CONTENT], pos, FLT_MAX, (float)height - (2.f * upperdim.GetHeight())).geometry.GetHeight();
-                glimmer::Label(labels[BOTTOM], pos, FLT_MAX, upperdim.GetHeight());*/
-                // SpanH; Label; MoveDown; SpanV; Label; MoveLeft; AnchorBottom; SpanH; Label; MoveUp; SpanAll; Label;
 
                 using namespace glimmer;
 
@@ -261,7 +261,11 @@ public:
                 Label(labels[LEFT], ExpandV);
                 Move(FD_Horizontal | FD_Vertical);
                 PushStyle("background-color: rgb(150, 150, 150)");
-                Label(labels[BOTTOM], ExpandH | FromBottom);
+                Label(labels[BOTTOM], FromBottom);
+                Move(FD_Horizontal);
+                PushStyle("padding: 0px; margin: 0px;");
+                ToggleButton(labels[TOGGLE], ToRight);
+                PopStyle();
                 Move(labels[LEFT], labels[UPPER], true, true);
                 PushStyle("background-color: white");
                 //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });

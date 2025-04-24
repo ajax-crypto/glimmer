@@ -78,10 +78,14 @@ namespace glimmer
         uint32_t trackBorderColor;
         uint32_t thumbColor;
         int32_t trackGradient = -1;
-        int32_t thumGradient = -1;
-        float trackBorderThickness = 2.f;
-        float thumbOffset = 1.f;
+        int32_t indicatorTextColor; // Text color of ON/OFF text
+        float trackBorderThickness = 0.f;
+        float thumbOffset = -2.f;
         float thumbExpand = 0.f;
+        float animate = 0.3f;
+        bool showText = true; // Show ON/OFF text inside button
+        void* fontptr = nullptr;
+        float fontsz = 12.f;
     };
 
     union CommonWidgetStyleDescriptor
@@ -211,7 +215,7 @@ namespace glimmer
         }
 
         Vector(Sz initialsz, const T& el)
-            : _capacity{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+            : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
         {
             std::fill(_data, _data + _capacity, el);
         }
@@ -221,16 +225,15 @@ namespace glimmer
             if (_data == nullptr)
             {
                 _data = (T*)std::malloc(sizeof(T) * count);
-                if (initialize) _default_init(_data, _data + count);
             }
             else if (_capacity < count)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
                 if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
-                if (initialize) _default_init(_data + _size, _data + count);
             }
 
+            if (initialize) _default_init(_data + _size, _data + count);
             _size = _capacity = count;
         }
 
@@ -239,21 +242,22 @@ namespace glimmer
             if (_data == nullptr)
             {
                 _data = (T*)std::malloc(sizeof(T) * count);
-                std::fill(_data, _data + count, el);
             }
             else if (_capacity < count)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
                 if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
-                std::fill(_data + _size, _data + count, el);
             }
-            else
-            {
-                std::fill(_data + _size, _data + count, el);
-            }
-
+            
+            std::fill(_data + _size, _data + count, el);
             _size = _capacity = count;
+        }
+
+        void fill(const T& el)
+        {
+            std::fill(_data + _size, _data + _capacity, el);
+            _size = _capacity;
         }
 
         void expand(Sz count, bool initialize = true)
@@ -442,7 +446,8 @@ namespace glimmer
         case WT_Label: ::new (&state.label) LabelState{}; break;
         case WT_Button: ::new (&state.button) ButtonState{}; break;
         case WT_RadioButton: break;
-        case WT_ToggleButton: break;
+        case WT_ToggleButton: new (&state.toggle) ToggleButtonState{}; break;
+        case WT_TabBar: new (&state.tab) TabBarState{}; break;
         case WT_ItemGrid: ::new (&state.grid) ItemGridState{}; break;
         default: break;
         }
@@ -456,7 +461,8 @@ namespace glimmer
         case WT_Label: state.label = src.state.label; break;
         case WT_Button: state.button = src.state.button; break;
         case WT_RadioButton: break;
-        case WT_ToggleButton: break;
+        case WT_ToggleButton: state.toggle = src.state.toggle; break;
+        case WT_TabBar: state.tab = src.state.tab; break;
         case WT_ItemGrid: state.grid = src.state.grid; break;
         default: break;
         }
@@ -479,21 +485,113 @@ namespace glimmer
     {
         ImVec2 pos;
         ImVec2 lastMousePos;
-        bool mouseDownOnGrip = false;
+        float opacity = 0.f;
+        bool mouseDownOnVGrip = false;
+        bool mouseDownOnHGrip = false;
+    };
+
+    enum class ItemGridCurrentState
+    {
+        Default, ResizingColumns, ReorderingColumns
     };
 
     struct ItemGridInternalState
     {
-        struct HeaderCellEventInfo
+        struct HeaderCellResizeState
         {
             ImVec2 lastPos; // Last mouse position while dragging
             float modified = 0.f; // Records already modified column width
             bool mouseDown = false; // If mouse is down on column boundary
         };
 
-        std::vector<std::vector<HeaderCellEventInfo>> cols;
+        struct HeaderCellDragState
+        {
+            ItemGridState::ColumnConfig config;
+            ImVec2 lastPos;
+            ImVec2 startPos;
+            int16_t column = -1;
+            int16_t level = -1;
+            bool mouseDown = false;
+        };
+
+        struct BiDirMap 
+        { 
+            Vector<int16_t, int16_t> ltov{ 128, -1 };
+            Vector<int16_t, int16_t> vtol{ 128, -1 };
+        };
+
+        Vector<HeaderCellResizeState, int16_t> cols[8];
+        BiDirMap colmap[8];
+        HeaderCellDragState drag;
         ScrollBarState scroll;
         ImVec2 totalsz;
+        ItemGridCurrentState state = ItemGridCurrentState::Default;
+
+        void swapColumns(int16_t from, int16_t to, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int level)
+        {
+            auto lfrom = colmap[level].vtol[from];
+            auto lto = colmap[level].vtol[to];
+            colmap[level].vtol[from] = lto; colmap[level].ltov[lfrom] = to;
+            colmap[level].vtol[to] = lfrom; colmap[level].ltov[lto] = from;
+            
+            std::pair<int16_t, int16_t> movingColRangeFrom = { lfrom, lfrom }, nextMovingRangeFrom = { INT16_MAX, -1 };
+            std::pair<int16_t, int16_t> movingColRangeTo = { lto, lto }, nextMovingRangeTo = { INT16_MAX, -1 };
+
+            for (auto l = level + 1; l < (int)headers.size(); ++l)
+            {
+                for (int16_t col = 0; col < (int16_t)headers[l].size(); ++col)
+                {
+                    auto& hdr = headers[l][col];
+                    if (hdr.parent >= movingColRangeFrom.first && hdr.parent <= movingColRangeFrom.second)
+                    {
+                        nextMovingRangeFrom.first = std::min(nextMovingRangeFrom.first, col);
+                        nextMovingRangeFrom.second = std::max(nextMovingRangeFrom.second, col);
+                    }
+                    else if (hdr.parent >= movingColRangeTo.first && hdr.parent <= movingColRangeTo.second)
+                    {
+                        nextMovingRangeTo.first = std::min(nextMovingRangeTo.first, col);
+                        nextMovingRangeTo.second = std::max(nextMovingRangeTo.second, col);
+                    }
+                }
+
+                auto startTo = colmap[l].ltov[nextMovingRangeFrom.first];
+                auto startFrom = colmap[l].ltov[nextMovingRangeTo.first];
+
+                for (auto col = nextMovingRangeTo.first, idx = startTo; col <= nextMovingRangeTo.second; ++col, ++idx)
+                {
+                    colmap[l].ltov[col] = idx;
+                    colmap[l].vtol[idx] = col;
+                }
+
+                for (auto col = nextMovingRangeFrom.first, idx = startFrom; col <= nextMovingRangeFrom.second; ++col, ++idx)
+                {
+                    colmap[l].ltov[col] = idx;
+                    colmap[l].vtol[idx] = col;
+                }
+
+                movingColRangeFrom = nextMovingRangeFrom;
+                movingColRangeTo = nextMovingRangeTo;
+                nextMovingRangeFrom = nextMovingRangeTo = { INT16_MAX, -1 };
+            }
+        }
+    };
+
+    struct TabBarInternalState
+    {
+        struct BiDirMap
+        {
+            Vector<int16_t, int16_t> ltov{ 128, -1 };
+            Vector<int16_t, int16_t> vtol{ 128, -1 };
+        };
+
+        BiDirMap map;
+    };
+
+    struct ToggleButtonInternalState
+    {
+        float btnpos = -1.f;
+        float progress = 0.f;
+        bool animate = false;
     };
 
     struct WidgetContextData
@@ -501,6 +599,8 @@ namespace glimmer
         // This is quasi-persistent
         std::vector<WidgetStateData> states[WT_TotalTypes];
         std::vector<ItemGridInternalState> gridStates;
+        std::vector<TabBarInternalState> tabStates;
+        std::vector<ToggleButtonInternalState> toggleStates;
 
         DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
         StyleDescriptor currStyle[WSI_Total];
@@ -513,11 +613,7 @@ namespace glimmer
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
 
         // Per widget specific style objects
-        std::vector<ToggleButtonStyleDescriptor> toggleButtonStyles;
-
-        // These are used for push/pop style API
-        //StyleDescriptor currstyle[16 * WSI_Total];
-        //int currstyleDepth = 0;
+        DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
@@ -548,6 +644,18 @@ namespace glimmer
         {
             auto index = id & 0xffff;
             return gridStates[index];
+        }
+
+        TabBarInternalState& TabStates(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return tabStates[index];
+        }
+
+        ToggleButtonInternalState& ToggleState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return toggleStates[index];
         }
 
         StyleDescriptor& GetStyle(int32_t state)
@@ -586,9 +694,26 @@ namespace glimmer
             constexpr auto totalStyles = 16 * WSI_Total;
 
             for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
                 pushedStyles[idx].push();
+                auto& toggle = toggleButtonStyles[idx].push();
+                toggle.fontsz *= Config.fontScaling;
 
-            gridStates.resize(32);
+                if (idx != WSI_Checked)
+                {
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                }
+                else
+                {
+                    toggle.trackColor = ToRGBA(152, 251, 152);
+                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                }
+            }
+
+            gridStates.resize(8);
+            tabStates.resize(16);
+            toggleStates.resize(32);
 
             for (auto idx = 0; idx < WT_TotalTypes; ++idx)
             {
@@ -596,17 +721,6 @@ namespace glimmer
                 WidgetStateData data{ (WidgetType)idx };
                 states[idx].resize(32, data);
                 itemGeometries[idx].resize(32, ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-
-                for (auto sidx = 0; sidx < totalStyles; sidx++)
-                {
-                    switch (idx)
-                    {
-                    case WT_ToggleButton:
-                        toggleButtonStyles.resize(totalStyles, ToggleButtonStyleDescriptor{});
-                        break;
-                    default: break;
-                    }
-                }
             }
         }
     };
@@ -1160,6 +1274,11 @@ namespace glimmer
     uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
     {
         return ToRGBA(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
+    }
+
+    std::tuple<int, int, int, int> DecomposeColor(uint32_t color)
+    {
+        return { color & 0xff, (color & 0xff00) >> 8, (color & 0xff0000) >> 16, (color & 0xff000000) >> 24 };
     }
 
     uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
@@ -2240,34 +2359,6 @@ namespace glimmer
         }
     }
 
-    /*void PushItemStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss, 
-        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
-    {
-        Context.itemStyles.push(defcss);
-        Context.itemStyles.push(hovercss);
-        Context.itemStyles.push(pressedcss);
-        Context.itemStyles.push(focusedcss);
-        Context.itemStyles.push(checkedcss);
-        Context.itemStyles.push(disblcss);
-    }
-
-    void SetItemStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
-        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
-    {
-        Context.itemStyleStates = WS_Default | WS_Checked | WS_Disabled | WS_Focused | WS_Hovered | WS_Pressed;
-        Context.currItemStyle[WS_Default] = defcss;
-        Context.currItemStyle[1] = disblcss;
-        Context.currItemStyle[2] = focusedcss;
-        Context.currItemStyle[3] = hovercss;
-        Context.currItemStyle[4] = pressedcss;
-        Context.currItemStyle[5] = checkedcss;
-    }
-
-    void PopItemStyle(int depth)
-    {
-        Context.itemStyles.pop(depth * 6);
-    }*/
-
     StyleDescriptor::StyleDescriptor()
     {
         font.size = Config.defaultFontSz;
@@ -2328,7 +2419,7 @@ namespace glimmer
 
         if (prop != 0)
         {
-            if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
+            /*if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
             {
                 auto found = false;
 
@@ -2347,7 +2438,7 @@ namespace glimmer
                     index.custom = (uint16_t)Context.toggleButtonStyles.size();
                     Context.toggleButtonStyles.push_back(desc.toggle);
                 }
-            }
+            }*/
         }
 
         specified = prop;
@@ -3439,6 +3530,7 @@ namespace glimmer
             +--------------------------------+
 
     */
+
     static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
         std::string_view text, IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors = NeighborWidgets{})
     {
@@ -3789,6 +3881,107 @@ namespace glimmer
         return result;
     }
 
+    static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
+    {
+        auto& style = Context.GetStyle(state.state);
+        auto& specificStyle = Context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        ImRect result;
+        ImVec2 text;
+        result.Min = result.Max = extent.Min;
+
+        if (specificStyle.showText)
+        {
+            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY, 
+                specificStyle.fontsz, FT_Bold);
+
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
+            result.Max += text;
+            renderer.ResetFont();
+
+            auto extra = 2.f * (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+            result.Max.x += extra;
+            result.Max.y += extra;
+        }
+        else
+        {
+            result.Max.x += ((extent.GetHeight()) * 2.f);
+            result.Max.y += extent.GetHeight();
+        }
+
+        return { result, text };
+    }
+
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+
+        auto& style = Context.GetStyle(state.state);
+        auto& specificStyle = Context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        auto& toggle = Context.ToggleState(id);
+
+        auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+        auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
+        auto movement = extent.GetWidth() - (2.f * (radius + extra));
+        auto moveAmount = toggle.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
+        toggle.progress += std::fabsf(moveAmount / movement);
+
+        auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
+            : extent.Min + ImVec2{ radius + extra, extra + radius }
+            : ImVec2{ toggle.btnpos, extra + radius };
+        center.x = ImClamp(center.x + moveAmount, extent.Min.x + (extra * 0.5f), extent.Max.x - extra);
+        center.y = extent.Min.y + (extent.GetHeight() * 0.5f);
+        toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
+
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
+        auto rounded = extent.GetHeight() * 0.5f;
+        auto tcol = specificStyle.trackColor;
+        if (toggle.animate)
+        {
+            auto prevTCol = state.checked ? Context.toggleButtonStyles[WSI_Default].top().trackColor :
+                Context.toggleButtonStyles[WSI_Checked].top().trackColor;
+            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
+            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
+            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
+            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
+            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
+            tcol = ToRGBA(tr, tg, tb, ta);
+        }
+
+        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
+            specificStyle.trackBorderThickness);
+
+        if (specificStyle.showText && !toggle.animate)
+        {
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
+            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
+                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
+            renderer.ResetFont();
+        }
+
+        renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
+        auto mouseover = extent.Contains(mousepos);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result.event = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+            toggle.animate = true;
+            toggle.progress = 0.f;
+        }
+
+        toggle.btnpos = toggle.animate ? center.x : -1.f;
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+        state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        return result;
+    }
+
     static void AlignVCenter(float height, int level, ItemGridState& state)
     {
         auto& headers = state.config.headers;
@@ -3814,7 +4007,49 @@ namespace glimmer
         return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
     }
 
-    static bool UpdateSubHeadersDrag(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate, 
+    static WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        auto& state = Context.GetState(id).state.tab;
+        auto& map = Context.TabStates(id);
+
+        if (state.horizontal)
+        {
+            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
+            {
+                if (map.map.vtol[vcol] == -1)
+                {
+                    map.map.vtol[vcol] = vcol;
+                    map.map.ltov[vcol] = vcol;
+                }
+
+                auto col = map.map.vtol[vcol];
+                auto& tab = state.tabs[col];
+                auto& style = Context.GetStyle(tab.state.state);
+
+                auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+                tab.state.state = !ismouseover ? WS_Default :
+                    ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+                DrawBoxShadow(border.Min, border.Max, style, renderer);
+                DrawBackground(border.Min, border.Max, style, renderer);
+                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
+
+                if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    result.event = WidgetEvent::Clicked;
+                else if (ismouseover && !tab.state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, renderer);
+                else tab.state._hoverDuration == 0;
+
+                result.geometry = margin;
+                return result;
+            }
+        }
+    }
+
+    static bool UpdateSubHeadersResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate, 
         const ImRect& rect, int parent, int chlevel, bool mouseDown)
     {
         if (chlevel >= (int)headers.size()) return true;
@@ -3853,6 +4088,8 @@ namespace glimmer
     static void HandleColumnResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridState::ColumnConfig& hdr, 
         ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col)
     {
+        if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
+
         auto isMouseNearColDrag = IsBetween(mousepos.x, hdr.content.Min.x, hdr.content.Min.x, 5.f) &&
             IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
         auto& evprop = gridstate.cols[level][col - 1];
@@ -3869,6 +4106,7 @@ namespace glimmer
                     evprop.mouseDown = true;
                     evprop.lastPos = mousepos;
                     ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    gridstate.state = ItemGridCurrentState::ResizingColumns;
                     LOG("Drag start at %f for column #%d\n", mousepos.x, col);
                 }
             }
@@ -3877,8 +4115,9 @@ namespace glimmer
                 ImRect extendRect{ evprop.lastPos, mousepos };
                 evprop.modified += (mousepos.x - evprop.lastPos.x);
                 evprop.lastPos = mousepos;
-                UpdateSubHeadersDrag(headers, gridstate, extendRect, col - 1, level + 1, true);
+                UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, true);
                 ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                gridstate.state = ItemGridCurrentState::ResizingColumns;
             }
         }
         else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
@@ -3888,82 +4127,314 @@ namespace glimmer
                 ImRect extendRect{ evprop.lastPos, mousepos };
                 evprop.modified += (mousepos.x - evprop.lastPos.x);
                 evprop.lastPos = mousepos;
-                UpdateSubHeadersDrag(headers, gridstate, extendRect, col - 1, level + 1, false);
+                UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, false);
                 LOG("Drag end at %f for column #%d\n", mousepos.x, col);
             }
 
             evprop.mouseDown = false;
             ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+            gridstate.state = ItemGridCurrentState::Default;
+        }
+    }
+
+    static void HandleColumnReorder(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate, 
+        ImVec2 mousepos, int level, int vcol)
+    {
+        if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ReorderingColumns) return;
+
+        auto col = gridstate.colmap[level].vtol[vcol];
+        auto& hdr = headers[level][col];
+        auto isMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        ImRect moveTriggerRect{ hdr.content.Min + ImVec2{ 5.5f, 0.f }, hdr.content.Max - ImVec2{ 5.5f, 0.f } };
+
+        if (isMouseDown && moveTriggerRect.Contains(mousepos) && !gridstate.drag.mouseDown)
+        {
+            auto movingcol = vcol, siblingCount = 0;
+            auto parent = hdr.parent;
+
+            // This is required to "go up" he header hierarchy in case the sibling count 
+            // at current level is 1 i.e. only the current header is a child of parent
+            // In this case, consider the parent to be moving as well.
+            // NOTE: Keep going up the hierarchy till we are at root level
+            while (level > 0)
+            {
+                // TODO: Use logical index instead
+                siblingCount = 0;
+                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                    if (headers[level][col].parent == parent)
+                    {
+                        siblingCount++; movingcol = col;
+                    }
+
+                if (siblingCount > 1) break;
+                else if (level > 0) { parent = headers[level-1][parent].parent; level--; }
+            }
+
+            movingcol = siblingCount == 1 ? parent : movingcol;
+            level = siblingCount == 1 ? level - 1 : level;
+
+            auto lcol = col;
+            auto& mcol = headers[level][lcol];
+            gridstate.drag.config = mcol;
+            gridstate.drag.mouseDown = true;
+            gridstate.drag.lastPos = mousepos;
+            gridstate.drag.startPos = mousepos;
+            gridstate.drag.column = movingcol;
+            gridstate.drag.level = level;
+            gridstate.state = ItemGridCurrentState::ReorderingColumns;
+            ERROR("\nMarking column (v: %d, l: %d) as moving (%f -> %f)\n", vcol, lcol, mcol.content.Min.x, mcol.content.Max.x);
+        }
+        else if (isMouseDown && gridstate.drag.mouseDown && gridstate.drag.column == vcol && gridstate.drag.level == level)
+        {
+            // This implying we are dragging the column around
+            auto diff = mousepos.x - gridstate.drag.lastPos.x;
+
+            if (diff > 0.f && (int16_t)headers[level].size() > (vcol + 1))
+            {
+                auto ncol = gridstate.colmap[level].vtol[vcol + 1];
+                auto& next = headers[level][ncol];
+
+                if ((mousepos.x - gridstate.drag.startPos.x) >= next.content.GetWidth())
+                    gridstate.swapColumns(vcol, vcol + 1, headers, level);
+            }
+            else if (diff < 0.f && (col - 1) >= 0)
+            {
+                auto& prev = headers[level][col -1];
+
+                if ((gridstate.drag.startPos.x - mousepos.x) >= prev.content.GetWidth())
+                    gridstate.swapColumns(col - 1, col, headers, level);
+            }
+
+            gridstate.drag.lastPos = mousepos;
+        }
+        else if (!isMouseDown)
+        {
+            gridstate.drag = ItemGridInternalState::HeaderCellDragState{};
+            gridstate.state = ItemGridCurrentState::Default;
         }
     }
 
     static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content, ImVec2 sz)
     {
         auto btnsz = Config.scrollbarSz;
+        auto hasHScroll = false;
+        float gripExtent = 0.f;
+        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
 
-        if ((mousepos.x <= content.Max.x && mousepos.x >= (content.Max.x - btnsz)) || scroll.mouseDownOnGrip)
+        if (sz.x > content.GetWidth())
         {
-            ImRect top{ { content.Max.x - btnsz, content.Min.y }, { content.Max.x, content.Min.y + btnsz } };
-            ImRect bottom{ { content.Max.x - btnsz, content.Max.y - btnsz }, content.Max };
-            ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
-
-            auto sizeOfGrip = (content.GetHeight() / sz.y) * (content.GetHeight() - (2.f * btnsz));
-            ImRect grip{ { content.Max.x - btnsz, top.Max.y + scroll.pos.y },
-                { content.Max.x, sizeOfGrip + top.Max.y + scroll.pos.y } };
-
-            renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175), true);
-            renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
-                { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
-                { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100), true);
-
-            //renderer.DrawRect(path.Min, path.Max, ToRGBA(100, 200, 100), true);
-            renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175), true);
-            renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
-                { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
-                { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100), true);
-
-            if (grip.Contains(mousepos))
+            if ((content.Contains(mousepos) && (mousepos.y <= content.Max.y) && mousepos.x >= (content.Max.y - (1.5 * btnsz))) 
+                || scroll.mouseDownOnHGrip)
             {
-                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                ImRect left{ { content.Min.x, content.Max.y - btnsz }, { content.Min.x + btnsz, content.Max.y } };
+                ImRect right{ { content.Max.x - btnsz, content.Max.y }, content.Max };
+                ImRect path{ { left.Max.x, left.Min.y }, { right.Min.x, right.Max.y } };
+
+                auto sizeOfGrip = (content.GetWidth() / sz.x) * (content.GetWidth() - (2.f * btnsz));
+                ImRect grip{ { left.Max.x + scroll.pos.x, content.Max.y - btnsz },
+                    { left.Max.x + scroll.pos.x + sizeOfGrip, content.Max.y } };
+
+                renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175), true);
+                renderer.DrawTriangle({ left.Min.x + (btnsz * 0.25f), left.Min.y + (0.5f * btnsz) },
+                    { left.Max.x - (0.125f * btnsz), left.Min.y + (0.125f * btnsz) },
+                    { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100), true);
+
+                //renderer.DrawRect(path.Min, path.Max, ToRGBA(100, 200, 100), true);
+                renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175), true);
+                renderer.DrawTriangle({ right.Min.x + (btnsz * 0.25f), right.Min.y + (0.125f * btnsz) },
+                    { right.Max.x - (0.125f * btnsz), right.Min.y + (0.5f * btnsz) },
+                    { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100), true);
+
+                if (grip.Contains(mousepos))
                 {
-                    if (!scroll.mouseDownOnGrip)
+                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
                     {
-                        scroll.mouseDownOnGrip = true;
+                        if (!scroll.mouseDownOnHGrip)
+                        {
+                            scroll.mouseDownOnHGrip = true;
+                            scroll.lastMousePos.y = mousepos.y;
+                        }
+
+                        auto step = mousepos.x - scroll.lastMousePos.x;
+                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, path.GetWidth() - sizeOfGrip);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.x = mousepos.x;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+                }
+                else
+                {
+                    if (scroll.mouseDownOnHGrip)
+                    {
+                        auto step = mousepos.x - scroll.lastMousePos.x;
+                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, path.GetWidth() - sizeOfGrip);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.x = mousepos.x;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+
+                    if (left.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                        scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, path.GetWidth() - sizeOfGrip);
+                    else if (right.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                        scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, path.GetWidth() - sizeOfGrip);
+                }
+
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnHGrip)
+                {
+                    scroll.mouseDownOnHGrip = false;
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+                }
+            }
+
+            hasHScroll = true;
+        }
+
+        if (sz.y > content.GetHeight())
+        {
+            auto hasOpacity = scroll.opacity > 0.f;
+            auto hasMouseInteraction = (content.Contains(mousepos) && (mousepos.x <= content.Max.x) && mousepos.x >= (content.Max.x - (1.5f * btnsz)) &&
+                (!hasHScroll || mousepos.y < (content.Max.y - btnsz))) || scroll.mouseDownOnVGrip;
+
+            if (hasMouseInteraction || hasOpacity)
+            {
+                if (hasMouseInteraction && scroll.opacity < 255.f)
+                    scroll.opacity = std::min((opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime) + scroll.opacity, 255.f);
+                else if (!hasMouseInteraction && scroll.opacity > 0.f)
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime), 0.f);
+
+                auto extrah = hasHScroll ? btnsz : 0.f;
+                ImRect top{ { content.Max.x - btnsz, content.Min.y }, { content.Max.x, content.Min.y + btnsz } };
+                ImRect bottom{ { content.Max.x - btnsz, content.Max.y - btnsz - extrah }, content.Max };
+                ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
+
+                auto sizeOfGrip = (content.GetHeight() / sz.y) * (content.GetHeight() - (2.f * btnsz) - extrah);
+                ImRect grip{ { content.Max.x - btnsz, top.Max.y + scroll.pos.y },
+                    { content.Max.x, sizeOfGrip + top.Max.y + scroll.pos.y } };
+
+                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
+                    { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
+                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+
+                //renderer.DrawRect(path.Min, path.Max, ToRGBA(100, 200, 100), true);
+                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
+                    { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
+                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+
+                if (grip.Contains(mousepos))
+                {
+                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    {
+                        if (!scroll.mouseDownOnVGrip)
+                        {
+                            scroll.mouseDownOnVGrip = true;
+                            scroll.lastMousePos.y = mousepos.y;
+                        }
+
+                        auto step = mousepos.y - scroll.lastMousePos.y;
+                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip - extrah);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
                         scroll.lastMousePos.y = mousepos.y;
                     }
-
-                    auto step = mousepos.y - scroll.lastMousePos.y;
-                    scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip);
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                    scroll.lastMousePos.y = mousepos.y;
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
                 }
                 else
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
-            }
-            else
-            {
-                if (scroll.mouseDownOnGrip)
                 {
-                    auto step = mousepos.y - scroll.lastMousePos.y;
-                    scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip);
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                    scroll.lastMousePos.y = mousepos.y;
-                }
-                else
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+                    if (scroll.mouseDownOnVGrip)
+                    {
+                        auto step = mousepos.y - scroll.lastMousePos.y;
+                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, path.GetHeight() - sizeOfGrip - extrah);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.y = mousepos.y;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
 
-                if (top.Contains(mousepos) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, content.GetHeight() - btnsz - sizeOfGrip);
-                else if (bottom.Contains(mousepos) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, content.GetHeight() - btnsz - sizeOfGrip);
+                    if (top.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                        scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, path.GetHeight() - sizeOfGrip - extrah);
+                    else if (bottom.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, path.GetHeight() - sizeOfGrip - extrah);
+                }
+
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnVGrip)
+                {
+                    scroll.mouseDownOnVGrip = false;
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                }
+
+                gripExtent = path.GetHeight() - sizeOfGrip - extrah;
             }
 
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnGrip)
+            if (content.Contains(mousepos))
             {
-                scroll.mouseDownOnGrip = false;
-                renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150), true);
+                auto rotation = ImGui::GetCurrentContext()->IO.MouseWheel;
+                scroll.pos.y = ImClamp(rotation + scroll.pos.y, 0.f, gripExtent);
             }
         }
+    }
+
+    static ImRect DrawCells(ItemGridState& state, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int32_t row, int16_t col, 
+        float miny, IRenderer& renderer)
+    {
+        auto& hdr = headers.back()[col];
+        auto& model = state.cell(row, col, 0);
+        auto itemcontent = hdr.content;
+        itemcontent.Min.y = miny;
+
+        switch (model.wtype)
+        {
+        case WT_Label:
+        {
+            auto& itemstyle = Context.GetStyle(model.state.label.state);
+            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
+                itemstyle.font.size, FT_Normal);
+
+            auto textsz = renderer.GetTextSize(model.state.label.text, itemstyle.font.font,
+                itemstyle.font.size, -1.f);
+            itemcontent.Max.y = itemcontent.Min.y + textsz.y + hdr.style.padding.v();
+
+            ImVec2 textstart{ itemcontent.Min.x + hdr.style.padding.left,
+                itemcontent.Min.y + hdr.style.padding.top };
+
+            if (textsz.x < itemcontent.GetWidth())
+            {
+                auto hdiff = (itemcontent.GetWidth() - textsz.x) * 0.5f;
+                textstart.x += hdiff;
+            }
+
+            auto textend = itemcontent.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom };
+            DrawBackground(itemcontent.Min, itemcontent.Max, itemstyle, renderer);
+            renderer.DrawRect(itemcontent.Min, itemcontent.Max, ToRGBA(100, 100, 100), false);
+            DrawText(textstart, textend, { textstart, textstart + textsz }, model.state.label.text,
+                model.state.label.state & WS_Disabled, itemstyle, renderer);
+            break;
+        }
+        case WT_Custom:
+        {
+            renderer.SetClipRect(itemcontent.Min, itemcontent.Max);
+            auto sz = model.state.CustomWidget(itemcontent.Min, itemcontent.Max);
+            renderer.ResetClipRect();
+
+            itemcontent.Max.y = itemcontent.Min.y + hdr.style.padding.v() + sz.y;
+            break;
+        }
+        default:
+            break;
+        }
+
+        return itemcontent;
+    }
+
+    template <typename T>
+    int Find(T* start, T* end, T value)
+    {
+        for (auto it = start; it != end; ++it)
+            if (*it == value) return (int)(it - start);
+        return -1;
     }
 
     WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -3983,15 +4454,10 @@ namespace glimmer
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
 
         auto& headers = state.config.headers;
-        auto chcol = 0;
-        if (gridstate.cols.empty()) gridstate.cols.resize((int)headers.size());
 
         // Determine header geometry
         for (auto level = (int)headers.size() - 1; level >= 0; --level)
         {
-            if (gridstate.cols[level].empty())
-                gridstate.cols[level].resize(headers[level].size());
-
             // If this is last level headers, it represents leaves, the upper levels
             // represent grouping of the headers, whose width is determined by the 
             // lower levels, hence start with bottom most levels.
@@ -4005,10 +4471,20 @@ namespace glimmer
                 auto totalEx = 0;
                 auto height = 0.f;
 
-                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
                 {
+                    if (gridstate.cols[level].empty())
+                        gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
+
+                    if (gridstate.colmap[level].vtol[vcol] == -1)
+                    {
+                        gridstate.colmap[level].ltov[vcol] = vcol;
+                        gridstate.colmap[level].vtol[vcol] = vcol;
+                    }
+
+                    auto col = gridstate.colmap[level].vtol[vcol];
                     auto& hdr = headers[level][col];
-                    if (hdr.style.font.font == nullptr) hdr.style.font.font = GetFont(hdr.style.font.family, 
+                    if (hdr.style.font.font == nullptr) hdr.style.font.font = GetFont(hdr.style.font.family,
                         hdr.style.font.size, FT_Normal);
 
                     static char buffer[256];
@@ -4080,21 +4556,28 @@ namespace glimmer
             else
             {
                 float lastx = 0.f, height = 0.f;
+                if (gridstate.cols[level].empty())
+                    gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
 
-                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
                 {
                     float sum = 0.f;
+                    if (gridstate.colmap[level].vtol[vcol] == -1)
+                    {
+                        gridstate.colmap[level].ltov[vcol] = vcol;
+                        gridstate.colmap[level].vtol[vcol] = vcol;
+                    }
+
+                    auto col = gridstate.colmap[level].vtol[vcol];
                     auto& hdr = headers[level][col];
                     hdr.content.Min.x = lastx;
                     if (hdr.style.font.font == nullptr) hdr.style.font.font = GetFont(hdr.style.font.family,
                         hdr.style.font.size, FT_Normal);
 
                     // Find sum of all descendant headers, which will be this headers width
-                    while ((chcol < (int16_t)headers[level + 1].size()) && (headers[level + 1][chcol].parent == col))
-                    {
-                        sum += headers[level + 1][chcol].content.GetWidth();
-                        chcol++;
-                    }
+                    for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
+                        if (headers[level + 1][chcol].parent == col)
+                            sum += headers[level + 1][chcol].content.GetWidth();
 
                     auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
                     auto textsz = renderer.GetTextSize(hdr.name, hdr.style.font.font, hdr.style.font.size, wrap);
@@ -4104,7 +4587,7 @@ namespace glimmer
                     hdr.content.Max.x = hdr.content.Min.x + sum;
                     hdr.textrect.Min.x = hdr.content.Min.x + hdr.style.padding.left;
                     hdr.textrect.Min.y = hdr.content.Min.y + hdr.style.padding.top;
-                    hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x) - hdr.style.padding.right;
+                    hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x);
 
                     if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - hdr.style.padding.h()))
                     {
@@ -4124,28 +4607,78 @@ namespace glimmer
 
         // Draw Headers
         auto posy = content.Min.y;
+        auto totalh = 0.f;
+        auto width = headers.back().back().content.Max.x - headers.back().front().content.Min.x;
+        auto hshift = (width / content.GetWidth()) * -gridstate.scroll.pos.x;
+        std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
+
         for (auto level = 0; level < (int)headers.size(); ++level)
         {
-            auto maxh = 0.f, posx = content.Min.x;
+            auto maxh = 0.f, posx = content.Min.x + hshift;
 
-            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+            for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
             {
+                auto col = gridstate.colmap[level].vtol[vcol];
                 auto& hdr = headers[level][col];
-                hdr.content.TranslateY(posy);
-                hdr.textrect.TranslateY(posy);
-                hdr.content.TranslateX(posx);
-                hdr.textrect.TranslateX(posx);
-                renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+                auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
 
-                ImVec2 textend{ hdr.content.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom } };
-                DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, hdr.style, renderer);
-                maxh = std::max(maxh, hdr.content.GetHeight());
+                if (isBeingMoved)
+                {
+                    auto movex = mousepos.x - gridstate.drag.startPos.x;
+                    gridstate.drag.config = hdr;
+                    auto& cfg = gridstate.drag.config;
 
-                if (col > 0 && (headers[level][col - 1].props & COL_Resizable))
-                    HandleColumnResize(headers, hdr, gridstate, mousepos, level, col);
+                    cfg.content.TranslateY(posy);
+                    cfg.textrect.TranslateY(posy);
+                    cfg.content.TranslateX(posx + movex);
+                    cfg.textrect.TranslateX(posx + movex);
+                    
+                    maxh = std::max(maxh, hdr.content.GetHeight());
+                    nextMovingRange = { col, col };
+                }
+                else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                {
+                    // The parent column is being moved in this case, record the range of child columns mapped to that parent range
+                    auto movex = mousepos.x - gridstate.drag.startPos.x;
+                    auto& cfg = gridstate.drag.config;
+
+                    hdr.content.TranslateY(posy);
+                    hdr.textrect.TranslateY(posy);
+                    hdr.content.TranslateX(posx + movex);
+                    hdr.textrect.TranslateX(posx + movex);
+
+                    maxh = std::max(maxh, hdr.content.GetHeight());
+                    nextMovingRange.first = std::min(nextMovingRange.first, col);
+                    nextMovingRange.second = std::max(nextMovingRange.second, col);
+                }
+                else
+                {
+                    hdr.content.TranslateY(posy);
+                    hdr.textrect.TranslateY(posy);
+                    hdr.content.TranslateX(posx);
+                    hdr.textrect.TranslateX(posx);
+                    renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+
+                    ImVec2 textend{ hdr.content.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom } };
+                    DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, hdr.style, renderer);
+                    maxh = std::max(maxh, hdr.content.GetHeight());
+                }
+
+                if (vcol > 0)
+                {
+                    auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
+                    if (headers[level][prevcol].props & COL_Resizable)
+                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col);
+                }
+
+                if (hdr.props & COL_Moveable)
+                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol);
             }
 
             posy += maxh;
+            totalh += maxh;
+            movingColRange = nextMovingRange;
+            nextMovingRange = { INT16_MAX, -1 };
         }
 
         float height = 0.f;
@@ -4235,64 +4768,29 @@ namespace glimmer
             ImVec2 startpos{};
             startpos.y = -gridstate.scroll.pos.y * (gridstate.totalsz.y / content.GetHeight());
             renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+            auto maxlevel = (int)headers.size() - 1;
 
-            for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+            for (int16_t vcol = 0; vcol < (int16_t)headers.back().size(); ++vcol)
             {
-                //height = headers.back()[col].content.Max.y;
                 height = 0.f;
+                auto col = gridstate.colmap[maxlevel].vtol[vcol];
 
                 for (auto row = 0; row < state.config.rows; ++row)
                 {
-                    auto& hdr = headers.back()[col];
-                    auto& model = state.cell(row, col, 0);
-                    auto itemcontent = hdr.content;
-                    itemcontent.Min.y = height + posy + startpos.y;
-
-                    switch (model.wtype)
+                    if (col < movingColRange.first || col > movingColRange.second)
                     {
-                    case WT_Label:
-                    {
-                        auto& itemstyle = Context.GetStyle(model.state.label.state);
-                        if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
-                            itemstyle.font.size, FT_Normal);
+                        auto starty = height + posy + startpos.y;
+                        auto itemrect = DrawCells(state, headers, row, col, starty, renderer);
+                        height += itemrect.GetHeight();
 
-                        auto textsz = renderer.GetTextSize(model.state.label.text, itemstyle.font.font,
-                            itemstyle.font.size, -1.f);
-                        itemcontent.Max.y = itemcontent.Min.y + textsz.y + hdr.style.padding.v();
-
-                        ImVec2 textstart{ itemcontent.Min.x + hdr.style.padding.left,
-                            itemcontent.Min.y + hdr.style.padding.top };
-
-                        if (textsz.x < itemcontent.GetWidth())
+                        if (itemrect.Contains(mousepos))
                         {
-                            auto hdiff = (itemcontent.GetWidth() - textsz.x) * 0.5f;
-                            textstart.x += hdiff;
+                            result.col = col;
+                            result.row = row;
+                            // ... add depth
                         }
 
-                        auto textend = itemcontent.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom };
-                        renderer.DrawRect(itemcontent.Min, itemcontent.Max, ToRGBA(100, 100, 100), false);
-                        DrawBackground(itemcontent.Min, itemcontent.Max, itemstyle, renderer);
-                        DrawText(textstart, textend, { textstart, textstart + textsz }, model.state.label.text,
-                            model.state.label.state & WS_Disabled, itemstyle, renderer);
-                        break;
-                    }
-                    case WT_Custom:
-                    {
-                        auto sz = model.state.CustomWidget(itemcontent.Min, itemcontent.Max);
-                        itemcontent.Max.y = itemcontent.Min.y + hdr.style.padding.v() + sz.y;
-                        break;
-                    }
-                    default:
-                        break;
-                    }
-
-                    height += itemcontent.GetHeight();
-
-                    if (itemcontent.Contains(mousepos))
-                    {
-                        result.col = col;
-                        result.row = row;
-                        // ... add depth
+                        //if (height + posy >= content.Max.y) break; 
                     }
                 }
             }
@@ -4300,9 +4798,84 @@ namespace glimmer
             renderer.ResetClipRect();
         }
 
-        gridstate.totalsz.y = height;
+        totalh += height;
 
-        if (height > content.GetHeight()) HandleScrollBars(gridstate.scroll, renderer, mousepos, content, ImVec2{ 0.f, height });
+        if (gridstate.drag.column != -1 && gridstate.drag.level != -1)
+        {
+            const auto& cfg = gridstate.drag.config;
+            LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.content.Min.x, cfg.content.Max.x);
+
+            renderer.DrawRectGradient(cfg.content.Min + ImVec2{ -10.f, 0.f }, { cfg.content.Min.x, content.Max.y }, 
+                ToRGBA(0, 0, 0, 0), ToRGBA(100, 100, 100), Direction::DIR_Horizontal);
+            renderer.DrawRectGradient({ cfg.content.Max.x, cfg.content.Min.y }, ImVec2{ cfg.content.Max.x + 10.f, content.Max.y }, 
+                ToRGBA(100, 100, 100), ToRGBA(0, 0, 0, 0), Direction::DIR_Horizontal);
+
+            renderer.DrawRect(cfg.content.Min, cfg.content.Max, ToRGBA(100, 100, 100), false);
+            ImVec2 textend{ cfg.content.Max - ImVec2{ cfg.style.padding.right, cfg.style.padding.bottom } };
+            DrawText(cfg.textrect.Min, textend, cfg.textrect, cfg.name, false, cfg.style, renderer);
+
+            auto level = gridstate.drag.level + 1;
+
+            if (level < (int16_t)headers.size())
+            {
+                auto movex = mousepos.x - gridstate.drag.lastPos.x;
+                auto lcol = gridstate.colmap[level - 1].vtol[gridstate.drag.column];
+                std::pair<int16_t, int16_t> movingColRange = { lcol, lcol }, nextMovingRange = { INT16_MAX, -1 };
+
+                for (; level < (int16_t)headers.size(); ++level)
+                {
+                    for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                    {
+                        auto& hdr = headers[level][col];
+
+                        if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                        {
+                            hdr.content.TranslateX(movex);
+                            hdr.textrect.TranslateX(movex);
+
+                            renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+                            ImVec2 textend{ hdr.content.Max - ImVec2{ hdr.style.padding.right, hdr.style.padding.bottom } };
+                            DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, hdr.style, renderer);
+
+                            nextMovingRange.first = std::min(nextMovingRange.first, col);
+                            nextMovingRange.second = std::max(nextMovingRange.second, col);
+                        }
+                    }
+
+                    movingColRange = nextMovingRange;
+                    nextMovingRange = { INT16_MAX, -1 };
+                }
+            }
+
+            ImVec2 startpos{};
+            startpos.y = -gridstate.scroll.pos.y * (gridstate.totalsz.y / content.GetHeight());
+            renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+
+            for (int16_t col = movingColRange.first; col <= movingColRange.second; ++col)
+            {
+                height = 0.f;
+
+                for (auto row = 0; row < state.config.rows; ++row)
+                {
+                    if (col >= movingColRange.first && col <= movingColRange.second)
+                    {
+                        auto itemrect = DrawCells(state, headers, row, col, height + posy + startpos.y, renderer);
+                        height += itemrect.GetHeight();
+
+                        if (itemrect.Contains(mousepos))
+                        {
+                            result.col = col;
+                            result.row = row;
+                            // ... add depth
+                        }
+                    }
+                }
+            }
+        }
+
+        gridstate.totalsz.y = totalh;
+        gridstate.totalsz.x = width;
+        HandleScrollBars(gridstate.scroll, renderer, mousepos, content, gridstate.totalsz);
 
         // Reset header calculations for next frame
         for (auto level = 0; level < (int)headers.size(); ++level)
@@ -4402,52 +4975,6 @@ namespace glimmer
         return ButtonImpl(id, margin, border, padding, content, textsz, renderer);
     }
 
-    WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
-    {
-        assert(id <= (int)Context.states[WT_ToggleButton].size());
-
-        auto& state = Context.GetState(id).state.toggle;
-        CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
-
-        WidgetEvent result = WidgetEvent::None;
-        auto& style = Context.GetStyle(state.state);
-
-        ImRect extent;
-        if (geometry.has_value()) { extent.Min = pos; extent.Max = extent.Min + geometry.value(); }
-        else
-        {
-            extent.Min = pos + ImVec2{ style.margin.top + style.padding.top, style.margin.left + style.padding.right };
-            extent.Max = extent.Min + style.dimension;
-        }
-        
-        auto radius = ((extent.GetHeight()) * 0.5f) + Context.toggleButtonStyles[style.index.custom].thumbOffset;
-        auto center = extent.Min + ImVec2{ radius + 1.f, radius };
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
-        auto mouseover = extent.Contains(mousepos);
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
-            mouseover ? WS_Hovered : WS_Default;
-
-        auto& specificStyle = Context.toggleButtonStyles[style.index.custom + log2((unsigned)state.state)];
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackColor, true, radius, radius, radius, radius);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, radius, radius, radius, radius, 
-            specificStyle.trackBorderThickness);
-
-        if (mouseover && specificStyle.thumbExpand > 0.f)
-            renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
-
-        renderer.DrawCircle(center, radius, style.fgcolor, true);
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result = WidgetEvent::Clicked;
-            state.checked = !state.checked;
-        }
-
-        if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
-        return { id, result };
-    }
-
     WidgetDrawResult RadioButton(int32_t id, ImVec2 pos, IRenderer& renderer, std::optional<ImVec2> geometry)
     {
         assert(id <= (int)Context.states[WT_RadioButton].size());
@@ -4486,6 +5013,24 @@ namespace glimmer
 
         if (!geometry.has_value()) extent.Max += ImVec2{ style.margin.right + style.padding.right, style.margin.bottom + style.padding.right };
         return { id, result };
+    }
+
+    static void AddExtent(LayoutItemDescriptor& wdesc, int32_t id, const StyleDescriptor& style, const NeighborWidgets& neighbors)
+    {
+        wdesc.margin.Min = Context.nextpos;
+        if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
+        else wdesc.margin.Max.y = ImGui::GetCurrentWindow()->InnerClipRect.Max.y;
+        if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
+        else wdesc.margin.Max.x = ImGui::GetCurrentWindow()->InnerClipRect.Max.x;
+
+        wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+        wdesc.border.Max = wdesc.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+
+        wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+        wdesc.padding.Max = wdesc.border.Max - ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+
+        wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
+        wdesc.content.Max = wdesc.padding.Max - ImVec2{ style.padding.right, style.padding.bottom };
     }
 
     void Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
@@ -4548,26 +5093,34 @@ namespace glimmer
             break;
         }
         case WT_RadioButton:break;
-        case WT_ToggleButton: break;
+        case WT_ToggleButton: {
+            auto& state = Context.GetState(wid).state.toggle;
+            auto& style = Context.GetStyle(state.state);
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors);
+            auto [bounds, textsz] = ToggleButtonBounds(state, wdesc.content, renderer);
+
+            renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+            ToggleButtonImpl(wid, state, bounds, textsz, renderer);
+            renderer.ResetClipRect();
+            break;
+        }
+        case WT_TabBar: {
+            auto& state = Context.GetState(wid).state.grid;
+            auto& style = Context.GetStyle(state.state);
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors);
+
+            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+
+            renderer.ResetClipRect();
+            break;
+        }
         case WT_ItemGrid: {
             auto& state = Context.GetState(wid).state.grid;
-            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
             auto& style = Context.GetStyle(state.state);
-
-            wdesc.margin.Min = Context.nextpos;
-            if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
-            else wdesc.margin.Max.y = ImGui::GetCurrentWindow()->InnerClipRect.Max.y;
-            if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
-            else wdesc.margin.Max.x = ImGui::GetCurrentWindow()->InnerClipRect.Max.x;
-
-            wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-            wdesc.border.Max = wdesc.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-
-            wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-            wdesc.padding.Max = wdesc.border.Max - ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-
-            wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
-            wdesc.content.Max = wdesc.padding.Max - ImVec2{ style.padding.right, style.padding.bottom };
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); 
@@ -4589,6 +5142,16 @@ namespace glimmer
     void Button(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         Widget(id, WT_Button, geometry, neighbors);
+    }
+
+    void ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_ToggleButton, geometry, neighbors);
+    }
+
+    void TabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_TabBar, geometry, neighbors);
     }
 
     void ItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
@@ -4626,22 +5189,27 @@ namespace glimmer
 
     void ItemGridState::setColumnResizable(int16_t col, bool resizable)
     {
+        setColumnProps(col, COL_Resizable, resizable);
+    }
+
+    void ItemGridState::setColumnProps(int16_t col, ColumnProperty prop, bool set)
+    {
         if (col >= 0)
         {
             auto lastLevel = (int)config.headers.size() - 1;
-            config.headers[lastLevel][col].props |= COL_Resizable;
+            set ? config.headers[lastLevel][col].props |= prop : config.headers[lastLevel][col].props &= ~prop;
             while (lastLevel > 0)
             {
                 auto parent = config.headers[lastLevel][col].parent;
                 lastLevel--;
-                config.headers[lastLevel][parent].props |= COL_Resizable;
+                set ? config.headers[lastLevel][parent].props |= prop : config.headers[lastLevel][parent].props &= ~prop;
             }
         }
         else
         {
             for (auto level = 0; level < (int)config.headers.size(); ++level)
                 for (auto lcol = 0; lcol < (int)config.headers[level].size(); ++lcol)
-                    config.headers[level][lcol].props |= COL_Resizable;
+                    set ? config.headers[level][lcol].props |= prop : config.headers[level][lcol].props &= ~prop;
         }
     }
 

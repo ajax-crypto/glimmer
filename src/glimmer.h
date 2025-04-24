@@ -155,6 +155,7 @@ namespace glimmer
     [[nodiscard]] uint32_t ToRGBA(float r, float g, float b, float a = 1.f);
     [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int, int>& color);
     [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int>& color);
+    [[nodiscard]] std::tuple<int, int, int, int> DecomposeColor(uint32_t color);
     [[nodiscard]] uint32_t GetColor(const char* name, void*);
 
     struct FourSidedMeasure
@@ -346,6 +347,7 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton,
+        WT_TabBar,
         WT_ItemGrid,
         WT_Custom,
         WT_TotalTypes
@@ -413,6 +415,7 @@ namespace glimmer
         float fontScaling = 2.f;
         float scaling = 1.f;
         float scrollbarSz = 15.f;
+        float scrollAppearAnimationDuration = 0.3f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
@@ -472,6 +475,7 @@ namespace glimmer
         COL_Expandable = 1 << 4,
         COL_WidthAbsolute = 1 << 5,
         COL_WrapHeader = 1 << 6,
+        COL_Moveable = 1 << 7
     };
 
     struct ItemGridState : public CommonWidgetData
@@ -524,6 +528,28 @@ namespace glimmer
 
         void setCellPadding(float padding);
         void setColumnResizable(int16_t col, bool resizable);
+        void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);
+    };
+
+    enum TabButtonFlags : int32_t
+    {
+        TAB_Closeable = 1,
+        TAB_Pinned = 2,
+        TAB_Add = 4
+    };
+
+    struct TabBarState
+    {
+        struct TabButtonDesc
+        {
+            ButtonState state;
+            int32_t flags = 0;
+        };
+
+        int selected = 0;
+        std::vector<TabButtonDesc> tabs;
+        bool scrollable = false;
+        bool horizontal = true;
     };
 
     enum class WidgetEvent
@@ -550,6 +576,7 @@ namespace glimmer
             ButtonState button;
             ToggleButtonState toggle;
             RadioButtonState radio;
+            TabBarState tab;
             ItemGridState grid;
             // Add others...
 
@@ -591,11 +618,12 @@ namespace glimmer
     WidgetDrawResult ToggleButton(int32_t id, ImVec2 pos, int32_t geometry = 0);
     WidgetDrawResult CheckBox(int32_t id, ImVec2 pos, int32_t geometry = 0);
 
-    void Label(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void Button(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void ToggleButton(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void CheckBox(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void ItemGrid(int32_t id, int32_t geometry = 0, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void ToggleButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void CheckBox(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void TabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void ItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
