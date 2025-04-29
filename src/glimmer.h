@@ -346,7 +346,8 @@ namespace glimmer
     {
         WT_Invalid = -1,
         WT_Sublayout = -2,
-        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton,
+        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_CheckBox,
+        WT_TextInput,
         WT_TabBar,
         WT_ItemGrid,
         WT_Custom,
@@ -409,6 +410,7 @@ namespace glimmer
     struct WindowConfig
     {
         uint32_t bgcolor;
+        uint32_t focuscolor;
         int32_t tooltipDelay = 500;
         float tooltipFontSz = 16.f;
         float defaultFontSz = 16.f;
@@ -436,7 +438,9 @@ namespace glimmer
         WS_Pressed = 1 << 3,
         WS_Checked = 1 << 4,
         WS_Disabled = 1 << 5,
-        WS_Dragged = 1 << 6,
+        WS_PartialCheck = 1 << 6,
+        WS_Selected = 1 << 7,
+        WS_Dragged = 1 << 8,
     };
 
     inline void ValidateState(int state)
@@ -465,6 +469,17 @@ namespace glimmer
     };
 
     using RadioButtonState = ToggleButtonState;
+
+    struct TextInputState : public CommonWidgetData
+    {
+        std::vector<char> text;
+        std::string_view placeholder;
+        std::pair<int, int> selection{ -1, -1 };
+        int cursorPos = -1;
+        int hintListSz = 0;
+        int hintTriggerChar = -1; 
+        void (*HintItem)(const ImRect&) = nullptr;
+    };
 
     enum ColumnProperty : int32_t
     {
@@ -554,7 +569,7 @@ namespace glimmer
 
     enum class WidgetEvent
     {
-        None, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited
+        None, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited, Selected
     };
 
     struct WidgetDrawResult
@@ -576,6 +591,7 @@ namespace glimmer
             ButtonState button;
             ToggleButtonState toggle;
             RadioButtonState radio;
+            TextInputState input;
             TabBarState tab;
             ItemGridState grid;
             // Add others...
@@ -621,12 +637,15 @@ namespace glimmer
     void Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void ToggleButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void RadioButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void CheckBox(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void TextInput(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void TabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void ItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
+    void PushStyle(WidgetState state, std::string_view css);
     void SetNextStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
     StyleDescriptor& GetCurrentStyle(int32_t state = WS_Default);

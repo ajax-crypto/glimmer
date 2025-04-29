@@ -88,6 +88,15 @@ namespace glimmer
         float fontsz = 12.f;
     };
 
+    struct RadioButtonStyleDescriptor
+    {
+        uint32_t checkedColor = ToRGBA(0, 0, 0);
+        uint32_t outlineColor = ToRGBA(0, 0, 0);
+        float outlineThickness = 2.f;
+        float checkedRadius = 0.6f; // relative to total
+        float animate = 0.3f;
+    };
+
     union CommonWidgetStyleDescriptor
     {
         ToggleButtonStyleDescriptor toggle;
@@ -155,6 +164,7 @@ namespace glimmer
     enum WidgetStateIndex
     {
         WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked, WSI_Disabled,
+        WSI_PartiallyChecked, WSI_Selected,
         WSI_Total
     };
 
@@ -171,8 +181,9 @@ namespace glimmer
         using value_type = T;
         using size_type = Sz;
         using difference_type = std::conditional_t<std::is_unsigned_v<Sz>, std::make_signed_t<Sz>, Sz>;
+        using Iterator = T*;
 
-        struct Iterator
+        /*struct Iterator
         {
             Sz current = 0;
             Vector& parent;
@@ -198,9 +209,11 @@ namespace glimmer
             bool operator!=(const Iterator& other) const 
             { return current != other.current || parent._data != other.parent._data; }
 
+            bool operator<(const Iterator& other) const { current < other.current; }
+
             T& operator*() { return parent._data[current]; }
             T* operator->() { return parent._data + current; }
-        };
+        };*/
 
         ~Vector() 
         { 
@@ -269,7 +282,7 @@ namespace glimmer
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * targetsz);
                 if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
-                if (initialize) _default_init(_data + _size, _data + targetsz);
+                if (initialize) _default_init(_size, targetsz);
             }
         }
 
@@ -288,8 +301,8 @@ namespace glimmer
         void reset(const T& el) { std::fill(_data, _data + _size, el); }
         void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); }
 
-        Iterator begin() { return Iterator{ *this, 0 }; }
-        Iterator end() { return Iterator{ *this, _size }; }
+        Iterator begin() { return _data; }
+        Iterator end() { return _data + _size; }
 
         const T& operator[](Sz idx) const { assert(idx < _size); return _data[idx]; }
         T& operator[](Sz idx) { assert(idx < _size); return _data[idx]; }
@@ -305,10 +318,12 @@ namespace glimmer
 
     private:
 
-        void _default_init(int from, int to)
+        void _default_init(Sz from, Sz to)
         {
-            if constexpr (std::is_default_constructible_v<T>)
+            if constexpr (std::is_default_constructible_v<T> && !std::is_scalar_v<T>)
                 std::fill(_data + from, _data + to, T{});
+            else if constexpr (std::is_arithmetic_v<T>)
+                std::fill(_data + from, _data + to, T{ 0 });
         }
 
         void _reallocate(bool initialize)
@@ -445,8 +460,9 @@ namespace glimmer
         {
         case WT_Label: ::new (&state.label) LabelState{}; break;
         case WT_Button: ::new (&state.button) ButtonState{}; break;
-        case WT_RadioButton: break;
+        case WT_RadioButton: new (&state.radio) RadioButtonState{}; break;
         case WT_ToggleButton: new (&state.toggle) ToggleButtonState{}; break;
+        case WT_TextInput: new (&state.input) TextInputState{}; break;
         case WT_TabBar: new (&state.tab) TabBarState{}; break;
         case WT_ItemGrid: ::new (&state.grid) ItemGridState{}; break;
         default: break;
@@ -460,8 +476,9 @@ namespace glimmer
         {
         case WT_Label: state.label = src.state.label; break;
         case WT_Button: state.button = src.state.button; break;
-        case WT_RadioButton: break;
+        case WT_RadioButton: state.radio = src.state.radio; break;
         case WT_ToggleButton: state.toggle = src.state.toggle; break;
+        case WT_TextInput: state.input = src.state.input; break;
         case WT_TabBar: state.tab = src.state.tab; break;
         case WT_ItemGrid: state.grid = src.state.grid; break;
         default: break;
@@ -594,6 +611,28 @@ namespace glimmer
         bool animate = false;
     };
 
+    struct RadioButtonInternalState
+    {
+        float radius = -1.f;
+        float progress = 0.f;
+        bool animate = false;
+    };
+
+    struct InputTextInternalState
+    {
+        int caretpos = 0;
+        float offset = 0.f;
+        bool caretVisible = true;
+        bool capslock = false;
+        bool isSelecting = false;
+        float lastCaretShowTime = 0.f;
+        float selectionStart = -1.f;
+        std::pair<float, float> visibleRegion;
+        Vector<float, int16_t> pixelpos; // Cumulative pixel position of characters
+    };
+
+    static std::vector<std::pair<char, char>> KeyMappings;
+
     struct WidgetContextData
     {
         // This is quasi-persistent
@@ -601,6 +640,8 @@ namespace glimmer
         std::vector<ItemGridInternalState> gridStates;
         std::vector<TabBarInternalState> tabStates;
         std::vector<ToggleButtonInternalState> toggleStates;
+        std::vector<RadioButtonInternalState> radioStates;
+        std::vector<InputTextInternalState> inputTextStates;
 
         DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
         StyleDescriptor currStyle[WSI_Total];
@@ -614,6 +655,7 @@ namespace glimmer
 
         // Per widget specific style objects
         DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
+        DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
@@ -658,6 +700,18 @@ namespace glimmer
             return toggleStates[index];
         }
 
+        RadioButtonInternalState& RadioState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return radioStates[index];
+        }
+
+        InputTextInternalState& InputTextState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return inputTextStates[index];
+        }
+
         StyleDescriptor& GetStyle(int32_t state)
         {
             auto style = log2((unsigned)state);
@@ -696,6 +750,7 @@ namespace glimmer
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
                 pushedStyles[idx].push();
+                radioButtonStyles[idx].push();
                 auto& toggle = toggleButtonStyles[idx].push();
                 toggle.fontsz *= Config.fontScaling;
 
@@ -714,6 +769,8 @@ namespace glimmer
             gridStates.resize(8);
             tabStates.resize(16);
             toggleStates.resize(32);
+            radioStates.resize(32);
+            inputTextStates.resize(32);
 
             for (auto idx = 0; idx < WT_TotalTypes; ++idx)
             {
@@ -722,6 +779,32 @@ namespace glimmer
                 states[idx].resize(32, data);
                 itemGeometries[idx].resize(32, ImRect{ {0.f, 0.f}, {0.f, 0.f} });
             }
+
+            KeyMappings.resize(1024, { 0, 0 });
+            KeyMappings[ImGuiKey_0] = { '0', ')' }; KeyMappings[ImGuiKey_1] = { '1', '!' }; KeyMappings[ImGuiKey_2] = { '2', '@' };
+            KeyMappings[ImGuiKey_3] = { '3', '#' }; KeyMappings[ImGuiKey_4] = { '4', '$' }; KeyMappings[ImGuiKey_5] = { '5', '%' };
+            KeyMappings[ImGuiKey_6] = { '6', '^' }; KeyMappings[ImGuiKey_7] = { '7', '&' }; KeyMappings[ImGuiKey_8] = { '8', '*' };
+            KeyMappings[ImGuiKey_9] = { '9', '(' };
+
+            KeyMappings[ImGuiKey_A] = { 'A', 'a' }; KeyMappings[ImGuiKey_B] = { 'B', 'b' }; KeyMappings[ImGuiKey_C] = { 'C', 'c' };
+            KeyMappings[ImGuiKey_D] = { 'D', 'd' }; KeyMappings[ImGuiKey_E] = { 'E', 'e' }; KeyMappings[ImGuiKey_F] = { 'F', 'f' };
+            KeyMappings[ImGuiKey_G] = { 'G', 'g' }; KeyMappings[ImGuiKey_H] = { 'H', 'h' }; KeyMappings[ImGuiKey_I] = { 'I', 'i' };
+            KeyMappings[ImGuiKey_J] = { 'J', 'j' }; KeyMappings[ImGuiKey_K] = { 'K', 'k' }; KeyMappings[ImGuiKey_L] = { 'L', 'l' };
+            KeyMappings[ImGuiKey_M] = { 'M', 'm' }; KeyMappings[ImGuiKey_N] = { 'N', 'n' }; KeyMappings[ImGuiKey_O] = { 'O', 'o' };
+            KeyMappings[ImGuiKey_P] = { 'P', 'p' }; KeyMappings[ImGuiKey_Q] = { 'Q', 'q' }; KeyMappings[ImGuiKey_R] = { 'R', 'r' };
+            KeyMappings[ImGuiKey_S] = { 'S', 's' }; KeyMappings[ImGuiKey_T] = { 'T', 't' }; KeyMappings[ImGuiKey_U] = { 'U', 'u' };
+            KeyMappings[ImGuiKey_V] = { 'V', 'v' }; KeyMappings[ImGuiKey_W] = { 'W', 'w' }; KeyMappings[ImGuiKey_X] = { 'X', 'x' };
+            KeyMappings[ImGuiKey_Y] = { 'Y', 'y' }; KeyMappings[ImGuiKey_Z] = { 'Z', 'z' };
+
+            KeyMappings[ImGuiKey_Apostrophe] = { '\'', '"' }; KeyMappings[ImGuiKey_Backslash] = { '\\', '|' };
+            KeyMappings[ImGuiKey_Slash] = { '/', '?' }; KeyMappings[ImGuiKey_Comma] = { ',', '<' };
+            KeyMappings[ImGuiKey_Minus] = { '-', '_' }; KeyMappings[ImGuiKey_Period] = { '.', '>' };
+            KeyMappings[ImGuiKey_Semicolon] = { ';', ':' }; KeyMappings[ImGuiKey_Equal] = { '=', '+' };
+            KeyMappings[ImGuiKey_LeftBracket] = { '[', '{' }; KeyMappings[ImGuiKey_RightBracket] = { ']', '}' };
+            KeyMappings[ImGuiKey_Space] = { ' ', ' ' }; KeyMappings[ImGuiKey_Tab] = { '\t', '\t' };
+            KeyMappings[ImGuiKey_GraveAccent] = { '`', '~' };
+
+            // TODO: Add mappings for keypad buttons...
         }
     };
 
@@ -2173,34 +2256,9 @@ namespace glimmer
         return prop;
     }
 
-    static void UsePushedStyle(int32_t wid)
-    {
-        //// If a set of styles is already pushed, add it to widget being created
-        //if (Context.currstyleDepth >= 6)
-        //{
-        //    auto& defstyle = Context.GetStyle(wid, WS_Default);
-        //    defstyle = Context.currstyle[Context.currstyleDepth - 6];
-
-        //    auto& disabledstyle = Context.GetStyle(wid, WS_Disabled);
-        //    disabledstyle = Context.currstyle[Context.currstyleDepth - 5];
-
-        //    auto& hoveredstyle = Context.GetStyle(wid, WS_Hovered);
-        //    hoveredstyle = Context.currstyle[Context.currstyleDepth - 4];
-
-        //    auto& pressedstyle = Context.GetStyle(wid, WS_Pressed);
-        //    pressedstyle = Context.currstyle[Context.currstyleDepth - 3];
-
-        //    auto& focusedstyle = Context.GetStyle(wid, WS_Focused);
-        //    focusedstyle = Context.currstyle[Context.currstyleDepth - 2];
-
-        //    auto& checkedstyle = Context.GetStyle(wid, WS_Checked);
-        //    checkedstyle = Context.currstyle[Context.currstyleDepth - 1];
-        //}
-    }
-
     static void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
     {
-        if (dest.specified & StyleUpdatedFromBase) return;
+        if (&src == &dest || dest.specified & StyleUpdatedFromBase) return;
 
         for (int64_t idx = 0; idx <= StyleTotal; ++idx)
         {
@@ -2212,40 +2270,50 @@ namespace glimmer
                 case glimmer::StyleBackground:
                     dest.bgcolor = src.bgcolor;
                     dest.gradient = src.gradient;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFgColor:
                     dest.fgcolor = src.fgcolor;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFontSize:
                 case glimmer::StyleFontFamily:
                 case glimmer::StyleFontWeight:
                 case glimmer::StyleFontStyle:
                     dest.font = src.font;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHeight:
                     dest.dimension.y = src.dimension.y;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleWidth:
                     dest.dimension.x = src.dimension.x;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHAlignment:
                     (src.alignment & TextAlignLeft) ? dest.alignment |= TextAlignLeft : dest.alignment &= ~TextAlignLeft;
                     (src.alignment & TextAlignRight) ? dest.alignment |= TextAlignRight : dest.alignment &= ~TextAlignRight;
                     (src.alignment & TextAlignHCenter) ? dest.alignment |= TextAlignHCenter : dest.alignment &= ~TextAlignHCenter;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleVAlignment:
                     (src.alignment & TextAlignTop) ? dest.alignment |= TextAlignTop : dest.alignment &= ~TextAlignTop;
                     (src.alignment & TextAlignBottom) ? dest.alignment |= TextAlignBottom : dest.alignment &= ~TextAlignBottom;
                     (src.alignment & TextAlignVCenter) ? dest.alignment |= TextAlignVCenter : dest.alignment &= ~TextAlignVCenter;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StylePadding:
                     dest.padding = src.padding;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMargin:
                     dest.margin = src.margin;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleBorder:
                     dest.border = src.border;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleOverflow:
                     break;
@@ -2257,6 +2325,7 @@ namespace glimmer
                     dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
                     dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
                     dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 }
                 case glimmer::StyleCellSpacing:
@@ -2265,20 +2334,25 @@ namespace glimmer
                     break;
                 case glimmer::StyleBoxShadow:
                     dest.shadow = src.shadow;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleTextOverflow:
                     break;
                 case glimmer::StyleMinWidth:
                     dest.mindim.x = src.mindim.x;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxWidth:
                     dest.maxdim.x = src.maxdim.x;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMinHeight:
                     dest.mindim.y = src.mindim.y;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxHeight:
                     dest.maxdim.y = src.maxdim.y;
+                    if (src.specified & prop) dest.specified |= prop;
                     break;
                 default:
                     break;
@@ -2313,6 +2387,20 @@ namespace glimmer
                 
                 pushed.From(css[style]);
             }
+        }
+    }
+
+    void PushStyle(WidgetState state, std::string_view css)
+    {
+        auto idx = log2((unsigned)state);
+        
+        if (idx == WSI_Default)  Context.pushedStyles[idx].push().From(css);
+        else
+        {
+            const auto& defstyle = Context.pushedStyles[WSI_Default].top();
+            auto& style = Context.pushedStyles[idx].push(defstyle);
+            style.From(css);
+            style.specified |= defstyle.specified;
         }
     }
 
@@ -2699,14 +2787,15 @@ namespace glimmer
     }
 
     void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled, 
-        const StyleDescriptor& style, IRenderer& renderer)
+        const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags = std::nullopt)
     {
         ImRect content{ startpos, endpos };
         
         renderer.SetClipRect(content.Min, content.Max);
         renderer.SetCurrentFont(style.font.font, style.font.size);
+        auto flags = txtflags.has_value() ? txtflags.value() : style.font.flags;
 
-        if ((style.font.flags & FontStyleOverflowMarquee) != 0 &&
+        if ((flags & FontStyleOverflowMarquee) != 0 &&
             !disabled && style.index.animation != InvalidIdx)
         {
             auto& animation = Context.animations[style.index.animation];
@@ -2722,7 +2811,7 @@ namespace glimmer
             else
                 renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
         }
-        else if (style.font.flags & FontStyleOverflowEllipsis)
+        else if (flags & FontStyleOverflowEllipsis)
         {
             ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
                 textrect.GetSize();
@@ -3979,6 +4068,499 @@ namespace glimmer
         state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
             mouseover ? WS_Hovered : WS_Default;
         state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        result.geometry = extent;
+        return result;
+    }
+
+    static ImRect RadioButtonBounds(const ImRect& extent)
+    {
+        auto radius = std::min(extent.GetWidth(), extent.GetHeight());
+        return ImRect{ extent.Min, extent.Min + ImVec2{ radius, radius } };
+    }
+
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        auto& style = Context.GetStyle(state.state);
+        auto& specificStyle = Context.radioButtonStyles[log2((unsigned)state.state)].top();
+        auto& radio = Context.RadioState(id);
+        auto mousepos = ImGui::GetIO().MousePos;
+
+        auto radius = extent.GetWidth() * 0.5f;
+        auto center = extent.Min + ImVec2{ radius, radius };
+        renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
+        auto maxrad = radius * specificStyle.checkedRadius;
+        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
+        radius = radio.radius;
+
+        if (radius > 0.f)
+        {
+            renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
+        }
+        
+        auto ratio = radio.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) : 0.f;
+        radio.progress += ratio;
+        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
+        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
+        auto mouseover = extent.Contains(mousepos);
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            result.event = WidgetEvent::Clicked;
+            state.checked = !state.checked;
+            radio.animate = true;
+            radio.progress = 0.f;
+            radio.radius = state.checked ? 0.f : maxrad;
+        }
+
+        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+            mouseover ? WS_Hovered : WS_Default;
+        state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        result.geometry = extent;
+        return result;
+    }
+
+    static void UpdatePosition(const TextInputState& state, int index, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
+    {
+        for (auto idx = index; idx < (int)state.text.size(); ++idx)
+        {
+            auto sz = renderer.GetTextSize(std::string_view{ state.text.data() + idx, 1 }, style.font.font, style.font.size).x;
+            input.pixelpos[idx] = sz + (idx > 0 ? input.pixelpos[idx - 1] : 0.f);
+        }
+    }
+
+    static void RemoveCharAt(int position, TextInputState& state, InputTextInternalState& input)
+    {
+        auto diff = input.pixelpos[position] - input.pixelpos[position - 1];
+
+        for (auto idx = position; idx < (int)state.text.size(); ++idx)
+        {
+            state.text[idx - 1] = state.text[idx];
+            input.pixelpos[idx - 1] -= diff;
+        }
+
+        state.text.pop_back();
+        input.pixelpos.pop_back();
+    }
+
+    static void DeleteSelectedText(TextInputState& state, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
+    {
+        auto from = std::max(state.selection.first, state.selection.second) + 1,
+            to = std::min(state.selection.first, state.selection.second);
+        float shift = input.pixelpos[from - 1] - input.pixelpos[to - 1];
+        auto textsz = (int)state.text.size();
+
+        for (; from < textsz; ++from, ++to)
+        {
+            state.text[to] = state.text[from];
+            input.pixelpos[to] = input.pixelpos[from] - shift;
+        }
+
+        for (auto idx = to; idx < textsz; ++idx)
+        {
+            state.text.pop_back();
+            input.pixelpos.pop_back();
+        }
+
+        input.caretpos = std::min(state.selection.first, state.selection.second);
+        state.selection.first = state.selection.second = -1;
+        input.selectionStart = -1.f;
+    }
+
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        const auto& style = Context.GetStyle(state.state);
+        auto& input = Context.InputTextState(id);
+        auto mousepos = ImGui::GetIO().MousePos;
+
+        if (state.state & WS_Focused)
+            renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
+            
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        renderer.SetCurrentFont(style.font.font, style.font.size);
+        
+        if (state.text.empty() && !(state.state & WS_Focused))
+        {
+            auto phstyle = style;
+            auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
+            fa = 150;
+            phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
+            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled, 
+                phstyle, renderer, FontStyleOverflowMarquee);
+        }
+        else
+        {
+            if (state.selection.second != -1)
+            {
+                std::string_view text{ state.text.data(), state.text.size() };
+                auto selection = state.selection;
+                selection = { std::min(state.selection.first, state.selection.second), 
+                    std::max(state.selection.first, state.selection.second) };
+                std::string_view parts[3] = { text.substr(0, selection.first), 
+                    text.substr(selection.first, selection.second - selection.first + 1), 
+                    text.substr(selection.second + 1) };
+                ImVec2 startpos{ content.Min.x - input.offset, content.Min.y }, textsz;
+                
+                if (!parts[0].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[0], style.font.font, style.font.size);
+                    renderer.DrawText(parts[0], startpos, style.fgcolor);
+                    startpos.x += textsz.x;
+                }
+
+                const auto& selstyle = Context.GetStyle(WS_Selected);
+                textsz = renderer.GetTextSize(parts[1], style.font.font, style.font.size);
+                renderer.DrawRect(startpos, startpos + textsz, selstyle.bgcolor, true);
+                renderer.DrawText(parts[1], startpos, selstyle.fgcolor);
+                startpos.x += textsz.x;
+
+                if (!parts[2].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[2], style.font.font, style.font.size);
+                    renderer.DrawText(parts[2], startpos, style.fgcolor);
+                }
+            }
+            else
+            {
+                ImVec2 startpos{ content.Min.x - input.offset, content.Min.y };
+                std::string_view text{ state.text.data(), state.text.size() };
+                renderer.DrawText(text, startpos, style.fgcolor);
+            }
+        }
+
+        renderer.ResetFont();
+
+        auto mouseover = content.Contains(mousepos);
+        auto ispressed = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        auto hasdblclick = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+        auto hasclick = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || hasdblclick;
+        auto isclicked = (hasclick && mouseover) || (!hasclick && (state.state & WS_Focused));
+        ImGui::SetMouseCursor(mouseover ? ImGuiMouseCursor_TextInput : ImGuiMouseCursor_Arrow);
+        mouseover ? state.state |= WS_Hovered : state.state &= ~WS_Hovered;
+        ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
+        isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
+
+        // When mouse is down inside the input, text selection is in progress
+        // Hence, either text selection is starting, in which case record the start position.
+        // If mouse gets released at the same position, it is a click and not a selection,
+        // in which case, move the caret to the respective char position.
+        // If mouse gets dragged, select the region of text
+        if (state.state & WS_Pressed)
+        {
+            if (!state.text.empty())
+            {
+                auto posx = mousepos.x - content.Min.x;
+                if (input.selectionStart == -1.f) input.selectionStart = posx;
+                else if (input.selectionStart != posx)
+                {
+                    if (state.selection.first == -1)
+                    {
+                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart);
+                        if (it != input.pixelpos.end())
+                        {
+                            auto idx = it - input.pixelpos.begin();
+                            if (idx > 0 && (*it - posx) > 0.f) --idx;
+                            state.selection.first = it - input.pixelpos.begin();
+                            input.isSelecting = true;
+                            input.caretVisible = false;
+                        }
+                    }
+
+                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx);
+
+                    if (it != input.pixelpos.end())
+                    {
+                        auto idx = it - input.pixelpos.begin();
+                        if (idx > 0 && (*it - posx) > 0.f) --idx;
+
+                        state.selection.second = it - input.pixelpos.begin();
+                        result.event = WidgetEvent::Selected;
+                    }
+                }
+            }
+        }
+        else
+        {
+            if (!state.text.empty())
+            {
+                auto posx = mousepos.x - content.Min.x;
+                
+                // This means we have clicked, not selecting text
+                if (input.selectionStart == posx)
+                {
+                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx);
+                    auto idx = it - input.pixelpos.begin();
+
+                    //idx = idx > 0 ? idx - 1 : idx;
+                    input.caretVisible = true;
+                    state.selection.first = state.selection.second = -1;
+                    input.caretpos = idx;
+                    input.isSelecting = false;
+                    input.selectionStart = -1.f;
+                }
+                else if (input.selectionStart != -1.f)
+                {
+                    if (state.selection.first == -1)
+                    {
+                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart);
+                        if (it != input.pixelpos.end())
+                        {
+                            auto idx = it - input.pixelpos.begin();
+                            if (idx > 0 && (*it - posx) > 0.f) --idx;
+                            state.selection.first = it - input.pixelpos.begin();
+                            input.isSelecting = true;
+                            input.caretVisible = false;
+                        }
+                    }
+
+                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx);
+
+                    if (it != input.pixelpos.end())
+                    {
+                        auto idx = it - input.pixelpos.begin();
+                        if (idx > 0 && (*it - posx) > 0.f) --idx;
+
+                        state.selection.second = it - input.pixelpos.begin();
+                        result.event = WidgetEvent::Selected;
+                        input.caretVisible = false;
+                        input.isSelecting = true;
+                    }
+                }
+
+                input.selectionStart = -1.f;
+            }
+
+            if (state.state & WS_Focused)
+            {
+                if (input.caretVisible)
+                {
+                    auto isCaretAtEnd = input.caretpos == (int)state.text.size();
+                    auto offset = isCaretAtEnd ? 1.f : 0.f;
+                    auto cursorxpos = (!input.pixelpos.empty() ? input.pixelpos[input.caretpos - 1] : 0.f) + offset;
+                    renderer.DrawLine(content.Min + ImVec2{ cursorxpos, 1.f }, content.Min + ImVec2{ cursorxpos, content.GetHeight() - 1.f }, style.fgcolor, 2.f);
+                }
+
+                if (input.lastCaretShowTime > 0.5f && state.selection.second == -1)
+                {
+                    input.caretVisible = !input.caretVisible;
+                    input.lastCaretShowTime = 0.f;
+                }
+                else input.lastCaretShowTime += ImGui::GetIO().DeltaTime;
+
+                if (hasdblclick)
+                {
+                    input.selectionStart = 0.f;
+                    state.selection.first = 0;
+                    state.selection.second = (int)state.text.size() - 1;
+                }
+
+                for (auto key = (int)ImGuiKey_NamedKey_BEGIN; key != ImGuiKey_NamedKey_END; ++key)
+                {
+                    if (key >= ImGuiKey_MouseLeft && key <= ImGuiKey_MouseWheelY) continue;
+
+                    if (ImGui::IsKeyPressed((ImGuiKey)key))
+                    {
+                        input.lastCaretShowTime = 0.f;
+                        input.caretVisible = true;
+
+                        if (key == ImGuiKey_LeftArrow)
+                        {
+                            auto prevpos = input.caretpos;
+                            
+                            if (ImGui::GetIO().KeyMods & ImGuiMod_Shift)
+                            {
+                                if (state.selection.first == -1)
+                                {
+                                    input.selectionStart = input.pixelpos[input.caretpos];
+                                    state.selection.first = input.caretpos;
+                                    input.caretpos = std::max(input.caretpos - 1, 0);
+                                    state.selection.second = input.caretpos;
+                                }
+                                else
+                                    state.selection.second = std::max(state.selection.second - 1, 0);
+
+                                input.caretVisible = false;
+                            }
+                            else input.caretpos = std::max(input.caretpos - 1, 0);
+
+                            if (prevpos > input.caretpos && input.pixelpos[input.caretpos] < 0.f)
+                            {
+                                auto width = std::fabsf(input.pixelpos[input.caretpos] - (input.caretpos > 0 ? input.pixelpos[input.caretpos - 1] : 0.f));
+                                for (auto idx = 0; idx < input.pixelpos.size(); ++idx)
+                                    input.pixelpos[idx] += width;
+                            }
+                        }
+                        else if (key == ImGuiKey_RightArrow)
+                        {
+                            auto prevpos = input.caretpos;
+
+                            if (ImGui::GetIO().KeyMods & ImGuiMod_Shift)
+                            {
+                                if (state.selection.first == -1)
+                                {
+                                    input.selectionStart = input.pixelpos[input.caretpos];
+                                    state.selection.first = input.caretpos;
+                                    input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
+                                    state.selection.second = input.caretpos;
+                                }
+                                else
+                                    state.selection.second = std::min(state.selection.second + 1, (int)state.text.size() - 1);
+
+                                input.caretVisible = false;
+                            }
+                            else input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
+
+                            if (prevpos < input.caretpos && input.pixelpos[input.caretpos] > content.GetWidth())
+                            {
+                                auto width = std::fabsf(input.pixelpos[input.caretpos] - (input.caretpos > 0 ? input.pixelpos[input.caretpos - 1] : 0.f));
+                                for (auto idx = 0; idx < input.pixelpos.size(); ++idx)
+                                    input.pixelpos[idx] -= width;
+                            }
+                        }
+                        else if (key == ImGuiKey_CapsLock) input.capslock = !input.capslock;
+                        else if (key == ImGuiKey_Backspace)
+                        {
+                            if (state.selection.second == -1)
+                            {
+                                std::string_view text{ state.text.data(), state.text.size() };
+                                auto caretAtEnd = input.caretpos == (int)text.size();
+                                if (text.empty()) continue;
+
+                                if (caretAtEnd)
+                                {
+                                    state.text.pop_back();
+                                    input.pixelpos.pop_back();
+                                }
+                                else RemoveCharAt(input.caretpos, state, input);
+
+                                input.caretpos--;
+                            }
+                            else DeleteSelectedText(state, input, style, renderer);
+
+                            result.event = WidgetEvent::Edited;
+                        }
+                        else if (key == ImGuiKey_Delete)
+                        {
+                            if (state.selection.second == -1)
+                            {
+                                std::string_view text{ state.text.data(), state.text.size() };
+                                auto caretAtEnd = input.caretpos == (int)text.size();
+                                if (text.empty()) continue;
+
+                                if (!caretAtEnd) RemoveCharAt(input.caretpos + 1, state, input);
+                            }
+                            else DeleteSelectedText(state, input, style, renderer);
+
+                            result.event = WidgetEvent::Edited;
+                        }
+                        else if (key == ImGuiKey_Space || (key >= ImGuiKey_0 && key <= ImGuiKey_Z) ||
+                            (key >= ImGuiKey_Apostrophe && key <= ImGuiKey_GraveAccent) ||
+                            (key >= ImGuiKey_Keypad0 && key <= ImGuiKey_KeypadEqual))
+                        {
+                            if (key == ImGuiKey_V && ImGui::GetIO().KeyMods & ImGuiMod_Ctrl)
+                            {
+                                auto content = ImGui::GetClipboardText();
+                                auto length = std::strlen(content);
+                                auto caretAtEnd = input.caretpos == (int)state.text.size();
+                                //state.text.resize(state.text.size() + length);
+                                input.pixelpos.expand(length, 0.f);
+
+                                if (caretAtEnd)
+                                {
+                                    for (auto idx = 0; idx < length; ++idx)
+                                    {
+                                        state.text.push_back(content[idx]);
+                                        auto sz = renderer.GetTextSize(std::string_view{ content + idx, 1 }, style.font.font, style.font.size).x;
+                                        input.pixelpos.push_back(sz + (state.text.size() > 1u ? input.pixelpos.back() : 0.f));
+                                    }
+                                }
+                                else
+                                {
+                                    for (auto idx = (int)state.text.size() - 1; idx >= input.caretpos; --idx)
+                                        state.text[idx] = state.text[idx - length];
+                                    for (auto idx = 0; idx < length; ++idx)
+                                        state.text[idx + input.caretpos] = content[idx];
+
+                                    UpdatePosition(state, input.caretpos, input, style, renderer);
+                                }
+
+                                input.caretpos += length;
+                                result.event = WidgetEvent::Edited;
+                            }
+                            else if (key == ImGuiKey_C && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl) && state.selection.second != -1)
+                            {
+                                static char buffer[256] = { 0 };
+                                auto dest = 0;
+                                auto sz = state.selection.second - state.selection.first + 2;
+
+                                if (sz > 254)
+                                {
+                                    char* hbuffer = (char*)malloc(sz);
+                                    for (auto idx = state.selection.first; idx <= state.selection.second; ++idx, ++dest)
+                                        hbuffer[dest] = state.text[idx];
+                                    hbuffer[dest] = 0;
+                                    ImGui::SetClipboardText(hbuffer);
+                                    std::free(hbuffer);
+                                }
+                                else
+                                {
+                                    std::memset(buffer, 0, 256);
+                                    for (auto idx = state.selection.first; idx <= state.selection.second; ++idx, ++dest)
+                                        buffer[dest] = state.text[idx];
+                                    buffer[dest] = 0;
+                                    ImGui::SetClipboardText(buffer);
+                                }
+                            }
+                            else if (key == ImGuiKey_A && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl))
+                            {
+                                state.selection.first = 0;
+                                state.selection.second = (int)state.text.size() - 1;
+                                input.selectionStart = -1.f;
+                                input.caretVisible = false;
+                            }
+                            else
+                            {
+                                const auto& io = ImGui::GetIO();
+                                std::string_view text{ state.text.data(), state.text.size() };
+                                auto ch = io.KeyShift ? KeyMappings[key].second : KeyMappings[key].first;
+                                ch = input.capslock ? std::toupper(ch) : std::tolower(ch);
+                                auto caretAtEnd = input.caretpos == (int)text.size();
+
+                                if (caretAtEnd)
+                                {
+                                    state.text.push_back(ch);
+                                    std::string_view newtext{ state.text.data(), state.text.size() };
+                                    auto lastpos = (int)state.text.size() - 1;
+                                    input.pixelpos.push_back(renderer.GetTextSize(newtext.substr(lastpos, 1), style.font.font, style.font.size).x +
+                                        (lastpos > 0 ? input.pixelpos[lastpos - 1] : 0.f));
+
+                                    input.offset = std::max(0.f, input.pixelpos.back() - content.GetWidth());
+                                    for (auto idx = 0; idx < input.pixelpos.size(); ++idx)
+                                        input.pixelpos[idx] -= input.offset;
+                                }
+                                else
+                                {
+                                    state.text.push_back(0);
+                                    input.pixelpos.push_back(0.f);
+                                    for (auto from = (int)state.text.size() - 2; from >= input.caretpos; --from)
+                                        state.text[from + 1] = state.text[from];    
+                                    state.text[input.caretpos] = (char)ch;
+                                    UpdatePosition(state, input.caretpos, input, style, renderer);
+
+                                    // TODO: is offset change required?
+                                }
+
+                                input.caretpos++;
+                                result.event = WidgetEvent::Edited;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         return result;
     }
 
@@ -4950,7 +5532,7 @@ namespace glimmer
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
-        UsePushedStyle(id);
+        //UsePushedStyle(id);
         auto& state = Context.GetState(id).state.label;
         auto& renderer = *Config.renderer;
 
@@ -4964,7 +5546,7 @@ namespace glimmer
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Button].size());
 
-        UsePushedStyle(id);
+        //UsePushedStyle(id);
         auto& state = Context.GetState(id).state.button;
         auto& renderer = *Config.renderer;
         CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
@@ -5092,7 +5674,19 @@ namespace glimmer
             }
             break;
         }
-        case WT_RadioButton:break;
+        case WT_RadioButton: {
+            auto& state = Context.GetState(wid).state.radio;
+            auto& style = Context.GetStyle(state.state);
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors);
+            auto bounds = RadioButtonBounds(wdesc.content);
+
+            renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+            RadioButtonImpl(wid, state, bounds, renderer);
+            Context.AddItemGeometry(wid, bounds);
+            renderer.ResetClipRect();
+            break;
+        }
         case WT_ToggleButton: {
             auto& state = Context.GetState(wid).state.toggle;
             auto& style = Context.GetStyle(state.state);
@@ -5102,6 +5696,31 @@ namespace glimmer
 
             renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
             ToggleButtonImpl(wid, state, bounds, textsz, renderer);
+            Context.AddItemGeometry(wid, bounds);
+            renderer.ResetClipRect();
+            break;
+        }
+        case WT_TextInput: {
+            auto& state = Context.GetState(wid).state.input;
+            auto& style = Context.GetStyle(state.state);
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors);
+
+            auto w = style.specified & StyleWidth ? style.dimension.x : wdesc.content.Max.x;
+            w = ImClamp(w, style.mindim.x, style.maxdim.x);
+            wdesc.content.Max.x = wdesc.content.Min.x + w;
+            wdesc.padding.Max.x = wdesc.content.Max.x + style.padding.right;
+            wdesc.border.Max.x = wdesc.padding.Max.x + style.border.right.thickness;
+            wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
+
+            wdesc.content.Max.y = wdesc.content.Min.y + style.font.size + 2.f;
+            wdesc.padding.Max.y = wdesc.content.Max.y + style.padding.bottom;
+            wdesc.border.Max.y = wdesc.padding.Max.y + style.border.bottom.thickness;
+            wdesc.margin.Max.y = wdesc.border.Max.y + style.margin.bottom;
+
+            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+            TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
+            Context.AddItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -5123,7 +5742,8 @@ namespace glimmer
             AddExtent(wdesc, id, style, neighbors);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer); 
+            ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+            Context.AddItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -5147,6 +5767,16 @@ namespace glimmer
     void ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         Widget(id, WT_ToggleButton, geometry, neighbors);
+    }
+
+    void RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_RadioButton, geometry, neighbors);
+    }
+
+    void TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        Widget(id, WT_TextInput, geometry, neighbors);
     }
 
     void TabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

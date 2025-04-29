@@ -155,8 +155,8 @@ public:
         glimmer::GetWindowConfig().renderer = &renderer;
         glimmer::GetWindowConfig().defaultFontSz = 32.f;
 
-        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE };
-        int32_t labels[5];
+        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, TOTAL };
+        int32_t labels[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::CreateWidget(lid).state.label.text = "Upper";
@@ -177,6 +177,16 @@ public:
         auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
         glimmer::CreateWidget(tid).state.toggle.checked = false;
         labels[TOGGLE] = tid;
+
+        tid = glimmer::GetNextId(glimmer::WT_RadioButton);
+        glimmer::CreateWidget(tid).state.radio.checked = false;
+        labels[RADIO] = tid;
+
+        tid = glimmer::GetNextId(glimmer::WT_TextInput);
+        auto& model = glimmer::CreateWidget(tid).state.input;
+        model.placeholder = "This will be removed!";
+        model.text.reserve(256);
+        labels[INPUT] = tid;
 
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
         auto& grid = glimmer::CreateWidget(gridid).state.grid;
@@ -265,7 +275,14 @@ public:
                 Move(FD_Horizontal);
                 PushStyle("padding: 0px; margin: 0px;");
                 ToggleButton(labels[TOGGLE], ToRight);
-                PopStyle();
+                Move(FD_Horizontal);
+                RadioButton(labels[RADIO], ToRight);
+                Move(FD_Horizontal);
+                PushStyle("border: 1px solid black; width: 200px;");
+                PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
+                TextInput(labels[INPUT], ToRight);
+                PopStyle(1, WS_Selected);
+                PopStyle(2);
                 Move(labels[LEFT], labels[UPPER], true, true);
                 PushStyle("background-color: white");
                 //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
