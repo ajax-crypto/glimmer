@@ -153,8 +153,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\context.h" />
+    <ClInclude Include="..\src\draw.h" />
     <ClInclude Include="..\src\glimmer.h" />
     <ClInclude Include="..\src\im_font_manager.h" />
+    <ClInclude Include="..\src\layout.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imconfig.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imgui.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imgui_impl_glfw.h" />
@@ -165,10 +168,17 @@
     <ClInclude Include="..\src\libs\inc\imgui\imstb_textedit.h" />
     <ClInclude Include="..\src\libs\inc\imgui\imstb_truetype.h" />
     <ClInclude Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h" />
+    <ClInclude Include="..\src\renderer.h" />
+    <ClInclude Include="..\src\style.h" />
+    <ClInclude Include="..\src\types.h" />
+    <ClInclude Include="..\src\utils.h" />
+    <ClInclude Include="..\src\widgets.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\src\glimmer.cpp" />
+    <ClCompile Include="..\src\context.cpp" />
+    <ClCompile Include="..\src\draw.cpp" />
     <ClCompile Include="..\src\im_font_manager.cpp" />
+    <ClCompile Include="..\src\layout.cpp" />
     <ClCompile Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.cpp" />
     <ClCompile Include="..\src\libs\src\imgui.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_demo.cpp" />
@@ -177,6 +187,9 @@
     <ClCompile Include="..\src\libs\src\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_tables.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_widgets.cpp" />
+    <ClCompile Include="..\src\renderer.cpp" />
+    <ClCompile Include="..\src\style.cpp" />
+    <ClCompile Include="..\src\widgets.cpp" />
     <ClCompile Include="test.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

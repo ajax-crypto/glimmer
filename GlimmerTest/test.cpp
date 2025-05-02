@@ -151,45 +151,59 @@ public:
         desc.sizes.push_back(32.f);
         glimmer::LoadDefaultFonts(&desc);
 
-        glimmer::ImGuiRenderer renderer{};
-        glimmer::GetWindowConfig().renderer = &renderer;
+        glimmer::GetWindowConfig().renderer = glimmer::CreateImGuiRenderer();
         glimmer::GetWindowConfig().defaultFontSz = 32.f;
 
-        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, TOTAL };
+        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, DROPDOWN, TOTAL };
         int32_t labels[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(lid).state.label.text = "Upper";
+        glimmer::GetWidgetState(lid).state.label.text = "Upper";
         labels[UPPER] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(lid).state.label.text = "Left";
+        glimmer::GetWidgetState(lid).state.label.text = "Left";
         labels[LEFT] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(lid).state.label.text = "Content";
+        glimmer::GetWidgetState(lid).state.label.text = "Content";
         labels[CONTENT] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::CreateWidget(lid).state.label.text = "Bottom";
+        glimmer::GetWidgetState(lid).state.label.text = "Bottom";
         labels[BOTTOM] = lid;
 
         auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
-        glimmer::CreateWidget(tid).state.toggle.checked = false;
+        glimmer::GetWidgetState(tid).state.toggle.checked = false;
         labels[TOGGLE] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_RadioButton);
-        glimmer::CreateWidget(tid).state.radio.checked = false;
+        glimmer::GetWidgetState(tid).state.radio.checked = false;
         labels[RADIO] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_TextInput);
-        auto& model = glimmer::CreateWidget(tid).state.input;
+        auto& model = glimmer::GetWidgetState(tid).state.input;
         model.placeholder = "This will be removed!";
         model.text.reserve(256);
         labels[INPUT] = tid;
 
+        tid = glimmer::GetNextId(glimmer::WT_DropDown);
+        auto& dd = glimmer::GetWidgetState(tid).state.dropdown;
+        dd.text = "DropDown";
+        dd.ShowList = [](ImVec2, ImVec2 sz, glimmer::DropDownState&) {
+            static int lid1 = glimmer::GetNextId(glimmer::WT_Label);
+            static int lid2 = glimmer::GetNextId(glimmer::WT_Label);
+
+            glimmer::GetWidgetState(lid1).state.label.text = "First";
+            glimmer::Label(lid1);
+            glimmer::Move(glimmer::FD_Vertical);
+            glimmer::GetWidgetState(lid2).state.label.text = "Second";
+            glimmer::Label(lid2);
+        };
+        labels[DROPDOWN] = tid;
+
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
-        auto& grid = glimmer::CreateWidget(gridid).state.grid;
+        auto& grid = glimmer::GetWidgetState(gridid).state.grid;
         grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
             static glimmer::ItemGridState::CellData data;
             static char buffer[128];
@@ -212,7 +226,6 @@ public:
 
         grid.config.rows = 32;
         grid.uniformRowHeights = true;
-        grid.setCellPadding(5.f);
         grid.setColumnResizable(-1, true);
         grid.setColumnProps(-1, glimmer::COL_Moveable, true);
 
@@ -254,11 +267,10 @@ public:
             glimmer::BeginFrame();
 
             // Render here
-            if (ImGui::Begin("main-window", NULL, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            if (ImGui::Begin("main-window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
             {
-                renderer.UserData = ImGui::GetWindowDrawList();
-                renderer.DrawRect({ 0.f, 0.f }, ImVec2{ (float)width, (float)height }, glimmer::ToRGBA(255, 255, 255), true);
+                glimmer::GetWindowConfig().renderer->UserData = ImGui::GetWindowDrawList();
 
                 glimmer::PushStyle("border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
 
@@ -282,9 +294,11 @@ public:
                 PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
                 TextInput(labels[INPUT], ToRight);
                 PopStyle(1, WS_Selected);
+                Move(FD_Horizontal);
+                DropDown(labels[DROPDOWN], ToRight);
                 PopStyle(2);
                 Move(labels[LEFT], labels[UPPER], true, true);
-                PushStyle("background-color: white");
+                PushStyle("background-color: white; padding: 5px;");
                 //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
                 ItemGrid(gridid, ExpandAll, { .bottom = labels[BOTTOM] });
                 

@@ -4,8 +4,13 @@
 #include <optional>
 #include <vector>
 
+
+#ifndef IM_RICHTEXT_DEFAULT_FONTFAMILY
 #define IM_RICHTEXT_DEFAULT_FONTFAMILY "default-font-family"
+#endif
+#ifndef IM_RICHTEXT_MONOSPACE_FONTFAMILY
 #define IM_RICHTEXT_MONOSPACE_FONTFAMILY "monospace-family"
+#endif
 
 namespace glimmer
 {
