@@ -91,7 +91,10 @@ namespace glimmer
         FontStyleUnderline = 1 << 5,
         FontStyleOverflowEllipsis = 1 << 6,
         FontStyleNoWrap = 1 << 7,
-        FontStyleOverflowMarquee = 1 << 8
+        FontStyleOverflowMarquee = 1 << 8,
+        TextIsPlainText = 1 << 9,
+        TextIsRichText = 1 << 10,
+        TextIsSVG = 1 << 11
     };
 
     struct FontStyle
@@ -99,7 +102,7 @@ namespace glimmer
         void* font = nullptr; // Pointer to font object
         std::string_view family = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         float size = 24.f;
-        int32_t flags = FontStyleNone;
+        int32_t flags = TextIsPlainText;
     };
 
     enum StyleProperty : int64_t

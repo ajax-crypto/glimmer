@@ -98,6 +98,9 @@ namespace glimmer
     //       should be preloaded for ImGui, dynamic font atlas updates are not supported.
     [[nodiscard]] void* GetFont(std::string_view family, float size, FontType type);
 
+    // Returns whether font is monospaced or proportional
+    [[nodiscard]] bool IsFontMonospace(void* font);
+
     //#ifndef IM_FONTMANAGER_STANDALONE
     //    // Get font to display overlay i.e. style info in side panel
     //    [[nodiscard]] void* GetOverlayFont(const RenderConfig& config);

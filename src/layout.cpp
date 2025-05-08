@@ -540,10 +540,6 @@ namespace glimmer
         }
     }
 
-    // Declarations of widget drawing impls:
-    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, const ImRect& textpos, IRenderer& renderer);
-    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, const ImRect& textpos, IRenderer& renderer);
-
     ImRect EndLayout(int depth)
     {
         ImRect res;
@@ -623,7 +619,7 @@ namespace glimmer
                 // Handle scroll panes...
                 for (auto& widget : Context.layoutItems)
                 {
-                    switch (widget.wtype)
+                    /*switch (widget.wtype)
                     {
                     case WT_Label:
                     {
@@ -639,7 +635,7 @@ namespace glimmer
                     }
                     default:
                         break;
-                    }
+                    }*/
                 }
             }
 

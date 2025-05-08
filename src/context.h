@@ -128,6 +128,12 @@ namespace glimmer
         bool animate = false;
     };
 
+    struct CheckboxInternalState
+    {
+        float progress = -1.f;
+        bool animate = false;
+    };
+
     enum class TextOpType { Addition, Deletion, Replacement };
 
     struct TextInputOperation
@@ -180,6 +186,7 @@ namespace glimmer
         std::vector<TabBarInternalState> tabStates;
         std::vector<ToggleButtonInternalState> toggleStates;
         std::vector<RadioButtonInternalState> radioStates;
+        std::vector<CheckboxInternalState> checkboxStates;
         std::vector<InputTextInternalState> inputTextStates;
 
         DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
@@ -248,6 +255,12 @@ namespace glimmer
             return radioStates[index];
         }
 
+        CheckboxInternalState& CheckboxState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return checkboxStates[index];
+        }
+
         InputTextInternalState& InputTextState(int32_t id)
         {
             auto index = id & 0xffff;
@@ -258,7 +271,7 @@ namespace glimmer
 
         void ToggleDeferedRendering(bool defer);
 
-        void AddItemGeometry(int id, const ImRect& geometry);
+        void RecordItemGeometry(int id, const ImRect& geometry);
         const ImRect& GetGeometry(int32_t id) const;
 
         WidgetContextData();

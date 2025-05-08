@@ -165,6 +165,7 @@ namespace glimmer
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * targetsz);
                 if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
+                _capacity = targetsz;
             }
             else _size = targetsz;
 
@@ -184,7 +185,7 @@ namespace glimmer
         void pop_back() { if constexpr (std::is_default_constructible_v<T>) _data[_size - 1] = T{}; --_size; }
         void clear() { _default_init(0, _size); _size = 0; }
         void reset(const T& el) { std::fill(_data, _data + _size, el); }
-        void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); }
+        void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); _capacity = _size; }
 
         Iterator begin() { return _data; }
         Iterator end() { return _data + _size; }

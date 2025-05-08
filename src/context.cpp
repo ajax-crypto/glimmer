@@ -92,7 +92,7 @@ namespace glimmer
         }
     }
     
-    void WidgetContextData::AddItemGeometry(int id, const ImRect& geometry)
+    void WidgetContextData::RecordItemGeometry(int id, const ImRect& geometry)
     {
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
@@ -142,6 +142,7 @@ namespace glimmer
         tabStates.resize(16);
         toggleStates.resize(32);
         radioStates.resize(32);
+        checkboxStates.resize(32);
         inputTextStates.resize(32);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)

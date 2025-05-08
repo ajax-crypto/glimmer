@@ -116,6 +116,7 @@ namespace glimmer
         std::deque<FontMatchInfo> info;
         std::unordered_map<std::string_view, int> ProportionalFontFamilies;
         std::unordered_map<std::string_view, int> MonospaceFontFamilies;
+        std::unordered_set<void*> MonospaceFonts;
         std::unordered_set<std::string_view> LookupPaths;
 
         void Register(const std::string& family, const std::string& filepath, FontType ft, bool isMono, bool serif)
@@ -134,7 +135,7 @@ namespace glimmer
     static FontLookupInfo FontLookup;
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-    static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag)
+    static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag, bool isMonospace)
     {
         if (ft == FT_Normal)
         {
@@ -142,6 +143,7 @@ namespace glimmer
                 io.Fonts->AddFontFromFileTTF(family.Files.Files[FT_Normal].data(), size, &config);
             assert(font != nullptr);
             family.FontPtrs[FT_Normal][size] = font;
+            if (isMonospace) FontLookup.MonospaceFonts.insert(font);
         }
         else
         {
@@ -157,32 +159,37 @@ namespace glimmer
             }
             else family.FontPtrs[ft][size] = io.Fonts->AddFontFromFileTTF(
                 family.Files.Files[ft].data(), size, &config);
+
+            if (isMonospace) FontLookup.MonospaceFonts.insert(family.FontPtrs[ft][size]);
 #else
             fonts[ft][size] = files.Files[ft].empty() ? fallback :
                 io.Fonts->AddFontFromFileTTF(files.Files[ft].data(), size, &config);
+            if (isMonospace) FontLookup.MonospaceFonts.insert(fonts[ft][size]);
 #endif
         }
     }
 
-    bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, bool autoScale)
+    bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, 
+        bool autoScale, bool isMonospace)
     {
         ImGuiIO& io = ImGui::GetIO();
         FontStore[family].Files = files;
 
         auto& ffamily = FontStore[family];
         ffamily.AutoScale = autoScale;
-        LoadFont(io, ffamily, FT_Normal, size, config, 0);
+        LoadFont(io, ffamily, FT_Normal, size, config, 0, isMonospace);
 
 #ifdef IMGUI_ENABLE_FREETYPE
-        LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeBuilderFlags_Bold);
-        LoadFont(io, ffamily, FT_Italics, size, config, ImGuiFreeTypeBuilderFlags_Oblique);
-        LoadFont(io, ffamily, FT_BoldItalics, size, config, ImGuiFreeTypeBuilderFlags_Bold | ImGuiFreeTypeBuilderFlags_Oblique);
+        LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeBuilderFlags_Bold, isMonospace);
+        LoadFont(io, ffamily, FT_Italics, size, config, ImGuiFreeTypeBuilderFlags_Oblique, isMonospace);
+        LoadFont(io, ffamily, FT_BoldItalics, size, config, ImGuiFreeTypeBuilderFlags_Bold | 
+            ImGuiFreeTypeBuilderFlags_Oblique, isMonospace);
 #else
-        LoadFont(io, ffamily, FT_Bold, size, config, 0);
-        LoadFont(io, ffamily, FT_Italics, size, config, 0);
-        LoadFont(io, ffamily, FT_BoldItalics, size, config, 0);
+        LoadFont(io, ffamily, FT_Bold, size, config, 0, isMonospace);
+        LoadFont(io, ffamily, FT_Italics, size, config, 0, isMonospace);
+        LoadFont(io, ffamily, FT_BoldItalics, size, config, 0, isMonospace);
 #endif
-        LoadFont(io, ffamily, FT_Light, size, config, 0);
+        LoadFont(io, ffamily, FT_Light, size, config, 0, isMonospace);
         return true;
     }
 
@@ -232,7 +239,7 @@ namespace glimmer
     static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale);
+        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale, false);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
@@ -248,7 +255,7 @@ namespace glimmer
     static void LoadDefaultMonospaceFont(float sz, const ImFontConfig& fconfig, bool autoScale)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale);
+        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, true);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
@@ -381,7 +388,7 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale);
+                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz);
@@ -404,7 +411,7 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale);
+                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz);
@@ -951,6 +958,9 @@ namespace glimmer
         if (famit == FontStore.end())
             famit = FontStore.find(IM_RICHTEXT_DEFAULT_FONTFAMILY);
 
+        if (famit == FontStore.end())
+            famit = FontStore.begin();
+
         return famit;
     }
 
@@ -974,6 +984,11 @@ namespace glimmer
         }
 
         return szit->second;
+    }
+
+    bool IsFontMonospace(void* font)
+    {
+        return FontLookup.MonospaceFonts.find(font) != FontLookup.MonospaceFonts.end();
     }
 
     bool IsFontLoaded()

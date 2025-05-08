@@ -19,6 +19,9 @@
     <Filter Include="Source Files\imgui">
       <UniqueIdentifier>{05d5af3e-8cdc-4d3a-afb7-c4144da59a0e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\svg">
+      <UniqueIdentifier>{0b06c091-6e5f-4396-88d2-05ebcfabe74b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\glimmer.h">
@@ -80,6 +83,9 @@
     </ClInclude>
     <ClInclude Include="..\src\widgets.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\lunasvg\lunasvg.h">
+      <Filter>Header Files\svg</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

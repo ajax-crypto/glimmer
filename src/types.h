@@ -94,7 +94,8 @@ namespace glimmer
     {
         WT_Invalid = -1,
         WT_Sublayout = -2,
-        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_CheckBox,
+        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
+        WT_Slider,
         WT_TextInput,
         WT_DropDown,
         WT_TabBar,
@@ -121,6 +122,8 @@ namespace glimmer
         assert((state % 2 == 0) || (state == 1));
     }
 
+    enum class TextType { PlainText, RichText, SVG };
+
     struct CommonWidgetData
     {
         int32_t state = WS_Default;
@@ -132,6 +135,7 @@ namespace glimmer
     struct ButtonState : public CommonWidgetData
     {
         std::string_view text;
+        TextType type = TextType::PlainText;
     };
 
     using LabelState = ButtonState;
@@ -142,6 +146,16 @@ namespace glimmer
     };
 
     using RadioButtonState = ToggleButtonState;
+
+    enum class CheckState 
+    {
+        Checked, Unchecked, Partial
+    };
+
+    struct CheckboxState : public CommonWidgetData
+    {
+        CheckState check = CheckState::Unchecked;
+    };
 
     struct TextInputState : public CommonWidgetData
     {
@@ -270,6 +284,7 @@ namespace glimmer
             ButtonState button;
             ToggleButtonState toggle;
             RadioButtonState radio;
+            CheckboxState checkbox;
             TextInputState input;
             DropDownState dropdown;
             TabBarState tab;

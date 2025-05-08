@@ -213,58 +213,69 @@ namespace glimmer
                     style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
     }
 
-    void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled, const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags)
+    void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled, 
+        const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags)
     {
         ImRect content{ startpos, endpos };
-
         renderer.SetClipRect(content.Min, content.Max);
-        renderer.SetCurrentFont(style.font.font, style.font.size);
         auto flags = txtflags.has_value() ? txtflags.value() : style.font.flags;
 
-        if ((flags & FontStyleOverflowMarquee) != 0 &&
-            !disabled && style.index.animation != InvalidIdx)
+        if (flags & TextIsSVG)
         {
-            auto& animation = Context.animations[style.index.animation];
-            ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
-                textrect.GetSize();
-
-            if (textsz.x > content.GetWidth())
+            auto sz = content.GetSize();
+            sz.x = std::min(sz.x, sz.y);
+            sz.y = sz.x;
+            renderer.DrawSVG(content.Min, sz, style.bgcolor, text, false);
+        }
+        else if (flags & TextIsPlainText)
+        {
+            renderer.SetCurrentFont(style.font.font, style.font.size);
+            if ((flags & FontStyleOverflowMarquee) != 0 &&
+                !disabled && style.index.animation != InvalidIdx)
             {
-                animation.moveByPixel(1.f, content.GetWidth(), -textsz.x);
-                content.Min.x += animation.offset;
-                renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
+                auto& animation = Context.animations[style.index.animation];
+                ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
+                    textrect.GetSize();
+
+                if (textsz.x > content.GetWidth())
+                {
+                    animation.moveByPixel(1.f, content.GetWidth(), -textsz.x);
+                    content.Min.x += animation.offset;
+                    renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
+                }
+                else
+                    renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
+            }
+            else if (flags & FontStyleOverflowEllipsis)
+            {
+                ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
+                    textrect.GetSize();
+
+                if (textsz.x > content.GetWidth())
+                {
+                    float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
+
+                    for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
+                    {
+                        // TODO: This is only valid for ASCII, this should be fixed for UTF-8
+                        auto w = renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
+                        if (width + w > available)
+                        {
+                            renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, -1.f);
+                            renderer.DrawText("...", content.Min + ImVec2{ width, 0.f }, style.fgcolor, -1.f);
+                            break;
+                        }
+                        width += w;
+                    }
+                }
+                else renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
             }
             else
                 renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
+
+            renderer.ResetFont();
         }
-        else if (flags & FontStyleOverflowEllipsis)
-        {
-            ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
-                textrect.GetSize();
-
-            if (textsz.x > content.GetWidth())
-            {
-                float width = 0.f, available = content.GetWidth() - renderer.EllipsisWidth(style.font.font, style.font.size);
-
-                for (auto chidx = 0; chidx < (int)text.size(); ++chidx)
-                {
-                    // TODO: This is only valid for ASCII, this should be fixed for UTF-8
-                    auto w = renderer.GetTextSize(text.substr(chidx, 1), style.font.font, style.font.size).x;
-                    if (width + w > available)
-                    {
-                        renderer.DrawText(text.substr(0, chidx), content.Min, style.fgcolor, -1.f);
-                        renderer.DrawText("...", content.Min + ImVec2{ width, 0.f }, style.fgcolor, -1.f);
-                        break;
-                    }
-                    width += w;
-                }
-            }
-            else renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
-        }
-        else
-            renderer.DrawText(text, textrect.Min, style.fgcolor, textrect.GetWidth());
-
-        renderer.ResetFont();
+        
         renderer.ResetClipRect();
     }
 }

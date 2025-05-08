@@ -1,16 +1,48 @@
 #include "renderer.h"
 
+#include <cstdio>
+
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <lunasvg.h>
+#include <style.h>
+
+#include <stb_image/stb_image.h>
+#include "imgui_impl_opengl3_loader.h"
+#undef min
+#undef max
+#undef DrawText
+
+// TODO: Test out pluto svg
+/*auto doc = plutosvg_document_load_from_data(buffer, csz, size.x, size.y, nullptr, nullptr);
+assert(doc != nullptr);
+
+plutovg_color_t col;
+auto [r, g, b, a] = DecomposeColor(color);
+plutovg_color_init_rgba8(&col, r, g, b, a);
+
+auto surface = plutosvg_document_render_to_surface(doc, nullptr, -1, -1, &col, nullptr, nullptr);
+auto pixels = plutovg_surface_get_data(surface);
+
+auto stride = plutovg_surface_get_stride(surface);
+auto width = plutovg_surface_get_width(surface), height = plutovg_surface_get_height(surface);
+plutovg_convert_argb_to_rgba(pixels, pixels, width, height, stride);*/
 
 namespace glimmer
 {
     ImVec2 ImGuiMeasureText(std::string_view text, void* fontptr, float sz, float wrapWidth)
     {
         auto imfont = (ImFont*)fontptr;
-        ImGui::PushFont(imfont);
-        auto txtsz = ImGui::CalcTextSize(text.data(), text.data() + text.size(), false, wrapWidth);
-        ImGui::PopFont();
+        ImVec2 txtsz;
+
+        if ((int)text.size() > 4 && wrapWidth == -1.f && IsFontMonospace(fontptr))
+            txtsz = ImVec2{ (float)text.size() * imfont->IndexAdvanceX.front(), sz };
+        else
+        {
+            ImGui::PushFont(imfont);
+            txtsz = ImGui::CalcTextSize(text.data(), text.data() + text.size(), false, wrapWidth);
+            ImGui::PopFont();
+        }
 
         auto ratio = (sz / imfont->FontSize);
         txtsz.x *= ratio;
@@ -19,6 +51,28 @@ namespace glimmer
     }
 
 #pragma region ImGui Renderer
+
+    ImTextureID UploadImage(ImVec2 pos, ImVec2 size, unsigned char* pixels, ImDrawList& dl)
+    {
+        GLint last_texture;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
+
+        GLuint image_texture;
+        glGenTextures(1, &image_texture);
+        glBindTexture(GL_TEXTURE_2D, image_texture);
+
+        // Setup filtering parameters for display
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // Upload pixels into texture
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.x, size.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+        //dl.AddImage((ImTextureID)(intptr_t)image_texture, pos, pos + size);
+        glBindTexture(GL_TEXTURE_2D, last_texture);
+        return (ImTextureID)(intptr_t)image_texture;
+    }
 
     struct ImGuiRenderer final : public IRenderer
     {
@@ -49,18 +103,27 @@ namespace glimmer
         void DrawTooltip(ImVec2 pos, std::string_view text);
         [[nodiscard]] float EllipsisWidth(void* fontptr, float sz) override;
 
+        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) override;
+        void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) override;
+
     private:
 
         void ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr);
 
+        struct ImageLookupKey
+        {
+            ImVec2 size;
+            uint32_t color;
+            std::string data;
+            bool isFile;
+        };
+
         float _currentFontSz = 0.f;
+        std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
     };
 
-
     ImGuiRenderer::ImGuiRenderer()
-    {
-        //UserData = ImGui::GetWindowDrawList();
-    }
+    {}
 
     void ImGuiRenderer::SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
     {
@@ -379,6 +442,104 @@ namespace glimmer
         return ((ImFont*)fontptr)->EllipsisWidth;
     }
 
+    void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
+    {
+        constexpr int bufsz = 1 << 13;
+        static char buffer[bufsz] = { 0 };
+
+        auto& dl = *((ImDrawList*)UserData);
+        bool found = false;
+
+        for (const auto& [key, texid] : bitmaps)
+        {
+            if (key.size == size && key.color == color && key.isFile == fromFile && key.data == content)
+            {
+                found = true;
+                dl.AddImage(texid, pos, pos + size);
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            int csz = fromFile ? 0 : (int)content.size();
+
+            if (fromFile)
+            {
+                auto fptr = std::fopen(content.data(), "r");
+                
+                if (fptr != nullptr)
+                {
+                    csz = (int)std::fread(buffer, 1, bufsz - 1, fptr);
+                    std::fclose(fptr);
+                }
+            }
+            else
+                std::memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
+
+            if (csz > 0)
+            {
+                auto& entry = bitmaps.emplace_back();
+                entry.first = ImageLookupKey{ size, color, std::string{ content.data(), content.size() }, fromFile };
+                auto document = lunasvg::Document::loadFromData(buffer);
+                auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
+                bitmap.convertToRGBA();
+                auto pixels = bitmap.data();
+                auto texid = UploadImage(pos, size, pixels, dl);
+                entry.second = texid;
+                dl.AddImage(texid, pos, pos + size);
+            }
+        }
+    }
+
+    void ImGuiRenderer::DrawImage(ImVec2 pos, ImVec2 size, std::string_view file)
+    {
+        auto& dl = *((ImDrawList*)UserData);
+        bool found = false;
+
+        for (const auto& [key, texid] : bitmaps)
+        {
+            if (key.size == size && key.data == file)
+            {
+                found = true;
+                dl.AddImage(texid, pos, pos + size);
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            auto fptr = std::fopen(file.data(), "r");
+            
+            if (fptr != nullptr)
+            {
+                std::fseek(fptr, 0, SEEK_END);
+                auto bufsz = (int)std::ftell(fptr);
+                std::fseek(fptr, 0, SEEK_SET);
+
+                if (bufsz > 0)
+                {
+                    auto buffer = (char*)malloc(bufsz + 1);
+                    assert(buffer != nullptr);
+                    auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
+
+                    auto& entry = bitmaps.emplace_back();
+                    entry.first.data.assign(file.data(), file.size());
+                    entry.first.size = size;
+
+                    int width = 0, height = 0;
+                    auto pixels = stbi_load_from_memory((const unsigned char*)buffer, csz, &width, &height, NULL, 4);
+                    auto texid = UploadImage(pos, size, pixels, dl);
+                    entry.second = texid;
+                    dl.AddImage(texid, pos, pos + size);
+                    std::free(buffer);
+                }
+
+                std::fclose(fptr);
+            }
+        }
+    }
+
     void ImGuiRenderer::ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr)
     {
         auto& dl = *((ImDrawList*)UserData);
@@ -414,6 +575,7 @@ namespace glimmer
         Line, Triangle, Rectangle, RoundedRectangle, Circle, Sector,
         RectGradient, RoundedRectGradient,
         Text, Tooltip,
+        SVG, Image,
         PushClippingRect, PopClippingRect,
         PushFont, PopFont
     };
@@ -500,6 +662,13 @@ namespace glimmer
             float size;
         } font;
 
+        struct {
+            ImVec2 pos, size;
+            uint32_t color;
+            std::string_view content;
+            bool isFile;
+        } svg;
+
         DrawParams() {}
     };
 
@@ -570,6 +739,10 @@ namespace glimmer
 
                 case DrawingOps::Tooltip:
                     renderer.DrawTooltip(entry.second.tooltip.pos + offset, entry.second.tooltip.text);
+                    break;
+
+                case DrawingOps::SVG:
+                    renderer.DrawSVG(entry.second.svg.pos, entry.second.svg.size, entry.second.svg.color, entry.second.svg.content, entry.second.svg.isFile);
                     break;
 
                 case DrawingOps::PushClippingRect:
@@ -717,6 +890,12 @@ namespace glimmer
             auto& val = queue.emplace_back(); val.first = DrawingOps::Tooltip;
             val.second.tooltip.pos = pos;
             ::new (&val.second.tooltip.text) std::string_view{ text };
+        }
+
+        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::SVG;
+            val.second.svg = { pos, size, color, content, fromFile };
         }
     };
 

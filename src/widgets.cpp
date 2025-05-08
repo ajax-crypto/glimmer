@@ -28,6 +28,7 @@ namespace glimmer
         case WT_Button: ::new (&state.button) ButtonState{}; break;
         case WT_RadioButton: new (&state.radio) RadioButtonState{}; break;
         case WT_ToggleButton: new (&state.toggle) ToggleButtonState{}; break;
+        case WT_Checkbox: new (&state.checkbox) CheckboxState{}; break;
         case WT_TextInput: new (&state.input) TextInputState{}; break;
         case WT_DropDown: new (&state.dropdown) DropDownState{}; break;
         case WT_TabBar: new (&state.tab) TabBarState{}; break;
@@ -45,6 +46,7 @@ namespace glimmer
         case WT_Button: state.button = src.state.button; break;
         case WT_RadioButton: state.radio = src.state.radio; break;
         case WT_ToggleButton: state.toggle = src.state.toggle; break;
+        case WT_Checkbox: state.checkbox = src.state.checkbox; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
         case WT_TabBar: state.tab = src.state.tab; break;
@@ -81,6 +83,30 @@ namespace glimmer
         return lhs.x > rhs.x || lhs.y > rhs.y;
     }
 
+    static int32_t ToTextFlags(TextType type)
+    {
+        int32_t result = 0;
+        switch (type)
+        {
+            case glimmer::TextType::PlainText: result |= TextIsPlainText; break;
+            case glimmer::TextType::RichText: result |= TextIsRichText; break;
+            case glimmer::TextType::SVG: result |= TextIsSVG; break;
+            default: break;
+        }
+        return result;
+    }
+
+    static ImVec2 GetTextSize(TextType type, std::string_view text, const FontStyle& font, float width, IRenderer& renderer)
+    {
+        switch (type)
+        {
+        case glimmer::TextType::PlainText: return renderer.GetTextSize(text, font.font, font.size, width);
+        case glimmer::TextType::RichText: return ImVec2{ 0, 0 }; // TODO...
+        case glimmer::TextType::SVG: return ImVec2{ font.size, font.size };
+        default: break;
+        }
+    }
+
     /* Here is the box model that is followed here:
 
             +--------------------------------+
@@ -104,7 +130,7 @@ namespace glimmer
     */
 
     static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
-        std::string_view text, IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors = NeighborWidgets{})
+        std::string_view text, IRenderer& renderer, int32_t geometry, TextType type, const NeighborWidgets& neighbors = NeighborWidgets{})
     {
         ImRect content, padding, border, margin;
         const auto& borderstyle = style.border;
@@ -217,7 +243,7 @@ namespace glimmer
         if ((geometry & ExpandH) == 0)
         {
             textMetricsComputed = true;
-            textsz = renderer.GetTextSize(text, font.font, font.size, hastextw ? style.dimension.x : -1.f);
+            textsz = GetTextSize(type, text, style.font, hastextw ? style.dimension.x : -1.f, renderer);
             setHFromContent();
         }
         else
@@ -237,7 +263,7 @@ namespace glimmer
                 else
                 {
                     textMetricsComputed = true;
-                    textsz = renderer.GetTextSize(text, font.font, font.size, hastextw ? style.dimension.x : -1.f);
+                    textsz = GetTextSize(type, text, style.font, hastextw ? style.dimension.x : -1.f, renderer);
                     setHFromContent();
                 }
             }
@@ -257,7 +283,7 @@ namespace glimmer
             if (!textMetricsComputed)
             {
                 textMetricsComputed = true;
-                textsz = renderer.GetTextSize(text, font.font, font.size, content.GetWidth());
+                textsz = GetTextSize(type, text, style.font, hastextw ? style.dimension.x : -1.f, renderer);
             }
 
             setVFromContent();
@@ -281,7 +307,7 @@ namespace glimmer
                     if (!textMetricsComputed)
                     {
                         textMetricsComputed = true;
-                        textsz = renderer.GetTextSize(text, font.font, font.size, content.GetWidth());
+                        textsz = GetTextSize(type, text, style.font, hastextw ? style.dimension.x : -1.f, renderer);
                     }
 
                     setVFromContent();
@@ -323,7 +349,7 @@ namespace glimmer
                 if (!textMetricsComputed)
                 {
                     textMetricsComputed = true;
-                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                    textsz = GetTextSize(type, text, style.font, cw, renderer);
                 }
 
                 if (textsz.x < cw)
@@ -337,7 +363,7 @@ namespace glimmer
                 if (!textMetricsComputed)
                 {
                     textMetricsComputed = true;
-                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                    textsz = GetTextSize(type, text, style.font, cw, renderer);
                 }
 
                 if (textsz.x < cw)
@@ -360,7 +386,7 @@ namespace glimmer
                 if (!textMetricsComputed)
                 {
                     textMetricsComputed = true;
-                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                    textsz = GetTextSize(type, text, style.font, cw, renderer);
                 }
 
                 if (textsz.y < ch)
@@ -374,7 +400,7 @@ namespace glimmer
                 if (!textMetricsComputed)
                 {
                     textMetricsComputed = true;
-                    textsz = renderer.GetTextSize(text, font.font, font.size, cw);
+                    textsz = GetTextSize(type, text, style.font, cw, renderer);
                 }
 
                 if (textsz.y < ch)
@@ -405,8 +431,8 @@ namespace glimmer
         }
     }
 
-    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+    static WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags)
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
@@ -418,7 +444,7 @@ namespace glimmer
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
 
         if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
             ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
@@ -477,7 +503,7 @@ namespace glimmer
         }
         else
         {
-            result.Max.x += ((extent.GetHeight()) * 2.f);
+            result.Max.x += ((extent.GetHeight()) * 2.f); 
             result.Max.y += extent.GetHeight();
         }
 
@@ -555,10 +581,10 @@ namespace glimmer
         return result;
     }
 
-    static ImRect RadioButtonBounds(const ImRect& extent)
+    static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
     {
-        auto radius = std::min(extent.GetWidth(), extent.GetHeight());
-        return ImRect{ extent.Min, extent.Min + ImVec2{ radius, radius } };
+        const auto& style = Context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
     WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer)
@@ -599,6 +625,64 @@ namespace glimmer
         state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
             mouseover ? WS_Hovered : WS_Default;
         state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        result.geometry = extent;
+        return result;
+    }
+
+    static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
+    {
+        const auto& style = Context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+    }
+
+    static WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer)
+    {
+        auto& style = Context.GetStyle(state.state);
+        auto& check = Context.CheckboxState(id);
+        WidgetDrawResult result;
+
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        auto height = padding.GetHeight(), width = padding.GetWidth();
+
+        if (check.animate && check.progress < 1.f)
+            check.progress += (ImGui::GetIO().DeltaTime / 0.25f);
+
+        switch (state.check)
+        {
+        case CheckState::Checked:
+        {
+            auto start = ImVec2{ padding.Min.x, padding.Min.y + (height * 0.5f) };
+            auto end = ImVec2{ padding.Min.x + (width * 0.333f), padding.Max.y };
+            auto tickw = padding.Max.x - end.x;
+            renderer.DrawLine(start, end, style.fgcolor, 2.f);
+            renderer.DrawLine(end, ImVec2{ padding.Max.x - ((1.f - check.progress) * tickw), padding.Min.y +
+                ((1.f - check.progress) * height) }, style.fgcolor, 2.f);
+            break;
+        }
+        case CheckState::Partial:
+            renderer.DrawLine(padding.Min + ImVec2{ 0.f, height * 0.5f }, padding.Max - 
+                ImVec2{ 0.f, height * 0.5f }, style.fgcolor, 2.f);
+            break;
+        default:
+            break;
+        }
+
+        auto mousepos = ImGui::GetIO().MousePos;
+        auto mouseover = extent.Contains(mousepos);
+        auto isclicked = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
+            mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
+
+        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
+            state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
+            result.event = WidgetEvent::Clicked;
+            check.animate = state.check != CheckState::Unchecked;
+            check.progress = 0.f;
+        }
+        
         result.geometry = extent;
         return result;
     }
@@ -2355,15 +2439,16 @@ namespace glimmer
                 auto& layout = Context.layouts[Context.currLayoutDepth];
                 auto pos = layout.geometry.Min;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, neighbors);
+                    style, state.text, renderer, geometry, state.type, neighbors);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, neighbors);
-                Context.AddItemGeometry(wid, wdesc.margin);
-                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, state.type, neighbors);
+                Context.RecordItemGeometry(wid, wdesc.margin);
+                auto flags = ToTextFlags(state.type);
+                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, flags);
             }
             break;
         }
@@ -2377,14 +2462,14 @@ namespace glimmer
                 auto& layout = Context.layouts[Context.currLayoutDepth];
                 auto pos = layout.geometry.Min;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, neighbors);
+                    style, state.text, renderer, geometry, state.type, neighbors);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, neighbors);
-                Context.AddItemGeometry(wid, wdesc.margin);
+                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, state.type, neighbors);
+                Context.RecordItemGeometry(wid, wdesc.margin);
                 result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
             }
             break;
@@ -2394,11 +2479,11 @@ namespace glimmer
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
             AddExtent(wdesc, id, style, neighbors, style.font.size, style.font.size);
-            auto bounds = RadioButtonBounds(wdesc.content);
+            auto bounds = RadioButtonBounds(state, wdesc.margin);
 
-            renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = RadioButtonImpl(wid, state, bounds, renderer);
-            Context.AddItemGeometry(wid, bounds);
+            Context.RecordItemGeometry(wid, bounds);
             renderer.ResetClipRect();
             break;
         }
@@ -2411,7 +2496,20 @@ namespace glimmer
 
             renderer.SetClipRect(bounds.Min, bounds.Max);
             result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
-            Context.AddItemGeometry(wid, bounds);
+            Context.RecordItemGeometry(wid, bounds);
+            renderer.ResetClipRect();
+            break;
+        }
+        case WT_Checkbox: {
+            auto& state = Context.GetState(wid).state.checkbox;
+            auto& style = Context.GetStyle(state.state);
+            CopyStyle(Context.GetStyle(WS_Default), style);
+            AddExtent(wdesc, id, style, neighbors, style.font.size, style.font.size);
+            auto bounds = CheckboxBounds(state, wdesc.margin);
+
+            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+            result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
+            Context.RecordItemGeometry(wid, bounds);
             renderer.ResetClipRect();
             break;
         }
@@ -2423,7 +2521,7 @@ namespace glimmer
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
+            Context.RecordItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2444,7 +2542,7 @@ namespace glimmer
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
+            Context.RecordItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2469,7 +2567,7 @@ namespace glimmer
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
+            Context.RecordItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2499,6 +2597,11 @@ namespace glimmer
     WidgetDrawResult RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_RadioButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult Checkbox(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Checkbox, geometry, neighbors);
     }
 
     WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
