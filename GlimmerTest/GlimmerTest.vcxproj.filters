@@ -22,6 +22,9 @@
     <Filter Include="Header Files\svg">
       <UniqueIdentifier>{0b06c091-6e5f-4396-88d2-05ebcfabe74b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\image">
+      <UniqueIdentifier>{053fcbc6-dc84-462a-881d-af44dc194a3c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\glimmer.h">
@@ -86,6 +89,9 @@
     </ClInclude>
     <ClInclude Include="..\src\libs\inc\lunasvg\lunasvg.h">
       <Filter>Header Files\svg</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\stb_image\stb_image.h">
+      <Filter>Header Files\image</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -171,6 +171,7 @@
     <ClInclude Include="..\src\libs\inc\imgui\imstb_truetype.h" />
     <ClInclude Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h" />
     <ClInclude Include="..\src\libs\inc\lunasvg\lunasvg.h" />
+    <ClInclude Include="..\src\libs\inc\stb_image\stb_image.h" />
     <ClInclude Include="..\src\renderer.h" />
     <ClInclude Include="..\src\style.h" />
     <ClInclude Include="..\src\types.h" />

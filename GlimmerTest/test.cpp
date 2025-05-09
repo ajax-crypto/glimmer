@@ -144,7 +144,7 @@ public:
         //names.Proportional.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         glimmer::FontDescriptor desc;
         desc.flags = glimmer::FLT_Monospace;
-        desc.names = names;
+        //desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
         desc.sizes.push_back(24.f);
@@ -154,8 +154,8 @@ public:
         glimmer::GetWindowConfig().renderer = glimmer::CreateImGuiRenderer();
         glimmer::GetWindowConfig().defaultFontSz = 32.f;
 
-        enum Labels { UPPER, LEFT, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, DROPDOWN, CHECKBOX, TOTAL };
-        int32_t labels[TOTAL];
+        enum Labels { UPPER, LEFT, LEFT2, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, TOTAL };
+        int32_t widgets[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
         auto& st = glimmer::GetWidgetState(lid).state.label;
@@ -179,37 +179,49 @@ public:
         st.type = glimmer::TextType::SVG;
 
         //st.text = "Hello";
-        labels[UPPER] = lid;
+        widgets[UPPER] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::GetWidgetState(lid).state.label.text = "Left";
-        labels[LEFT] = lid;
+        widgets[LEFT] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Label);
+        glimmer::GetWidgetState(lid).state.label.text = "Left2";
+        widgets[LEFT2] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Splitter);
+        glimmer::GetWidgetState(lid);
+        widgets[SPLIT1] = lid;
+
+        lid = glimmer::GetNextId(glimmer::WT_Splitter);
+        glimmer::GetWidgetState(lid);
+        widgets[SPLIT2] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::GetWidgetState(lid).state.label.text = "Content";
-        labels[CONTENT] = lid;
+        widgets[CONTENT] = lid;
 
         lid = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::GetWidgetState(lid).state.label.text = "Bottom";
-        labels[BOTTOM] = lid;
+        widgets[BOTTOM] = lid;
 
         auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
         glimmer::GetWidgetState(tid).state.toggle.checked = false;
-        labels[TOGGLE] = tid;
+        widgets[TOGGLE] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_RadioButton);
         glimmer::GetWidgetState(tid).state.radio.checked = false;
-        labels[RADIO] = tid;
+        widgets[RADIO] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_Checkbox);
         glimmer::GetWidgetState(tid);
-        labels[CHECKBOX] = tid;
+        widgets[CHECKBOX] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_TextInput);
         auto& model = glimmer::GetWidgetState(tid).state.input;
         model.placeholder = "This will be removed!";
         model.text.reserve(256);
-        labels[INPUT] = tid;
+        widgets[INPUT] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_DropDown);
         auto& dd = glimmer::GetWidgetState(tid).state.dropdown;
@@ -224,7 +236,7 @@ public:
             glimmer::GetWidgetState(lid2).state.label.text = "Second";
             glimmer::Label(lid2);
         };
-        labels[DROPDOWN] = tid;
+        widgets[DROPDOWN] = tid;
 
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
         auto& grid = glimmer::GetWidgetState(gridid).state.grid;
@@ -295,44 +307,61 @@ public:
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
             {
                 glimmer::GetWindowConfig().renderer->UserData = ImGui::GetWindowDrawList();
-
                 glimmer::PushStyle("border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
 
                 using namespace glimmer;
 
                 PushStyle("background-color: rgb(200, 200, 200)");
-                Label(labels[UPPER], ExpandH);
+                Label(widgets[UPPER], ExpandH);
+
                 Move(FD_Vertical);
-                PushStyle("background-color: rgb(175, 175, 175)");
-                Label(labels[LEFT], ExpandV);
-                Move(FD_Horizontal | FD_Vertical);
-                PushStyle("background-color: rgb(150, 150, 150)");
-                Label(labels[BOTTOM], FromBottom);
-                Move(FD_Horizontal);
-                PushStyle("padding: 0px; margin: 0px;");
-                ToggleButton(labels[TOGGLE], ToRight);
-                Move(FD_Horizontal);
-                RadioButton(labels[RADIO], ToRight);
-                Move(FD_Horizontal);
-                PushStyle("border: 1px solid black; width: 200px;");
-                PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
-                TextInput(labels[INPUT], ToRight);
-                PopStyle(1, WS_Selected);
-                Move(FD_Horizontal);
-                DropDown(labels[DROPDOWN], ToRight);
-                PopStyle(2);
-                PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
-                PushStyle(WS_Checked, "background-color: blue; color: white;");
-                Move(FD_Horizontal);
-                Checkbox(labels[CHECKBOX], ToRight);
-                PopStyle(1, WS_Default);
-                PopStyle(1, WS_Checked);
-                // Add SVG
-                Move(labels[LEFT], labels[UPPER], true, true);
-                PushStyle("background-color: white; padding: 5px;");
-                //Label(labels[CONTENT], ExpandAll, { .bottom = labels[BOTTOM] });
-                ItemGrid(gridid, ExpandAll, { .bottom = labels[BOTTOM] });
+
+                StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{ .min = 0.2f, .max = 0.3f, .initial = 0.2f },
+                    SplitRegion{ .min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
+
+                    PushStyle("background-color: rgb(175, 175, 175)");
+                    StartSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{ .min = 0.2f, .max = 0.8f },
+                        SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
+                        Label(widgets[LEFT], ExpandAll);
+                        NextSplitRegion();
+                        Label(widgets[LEFT2], ExpandV);
+                    EndSplitRegion();
+
+                    NextSplitRegion();
+
+                    Move(FD_Vertical);
+                    PushStyle("background-color: rgb(150, 150, 150)");
+                    Label(widgets[BOTTOM], FromBottom);
+                    Move(FD_Horizontal);
+
+                    PushStyle("padding: 0px; margin: 0px;");
+                    ToggleButton(widgets[TOGGLE], ToRight);
+
+                    Move(FD_Horizontal);
+                    RadioButton(widgets[RADIO], ToRight);
+
+                    Move(FD_Horizontal);
+                    PushStyle("border: 1px solid black; width: 200px;");
+                    PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
+                    TextInput(widgets[INPUT], ToRight);
+                    PopStyle(1, WS_Selected);
+
+                    Move(FD_Horizontal);
+                    DropDown(widgets[DROPDOWN], ToRight);
+                    PopStyle(2);
+
+                    PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
+                    PushStyle(WS_Checked, "background-color: blue; color: white;");
+                    Move(FD_Horizontal);
+                    Checkbox(widgets[CHECKBOX], ToRight);
+                    PopStyle(1, WS_Default);
+                    PopStyle(1, WS_Checked);
+
+                    Move(widgets[LEFT], widgets[UPPER], true, true);
+                    PushStyle("background-color: white; padding: 5px;");
+                    ItemGrid(gridid, ExpandAll, { .bottom = widgets[BOTTOM] });
                 
+                EndSplitRegion();
                 PopStyle(5);
             }
 

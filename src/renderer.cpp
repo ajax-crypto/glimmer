@@ -7,6 +7,7 @@
 #include <lunasvg.h>
 #include <style.h>
 
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
 #include "imgui_impl_opengl3_loader.h"
 #undef min

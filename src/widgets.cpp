@@ -31,6 +31,8 @@ namespace glimmer
         case WT_Checkbox: new (&state.checkbox) CheckboxState{}; break;
         case WT_TextInput: new (&state.input) TextInputState{}; break;
         case WT_DropDown: new (&state.dropdown) DropDownState{}; break;
+        case WT_SplitterScrollRegion: [[fallthrough]];
+        case WT_Scrollable: new (&state.scroll) ScrollableRegion{}; break;
         case WT_TabBar: new (&state.tab) TabBarState{}; break;
         case WT_ItemGrid: ::new (&state.grid) ItemGridState{}; break;
         default: break;
@@ -49,6 +51,8 @@ namespace glimmer
         case WT_Checkbox: state.checkbox = src.state.checkbox; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
+        case WT_SplitterScrollRegion: [[fallthrough]];
+        case WT_Scrollable: state.scroll = src.state.scroll; break;
         case WT_TabBar: state.tab = src.state.tab; break;
         case WT_ItemGrid: state.grid = src.state.grid; break;
         default: break;
@@ -130,7 +134,8 @@ namespace glimmer
     */
 
     static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
-        std::string_view text, IRenderer& renderer, int32_t geometry, TextType type, const NeighborWidgets& neighbors = NeighborWidgets{})
+        std::string_view text, IRenderer& renderer, int32_t geometry, TextType type, 
+        const NeighborWidgets& neighbors, float width, float height)
     {
         ImRect content, padding, border, margin;
         const auto& borderstyle = style.border;
@@ -271,7 +276,7 @@ namespace glimmer
             {
                 // If widget has a expand size policy then expand upto neighbors or upto window size
                 setHFromExpansion((geometry & ToLeft) ? neighbors.left == -1 ? 0.f : Context.GetGeometry(neighbors.left).Max.x
-                    : neighbors.right == -1 ? ImGui::GetCurrentWindow()->Size.x : Context.GetGeometry(neighbors.right).Min.x);
+                    : neighbors.right == -1 ? width : Context.GetGeometry(neighbors.right).Min.x);
                 hexpanded = true;
             }
         }
@@ -317,7 +322,7 @@ namespace glimmer
             {
                 // If widget has a expand size policy then expand upto neighbors or upto window size
                 setVFromExpansion((geometry & ToTop) ? neighbors.top == -1 ? 0.f : Context.GetGeometry(neighbors.top).Max.y
-                    : neighbors.bottom == -1 ? ImGui::GetCurrentWindow()->Size.y : Context.GetGeometry(neighbors.bottom).Min.y);
+                    : neighbors.bottom == -1 ? height : Context.GetGeometry(neighbors.bottom).Min.y);
                 vexpanded = true;
             }
         }
@@ -2352,6 +2357,8 @@ namespace glimmer
             Context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
         }
 
+        Context.maxids[WT_SplitterScrollRegion] = 0;
+
         assert(Context.currLayoutDepth == -1);
         assert(Context.currSizingDepth == 0);
         assert(Context.currSpanDepth == -1);
@@ -2366,13 +2373,44 @@ namespace glimmer
 
     int16_t GetNextCount(WidgetType type)
     {
-        return Context.maxids[type];
+        auto id = Context.maxids[type]; 
+        if (type == WT_SplitterScrollRegion) Context.maxids[type]++;
+        return id;
     }
 
-    static void AddExtent(LayoutItemDescriptor& wdesc, int32_t id, const StyleDescriptor& style, const NeighborWidgets& neighbors,
-        float width, float height)
+    static void AddExtent(LayoutItemDescriptor& wdesc, const NeighborWidgets& neighbors)
     {
-        wdesc.margin.Min = Context.adhocLayout.top().nextpos;
+        auto sz = Context.MaximumExtent();
+        auto nextpos = Context.NextAdHocPos();
+        wdesc.margin.Min = nextpos;
+        wdesc.border.Min = wdesc.margin.Min;
+        wdesc.padding.Min = wdesc.border.Min;
+        wdesc.content.Min = wdesc.padding.Min;
+
+        if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
+        else wdesc.margin.Max.x = wdesc.margin.Min.x + (sz.x - nextpos.x);
+
+        wdesc.border.Max.x = wdesc.margin.Max.x;
+        wdesc.padding.Max.x = wdesc.border.Max.x;
+        wdesc.content.Max.x = wdesc.padding.Max.x;
+
+        if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
+        else wdesc.margin.Max.y = wdesc.margin.Min.y + (sz.y - nextpos.y);
+
+        wdesc.border.Max.y = wdesc.margin.Max.y;
+        wdesc.padding.Max.y = wdesc.border.Max.y;
+        wdesc.content.Max.y = wdesc.padding.Max.y;
+    }
+
+    static void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
+        float width = 0.f, float height = 0.f)
+    {
+        auto totalsz = Context.MaximumAbsExtent();
+        auto nextpos = Context.NextAdHocPos();
+        if (width <= 0.f) width = totalsz.x - nextpos.x;
+        if (height <= 0.f) height = totalsz.y - nextpos.y;
+
+        wdesc.margin.Min = nextpos;
         wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
         wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
         wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
@@ -2426,6 +2464,7 @@ namespace glimmer
         wdesc.sizing = geometry;
 
         auto wid = (type << 16) | id;
+        auto maxxy = Context.MaximumAbsExtent();
 
         switch (type)
         {
@@ -2438,15 +2477,16 @@ namespace glimmer
             {
                 auto& layout = Context.layouts[Context.currLayoutDepth];
                 auto pos = layout.geometry.Min;
+                
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors);
+                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, state.type, neighbors);
-                Context.RecordItemGeometry(wid, wdesc.margin);
+                    Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                Context.AddItemGeometry(wid, wdesc.margin);
                 auto flags = ToTextFlags(state.type);
                 result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, flags);
             }
@@ -2462,14 +2502,14 @@ namespace glimmer
                 auto& layout = Context.layouts[Context.currLayoutDepth];
                 auto pos = layout.geometry.Min;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors);
+                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.adhocLayout.top().nextpos, style, state.text, renderer, geometry, state.type, neighbors);
-                Context.RecordItemGeometry(wid, wdesc.margin);
+                    Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                Context.AddItemGeometry(wid, wdesc.margin);
                 result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
             }
             break;
@@ -2478,12 +2518,12 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.radio;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, style.font.size, style.font.size);
+            AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = RadioButtonBounds(state, wdesc.margin);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = RadioButtonImpl(wid, state, bounds, renderer);
-            Context.RecordItemGeometry(wid, bounds);
+            Context.AddItemGeometry(wid, bounds);
             renderer.ResetClipRect();
             break;
         }
@@ -2491,12 +2531,12 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.toggle;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, style.font.size, style.font.size);
+            AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto [bounds, textsz] = ToggleButtonBounds(state, wdesc.content, renderer);
 
             renderer.SetClipRect(bounds.Min, bounds.Max);
             result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
-            Context.RecordItemGeometry(wid, bounds);
+            Context.AddItemGeometry(wid, bounds);
             renderer.ResetClipRect();
             break;
         }
@@ -2504,12 +2544,12 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.checkbox;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, style.font.size, style.font.size);
+            AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = CheckboxBounds(state, wdesc.margin);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
-            Context.RecordItemGeometry(wid, bounds);
+            Context.AddItemGeometry(wid, bounds);
             renderer.ResetClipRect();
             break;
         }
@@ -2517,11 +2557,11 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.input;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, 0.f, style.font.size + 2.f);
+            AddExtent(wdesc, style, neighbors, 0.f, style.font.size + 2.f);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
-            Context.RecordItemGeometry(wid, wdesc.margin);
+            Context.AddItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2529,7 +2569,7 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.dropdown;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, 0.f, style.font.size);
+            AddExtent(wdesc, style, neighbors, 0.f, style.font.size);
             auto [bounds, textrect] = DropDownBounds(id, state, wdesc.content, renderer);
 
             if (bounds.GetWidth() > wdesc.content.GetWidth())
@@ -2542,7 +2582,7 @@ namespace glimmer
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
-            Context.RecordItemGeometry(wid, wdesc.margin);
+            Context.AddItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2550,7 +2590,7 @@ namespace glimmer
             auto& state = Context.GetState(wid).state.grid;
             auto& style = Context.GetStyle(state.state);
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, 0.f, 0.f);
+            AddExtent(wdesc, style, neighbors, 0.f, 0.f);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
 
@@ -2560,14 +2600,12 @@ namespace glimmer
         case WT_ItemGrid: {
             auto& state = Context.GetState(wid).state.grid;
             auto& style = Context.GetStyle(state.state);
-            auto sz = ImGui::GetCurrentWindow()->InnerClipRect;
-            auto nextpos = Context.adhocLayout.top().nextpos;
             CopyStyle(Context.GetStyle(WS_Default), style);
-            AddExtent(wdesc, id, style, neighbors, sz.GetWidth() - nextpos.x, sz.GetHeight() - nextpos.y);
+            AddExtent(wdesc, style, neighbors);
 
             renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
             result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
-            Context.RecordItemGeometry(wid, wdesc.margin);
+            Context.AddItemGeometry(wid, wdesc.margin);
             renderer.ResetClipRect();
             break;
         }
@@ -2622,6 +2660,239 @@ namespace glimmer
     WidgetDrawResult ItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_ItemGrid, geometry, neighbors);
+    }
+
+    void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
+    {
+        const auto& style = Context.GetStyle(WS_Default);
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        LayoutItemDescriptor wdesc;
+        NeighborWidgets neighbors;
+        if (dir == DIR_Vertical) neighbors.bottom = nextid;
+        else neighbors.right = nextid;
+
+        AddExtent(wdesc, style, neighbors);
+        DrawBorderRect(wdesc.border.Min, wdesc.border.Max, style.border, style.bgcolor, renderer);
+
+        region.viewport = wdesc.content;
+        region.enabled = { dir == DIR_Horizontal, dir == DIR_Vertical };
+        renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+        Context.PushContainer(parentid, id);
+    }
+
+    static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
+    {
+        auto id = Context.containerStack.top();
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        renderer.ResetClipRect();
+
+        auto hasHScroll = false;
+        auto mousepos = ImGui::GetMousePos();
+        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        {
+            hasHScroll = true;
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+                Config.scrollbarSz);
+        }
+
+        if (region.viewport.Max.y < region.max.y && region.enabled.second)
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+                Config.scrollbarSz, hasHScroll);
+
+        Context.PopContainer(id);
+
+        auto& layout = Context.adhocLayout.top();
+        layout.nextpos = region.viewport.Max;
+        dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
+    }
+
+    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+        int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert(splits.size() <= 8u);
+
+        LayoutItemDescriptor wdesc;
+        AddExtent(wdesc, neighbors);
+        auto& el = Context.splitterStack.push();
+        el.dir = dir;
+        el.extent = wdesc.margin;
+        el.id = id;
+
+        auto& state = Context.SplitterState(id);
+        const auto& style = Context.GetStyle(WS_Default);
+        state.current = 0;
+        
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+
+        auto idx = 0;
+        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
+            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto prev = el.extent.Min;
+
+        for (const auto& split : splits)
+        {
+            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                ImVec2{ state.spacing[idx].curr * width, height });
+
+            if (state.spacing[idx].curr == -1.f)
+            {
+                state.spacing[idx].curr = split.initial;
+                regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                    ImVec2{ state.spacing[idx].curr * width, height });
+            }
+
+            if (split.scrollable)
+            {
+                auto scid = GetNextId(WT_SplitterScrollRegion);
+                auto& scroll = state.scrolldata[idx];
+                scroll.viewport = ImRect{ prev, regionEnd };
+                scroll.enabled = { el.dir == DIR_Horizontal, el.dir == DIR_Vertical };
+                state.scrollids[idx] = scid;
+                Context.AddItemGeometry(scid, scroll.viewport, true);
+            }
+
+            state.spacing[idx].min = split.min;
+            state.spacing[idx].max = split.max;
+            prev = regionEnd;
+            el.dir == DIR_Vertical ? prev.x = wdesc.margin.Min.x : prev.y = wdesc.margin.Min.y;
+            el.dir == DIR_Vertical ? prev.y += splittersz : prev.x += splittersz;
+            ++idx; 
+        }
+
+        if (state.scrollids[state.current] == -1)
+        {
+            // TODO: set clipping rect for non-scrollable regions
+        }
+        else
+        {
+            auto& scroll = state.scrolldata[0];
+            StartSplitterScrollableRegion(state.scrollids[0], state.scrollids[1], el.id, el.dir, scroll);
+        }
+    }
+
+    void NextSplitRegion()
+    {
+        auto& el = Context.splitterStack.top();
+        auto& state = Context.SplitterState(el.id);
+        auto mousepos = ImGui::GetMousePos();
+        const auto& style = Context.GetStyle(WS_Default);
+        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
+            ImVec2{ state.spacing[state.current].curr * width, height });
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+
+        assert(state.current < 8);
+
+        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
+            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto scid = state.scrollids[state.current];
+        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
+
+        auto& layout = Context.adhocLayout.top();
+        auto nextpos = layout.nextpos;
+        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } :
+            ImVec2{ splittersz, el.extent.GetHeight() });
+        // TODO: Pop clipping rect
+
+        renderer.SetClipRect(nextpos, nextpos + sz);
+        DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
+        DrawBackground(nextpos, nextpos + sz, style, renderer);
+        renderer.ResetClipRect();
+
+        if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
+        {
+            auto isDrag = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
+            state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
+            
+            if (isDrag)
+            {
+                auto amount = el.dir == DIR_Vertical ? (mousepos.y - el.extent.Min.y) / height :
+                    (mousepos.x - el.extent.Min.x) / width;
+                auto prev = state.spacing[state.current].curr;
+                state.spacing[state.current].curr = clamp(amount, state.spacing[state.current].min, state.spacing[state.current].max);
+                auto diff = prev - state.spacing[state.current].curr;
+                LOG("Moving to %f (relative amount: %f)\n", mousepos.y, state.spacing[state.current].curr);
+
+                if (diff != 0.f)
+                    state.spacing[state.current + 1].curr += diff;
+            }
+            else state.isdragged[state.current] = false;
+        }
+        else state.states[state.current] = WS_Default;
+
+        state.current++;
+        assert(state.current < 8);
+
+        scid = state.scrollids[state.current];
+
+        if (scid != -1)
+        {
+            auto& scroll = state.scrolldata[state.current];
+            layout.nextpos = scroll.viewport.Min;
+            layout.lastItemId = scid;
+
+            if (state.current + 1 < 8)
+                StartSplitterScrollableRegion(scid, state.scrollids[state.current + 1], el.id, el.dir, scroll);
+            else
+                StartSplitterScrollableRegion(scid, el.id, el.id, el.dir, scroll);
+        }
+    }
+
+    void EndSplitRegion()
+    {
+        auto el = Context.splitterStack.top();
+        auto& state = Context.SplitterState(el.id);
+        
+        auto scid = state.scrollids[state.current];
+        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
+        Context.splitterStack.pop();
+        Context.AddItemGeometry(el.id, el.extent);
+
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        renderer.ResetClipRect();
+    }
+
+    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& region = Context.ScrollRegion(id);
+        const auto& style = Context.GetStyle(WS_Default);
+
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        LayoutItemDescriptor wdesc;
+        AddExtent(wdesc, style, neighbors);
+        DrawBorderRect(wdesc.border.Min, wdesc.border.Max, style.border, style.bgcolor, renderer);
+
+        region.viewport = wdesc.content;
+        region.enabled = { hscroll, vscroll };
+        renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+        Context.containerStack.push(id);
+    }
+
+    void EndScrollableRegion()
+    {
+        auto id = Context.containerStack.top();
+        auto& region = Context.ScrollRegion(id);
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        renderer.ResetClipRect();
+
+        auto hasHScroll = false;
+        auto mousepos = ImGui::GetMousePos();
+        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        {
+            hasHScroll = true;
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+                Config.scrollbarSz);
+        }
+
+        if (region.viewport.Max.y < region.max.y && region.enabled.second)
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+                Config.scrollbarSz, hasHScroll);
+
+        Context.containerStack.pop();
+        Context.AddItemGeometry(id, region.viewport);
     }
 
     WidgetStateData& GetWidgetState(WidgetType type, int16_t id)

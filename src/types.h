@@ -73,6 +73,7 @@ namespace glimmer
         float scaling = 1.f;
         float scrollbarSz = 15.f;
         float scrollAppearAnimationDuration = 0.3f;
+        float splitterSize = 5.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
@@ -95,6 +96,7 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
+        WT_Bounds, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
         WT_Slider,
         WT_TextInput,
         WT_DropDown,
@@ -155,6 +157,28 @@ namespace glimmer
     struct CheckboxState : public CommonWidgetData
     {
         CheckState check = CheckState::Unchecked;
+    };
+
+    struct ScrollBarState
+    {
+        ImVec2 pos;
+        ImVec2 lastMousePos;
+        float opacity = 0.f;
+        bool mouseDownOnVGrip = false;
+        bool mouseDownOnHGrip = false;
+    };
+
+    struct LayoutRegion
+    {
+        ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
+        ImVec2 max; // maximum coordinates of the widgets inside region
+        Vector<int32_t, int16_t> widgets; // widget ids for defered rendering
+    };
+
+    struct ScrollableRegion : public LayoutRegion
+    {
+        std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
+        ScrollBarState state;
     };
 
     struct TextInputState : public CommonWidgetData
@@ -289,6 +313,7 @@ namespace glimmer
             DropDownState dropdown;
             TabBarState tab;
             ItemGridState grid;
+            ScrollableRegion scroll;
             // Add others...
 
             SharedWidgetState() {}
@@ -340,7 +365,7 @@ namespace glimmer
     {
         WidgetType wtype = WidgetType::WT_Invalid;
         int32_t id = -1;
-        ImRect border, margin, padding, content, text;
+        ImRect margin, border, padding, content, text;
         int32_t sizing = 0;
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
@@ -373,5 +398,13 @@ namespace glimmer
         float vertical = FIT_SZ;
         bool relativeh = false;
         bool relativev = false;
+    };
+
+    struct SplitRegion
+    {
+        float min = 0.f;
+        float max = 1.f;
+        float initial = 0.5f;
+        bool scrollable = true;
     };
 }

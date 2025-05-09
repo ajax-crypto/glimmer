@@ -129,7 +129,7 @@ namespace glimmer
                 _data = ptr;
             }
 
-            if (initialize) _default_init(_data + _size, _data + count);
+            if (initialize) _default_init(_size, count);
             _size = _capacity = count;
         }
 
@@ -194,7 +194,9 @@ namespace glimmer
         T& operator[](Sz idx) { assert(idx < _size); return _data[idx]; }
 
         T& front() { assert(_size > 0); return _data[0]; }
+        T const& front() const { assert(_size > 0); return _data[0]; }
         T& back() { assert(_size > 0); return _data[_size - 1]; }
+        T const& back() const { assert(_size > 0); return _data[_size - 1]; }
         T* data() { return _data; }
 
         Sz size() const { return _size; }
@@ -232,21 +234,21 @@ namespace glimmer
     };
 
     template <typename T, int capacity>
-    struct Stack
+    struct FixedSizeStack
     {
         T* _data = nullptr;
         int _size = 0;
 
         static_assert(capacity > 0, "capacity has to be a +ve value");
 
-        Stack()
+        FixedSizeStack()
         {
             _data = (T*)std::malloc(sizeof(T) * capacity);
             if constexpr (std::is_default_constructible_v<T>)
                 std::fill(_data, _data + capacity, T{});
         }
 
-        ~Stack()
+        ~FixedSizeStack()
         {
             if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
             std::free(_data);
@@ -255,7 +257,7 @@ namespace glimmer
         template <typename... ArgsT>
         T& push(ArgsT&&... args)
         {
-            assert(_size < (capacity - 1));
+            assert(_size < capacity);
             ::new(_data + _size) T{ std::forward<ArgsT>(args)... };
             ++_size;
             return _data[_size - 1];
@@ -263,7 +265,7 @@ namespace glimmer
 
         void pop(int depth = 1)
         {
-            while (depth >= 0 && _size > 0)
+            while (depth > 0 && _size > 0)
             {
                 --_size;
                 if constexpr (std::is_default_constructible_v<T>)
@@ -284,8 +286,8 @@ namespace glimmer
         T& top() { return _data[_size - 1]; }
         T const& top() const { return _data[_size - 1]; }
 
-        T& next(int amount) { return _data[_data.size() - 1 - amount]; }
-        T const& next(int amount) const { return _data[_data.size() - 1 - amount]; }
+        T& next(int amount) { return _data[_size - 1 - amount]; }
+        T const& next(int amount) const { return _data[_size - 1 - amount]; }
     };
 
     template <typename T, typename Sz, Sz blocksz = 128>

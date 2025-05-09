@@ -43,15 +43,6 @@ namespace glimmer
         uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
     };
 
-    struct ScrollBarState
-    {
-        ImVec2 pos;
-        ImVec2 lastMousePos;
-        float opacity = 0.f;
-        bool mouseDownOnVGrip = false;
-        bool mouseDownOnHGrip = false;
-    };
-
 #ifndef GLIMMER_MAX_LAYOUT_NESTING 
 #define GLIMMER_MAX_LAYOUT_NESTING 8
 #endif
@@ -174,8 +165,34 @@ namespace glimmer
 
     struct AdHocLayoutState
     {
-        ImVec2 nextpos{ 0.f, 0.f };
-        int32_t lastItemId = -1;
+        ImVec2 nextpos{ 0.f, 0.f }; // position of next widget
+        int32_t lastItemId = -1; // last inserted item's ID
+    };
+
+    struct SplitterContainerState
+    {
+        ImRect extent;
+        int32_t id;
+        Direction dir = DIR_Vertical;
+        bool isScrollable = false;
+    };
+
+    struct SplitterInternalState
+    {
+        struct SplitRange
+        {
+            float min, max;
+            float curr = -1.f;
+        };
+
+        int current = 0;
+        SplitRange spacing[8]; // spacing from (i-1)th to ith splitter
+        int32_t states[8]; // ith splitter's state
+        int32_t scrollids[8]; // id of ith scroll data
+        ScrollableRegion scrolldata[8]; // ith scroll region data
+        bool isdragged[8]; // ith drag state
+
+        SplitterInternalState();
     };
 
     struct WidgetContextData
@@ -188,6 +205,8 @@ namespace glimmer
         std::vector<RadioButtonInternalState> radioStates;
         std::vector<CheckboxInternalState> checkboxStates;
         std::vector<InputTextInternalState> inputTextStates;
+        std::vector<SplitterInternalState> splitterStates;
+        std::vector<int32_t> splitterScrollPaneParentIds;
 
         DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
         StyleDescriptor currStyle[WSI_Total];
@@ -196,12 +215,16 @@ namespace glimmer
         Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
         Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes];
 
+        DynamicStack<int32_t, int16_t> containerStack{ 16 };
+
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
 
         // Per widget specific style objects
         DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
         DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
+
+        FixedSizeStack<SplitterContainerState, 16> splitterStack;
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
@@ -267,12 +290,31 @@ namespace glimmer
             return inputTextStates[index];
         }
 
+        SplitterInternalState& SplitterState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return splitterStates[index];
+        }
+
+        ScrollableRegion& ScrollRegion(int32_t id)
+        {
+            auto index = id & 0xffff;
+            auto type = id >> 16;
+            return states[type][index].state.scroll;
+        }
+
         StyleDescriptor& GetStyle(int32_t state);
 
         void ToggleDeferedRendering(bool defer);
+        void PushContainer(int32_t parentId, int32_t id);
+        void PopContainer(int32_t id);
+        void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
 
-        void RecordItemGeometry(int id, const ImRect& geometry);
         const ImRect& GetGeometry(int32_t id) const;
+        float MaximumExtent(Direction dir) const;
+        ImVec2 MaximumExtent() const;
+        ImVec2 MaximumAbsExtent() const;
+        ImVec2 NextAdHocPos() const;
 
         WidgetContextData();
     };

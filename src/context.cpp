@@ -66,6 +66,22 @@ namespace glimmer
         }
     }
 
+    ImVec2 WidgetContextData::NextAdHocPos() const
+    {
+        const auto& layout = adhocLayout.top();
+        auto offset = ImVec2{};
+
+        if (!containerStack.empty())
+        {
+            auto id = containerStack.top();
+            auto index = id & 0xffff;
+            auto type = id >> 16;
+            offset = states[type][index].state.scroll.state.pos;
+        }
+
+        return layout.nextpos + offset;
+    }
+
     StyleDescriptor& WidgetContextData::GetStyle(int32_t state)
     {
         auto style = log2((unsigned)state);
@@ -91,13 +107,54 @@ namespace glimmer
             deferedRenderer = nullptr;
         }
     }
-    
-    void WidgetContextData::RecordItemGeometry(int id, const ImRect& geometry)
+
+    void WidgetContextData::PushContainer(int32_t parentId, int32_t id)
     {
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
+
+        if (wtype == WT_SplitterScrollRegion)
+            splitterScrollPaneParentIds[index] = parentId;
+
+        containerStack.push(id);
+    }
+
+    void WidgetContextData::PopContainer(int32_t id)
+    {
+        Context.containerStack.pop();
+
+        auto index = id & 0xffff;
+        auto wtype = (WidgetType)(id >> 16);
+
+        if (wtype == WT_SplitterScrollRegion)
+        {
+            splitterScrollPaneParentIds[index] = -1;
+        }
+    }
+    
+    void WidgetContextData::AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent)
+    {
+        auto index = id & 0xffff;
+        auto wtype = (WidgetType)(id >> 16);
+
+        if (index >= (int)itemGeometries[wtype].size())
+            itemGeometries[wtype].resize(index + 128);
+
         itemGeometries[wtype][index] = geometry;
         adhocLayout.top().lastItemId = id;
+
+        if (!containerStack.empty() && !ignoreParent)
+        {
+            id = containerStack.top();
+            wtype = (WidgetType)(id >> 16);
+
+            if (wtype == WT_SplitterScrollRegion)
+            {
+                const auto& splitter = splitterStack.top();
+                auto& state = Context.SplitterState(splitter.id);
+                state.scrolldata[state.current].max = ImMax(state.scrolldata[state.current].max, geometry.Max);
+            }
+        }
 
         if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
         {
@@ -111,6 +168,56 @@ namespace glimmer
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
         return itemGeometries[wtype][index];
+    }
+
+    float WidgetContextData::MaximumExtent(Direction dir) const
+    {
+        if (!containerStack.empty())
+        {
+            auto id = containerStack.top();
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return dir == DIR_Horizontal ? itemGeometries[wtype][index].GetWidth() : 
+                itemGeometries[wtype][index].GetHeight();
+        }
+        else
+        {
+            auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
+            return dir == DIR_Horizontal ? rect.GetWidth() : rect.GetHeight();
+        }
+    }
+
+    ImVec2 WidgetContextData::MaximumExtent() const
+    {
+        if (!containerStack.empty())
+        {
+            auto id = containerStack.top();
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return ImVec2{ itemGeometries[wtype][index].GetWidth(),
+                itemGeometries[wtype][index].GetHeight() };
+        }
+        else
+        {
+            auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
+            return ImVec2{ rect.GetWidth(), rect.GetHeight() };
+        }
+    }
+
+    ImVec2 WidgetContextData::MaximumAbsExtent() const
+    {
+        if (!containerStack.empty())
+        {
+            auto id = containerStack.top();
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return itemGeometries[wtype][index].Max;
+        }
+        else
+        {
+            auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
+            return rect.Max;
+        }
     }
     
     WidgetContextData::WidgetContextData()
@@ -144,13 +251,13 @@ namespace glimmer
         radioStates.resize(32);
         checkboxStates.resize(32);
         inputTextStates.resize(32);
+        splitterStates.resize(4);
+        splitterScrollPaneParentIds.resize(32 * 8, -1);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
             maxids[idx] = 0;
-            WidgetStateData data{ (WidgetType)idx };
-            states[idx].resize(32, data);
-            itemGeometries[idx].resize(32, ImRect{ { 0.f, 0.f },{ 0.f, 0.f } });
+            states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
         }
 
         KeyMappings.resize(1024, { 0, 0 });
@@ -178,5 +285,15 @@ namespace glimmer
         KeyMappings[ImGuiKey_GraveAccent] = { '`', '~' };
 
         // TODO: Add mappings for keypad buttons...
+    }
+    
+    SplitterInternalState::SplitterInternalState()
+    {
+        for (auto idx = 0; idx < 8; ++idx)
+        {
+            states[idx] = WS_Default;
+            scrollids[idx] = -1;
+            isdragged[idx] = false;
+        }
     }
 }

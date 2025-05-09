@@ -22,4 +22,13 @@ namespace glimmer
     WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult TabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult ItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
+    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+        int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void NextSplitRegion();
+    void EndSplitRegion();
+
+    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
+        const NeighborWidgets& neighbors = NeighborWidgets{});
+    void EndScrollableRegion();
 }
