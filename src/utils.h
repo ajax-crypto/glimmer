@@ -364,9 +364,10 @@ namespace glimmer
                 for (auto idx = pos; idx < stack.size(); ++idx)
                     stack[idx].~T();
                 ::new (&(stack[pos])) T{ std::forward<ArgsT>(args)... };
+                pos++;
+                total = pos;
+                return stack[pos - 1];
             }
-
-            total = pos;
         }
 
         T& top() { return stack.back(); }
