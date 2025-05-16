@@ -1546,7 +1546,7 @@ namespace glimmer
 
         if (state.opened)
         {
-            auto maxrect = ImGui::GetCurrentWindow()->InnerClipRect;
+            ImRect maxrect{ { 0.f, 0.f }, Context.WindowSize() };
             auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
             ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
                 ImVec2{ padding.Max.x, maxh };

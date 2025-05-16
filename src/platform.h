@@ -228,7 +228,11 @@ namespace glimmer
 
         virtual bool CreateWindow(const WindowParams& params) = 0;
         virtual bool PollEvents(bool (*runner)(void*), void* data) = 0;
+
+        int64_t frameCount = 0;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
+
+#define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 }

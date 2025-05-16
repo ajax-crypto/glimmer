@@ -219,6 +219,12 @@ namespace glimmer
             return rect.Max;
         }
     }
+
+    ImVec2 WidgetContextData::WindowSize() const
+    {
+        auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
+        return ImVec2{ rect.GetWidth(), rect.GetHeight() };
+    }
     
     WidgetContextData::WidgetContextData()
     {

@@ -313,6 +313,7 @@ namespace glimmer
         float MaximumExtent(Direction dir) const;
         ImVec2 MaximumExtent() const;
         ImVec2 MaximumAbsExtent() const;
+        ImVec2 WindowSize() const;
         ImVec2 NextAdHocPos() const;
 
         WidgetContextData();
