@@ -156,11 +156,11 @@ namespace glimmer
             }
         }
 
-        if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
+        /*if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
         {
             spans[currSpanDepth] = ElementSpan{};
             --currSpanDepth;
-        }
+        }*/
     }
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
@@ -253,6 +253,7 @@ namespace glimmer
         inputTextStates.resize(32);
         splitterStates.resize(4);
         splitterScrollPaneParentIds.resize(32 * 8, -1);
+        dropDownOptions.resize(32);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {

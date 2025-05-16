@@ -4,24 +4,46 @@
 #include "style.h"
 #include "draw.h"
 
+#ifdef GLIMMER_USE_CLAY_LAYOUT
+#define CLAY_IMPLEMENTATION
+#include "clay/clay.h"
+
+Clay_Arena LayoutArena;
+void* LayoutMemory = nullptr;
+#endif
+
 namespace glimmer
 {
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags);
+    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer);
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer);
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer);
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer);
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer);
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer);
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer);
+    WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer);
+
 #pragma region Layout functions
 
     void PushSpan(int32_t direction)
     {
-        Context.currSpanDepth++;
-        Context.spans[Context.currSpanDepth].direction = direction;
+        Context.spans.push(direction);
     }
 
     void SetSpan(int32_t direction)
     {
-        PushSpan(direction);
-        Context.spans[Context.currSpanDepth].popWhenUsed = true;
+        Context.spans.push(direction | OnlyOnce);
     }
 
     void Move(int32_t direction)
     {
+        if (!Context.layouts.empty()) return;
         auto& layout = Context.adhocLayout.top();
         assert(layout.lastItemId != -1);
         Move(layout.lastItemId, direction);
@@ -29,6 +51,7 @@ namespace glimmer
 
     void Move(int32_t id, int32_t direction)
     {
+        if (!Context.layouts.empty()) return;
         const auto& geometry = Context.GetGeometry(id);
         auto& layout = Context.adhocLayout.top();
         layout.nextpos = geometry.Min;
@@ -38,6 +61,7 @@ namespace glimmer
 
     void Move(int32_t hid, int32_t vid, bool toRight, bool toBottom)
     {
+        if (!Context.layouts.empty()) return;
         const auto& hgeometry = Context.GetGeometry(hid);
         const auto& vgeometry = Context.GetGeometry(vid);
         auto& layout = Context.adhocLayout.top();
@@ -47,6 +71,7 @@ namespace glimmer
 
     void Move(ImVec2 amount, int32_t direction)
     {
+        if (!Context.layouts.empty()) return;
         if (direction & ToLeft) amount.x = -amount.x;
         if (direction & ToTop) amount.y = -amount.y;
         auto& layout = Context.adhocLayout.top();
@@ -55,17 +80,87 @@ namespace glimmer
 
     void Move(ImVec2 pos)
     {
+        if (!Context.layouts.empty()) return;
         Context.adhocLayout.top().nextpos = pos;
     }
 
     void PopSpan(int depth)
     {
-        while (depth > 0 && Context.currSpanDepth > -1)
+        Context.spans.pop(depth);
+    }
+
+    void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
+        float width, float height)
+    {
+        auto totalsz = Context.MaximumAbsExtent();
+        auto nextpos = Context.NextAdHocPos();
+        if (width <= 0.f) width = totalsz.x - nextpos.x;
+        if (height <= 0.f) height = totalsz.y - nextpos.y;
+
+        wdesc.margin.Min = nextpos;
+        wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+        wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+        wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
+
+        if (style.specified & StyleWidth)
         {
-            Context.spans[Context.currSpanDepth] = ElementSpan{};
-            --Context.currSpanDepth;
-            --depth;
+            auto w = ImClamp(style.dimension.x, style.mindim.x, style.maxdim.x);
+            wdesc.content.Max.x = wdesc.content.Min.x + w;
+            wdesc.padding.Max.x = wdesc.content.Max.x + style.padding.right;
+            wdesc.border.Max.x = wdesc.padding.Max.x + style.border.right.thickness;
+            wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
         }
+        else
+        {
+            if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
+            else wdesc.margin.Max.x = wdesc.margin.Min.x + width;
+
+            wdesc.border.Max.x = wdesc.margin.Max.x - style.margin.right;
+            wdesc.padding.Max.x = wdesc.border.Max.x - style.border.right.thickness;
+            wdesc.content.Max.x = wdesc.padding.Max.x - style.padding.right;
+        }
+
+        if (style.specified & StyleHeight)
+        {
+            auto h = ImClamp(style.dimension.y, style.mindim.x, style.maxdim.x);
+            wdesc.content.Max.y = wdesc.content.Min.y + h;
+            wdesc.padding.Max.y = wdesc.content.Max.y + style.padding.bottom;
+            wdesc.border.Max.y = wdesc.padding.Max.y + style.border.bottom.thickness;
+            wdesc.margin.Max.y = wdesc.border.Max.y + style.margin.bottom;
+        }
+        else
+        {
+            if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
+            else wdesc.margin.Max.y = wdesc.margin.Min.y + height;
+
+            wdesc.border.Max.y = wdesc.margin.Max.y - style.margin.bottom;
+            wdesc.padding.Max.y = wdesc.border.Max.y - style.border.bottom.thickness;
+            wdesc.content.Max.y = wdesc.padding.Max.y - style.padding.bottom;
+        }
+    }
+
+    static float GetTotalSpacing(LayoutDescriptor& layout, Direction dir)
+    {
+        return dir == DIR_Horizontal ? (((float)layout.currcol + 1.f) * layout.spacing.x) :
+            (((float)layout.currow + 1.f) * layout.spacing.y);
+    }
+
+    static void TranslateX(LayoutItemDescriptor& item, float amount)
+    {
+        item.margin.TranslateX(amount);
+        item.border.TranslateX(amount);
+        item.padding.TranslateX(amount);
+        item.content.TranslateX(amount);
+        item.text.TranslateX(amount);
+    }
+
+    static void TranslateY(LayoutItemDescriptor& item, float amount)
+    {
+        item.margin.TranslateY(amount);
+        item.border.TranslateY(amount);
+        item.padding.TranslateY(amount);
+        item.content.TranslateY(amount);
+        item.text.TranslateY(amount);
     }
 
     static void AlignLayoutAxisItems(LayoutDescriptor& layout)
@@ -78,47 +173,43 @@ namespace glimmer
             // perform h-centering of the current row of widgets and move to next row
             // Otherwise, if output should be justified, move all widgets to specific
             // location after distributing the diff equally...
-            if ((layout.alignment & TextAlignHCenter) && (layout.sizing & ExpandH))
+            if ((layout.alignment & TextAlignHCenter) && (layout.fill & FD_Horizontal))
             {
-                auto totalspacing = 2.f * layout.spacing.x * (float)layout.currcol;
+                auto totalspacing = GetTotalSpacing(layout, DIR_Horizontal);
                 auto hdiff = (layout.geometry.GetWidth() - layout.rows[layout.currow].x - totalspacing) * 0.5f;
 
                 if (hdiff > 0.f)
                 {
-                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    //for (auto row = 0; row <= layout.currow; ++row)
                     {
-                        auto& widget = Context.layoutItems[idx];
-
-                        if (widget.row == layout.currow)
+                        for (auto idx = layout.from; idx <= layout.to; ++idx)
                         {
-                            widget.content.TranslateX(hdiff);
-                            widget.padding.TranslateX(hdiff);
-                            widget.border.TranslateX(hdiff);
-                            widget.margin.TranslateX(hdiff);
+                            auto& widget = Context.layoutItems[idx];
+                            if (widget.row == layout.currow) TranslateX(widget, hdiff);
                         }
                     }
                 }
             }
-            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandH))
+            else if ((layout.alignment & TextAlignJustify) && (layout.fill & FD_Horizontal))
             {
                 auto hdiff = (layout.geometry.GetWidth() - layout.rows[layout.currow].x) /
                     ((float)layout.currcol + 1.f);
 
                 if (hdiff > 0.f)
                 {
-                    auto currposx = hdiff;
-                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    //for (auto row = 0; row <= layout.currow; ++row)
                     {
-                        auto& widget = Context.layoutItems[idx];
-
-                        if (widget.row == layout.currow)
+                        auto currposx = hdiff;
+                        for (auto idx = layout.from; idx <= layout.to; ++idx)
                         {
-                            auto translatex = currposx - widget.margin.Min.x;
-                            widget.content.TranslateX(translatex);
-                            widget.padding.TranslateX(translatex);
-                            widget.border.TranslateX(translatex);
-                            widget.margin.TranslateX(translatex);
-                            currposx += widget.margin.GetWidth() + hdiff;
+                            auto& widget = Context.layoutItems[idx];
+
+                            if (widget.row == layout.currow)
+                            {
+                                auto translatex = currposx - widget.margin.Min.x;
+                                TranslateX(widget, translatex);
+                                currposx += widget.margin.GetWidth() + hdiff;
+                            }
                         }
                     }
                 }
@@ -129,27 +220,21 @@ namespace glimmer
         case Layout::Vertical:
         {
             // Similar logic as for horizontal alignment, implemented for vertical here
-            if ((layout.alignment & TextAlignVCenter) && (layout.sizing & ExpandV))
+            if ((layout.alignment & TextAlignVCenter) && (layout.fill & FD_Vertical))
             {
-                auto totalspacing = 2.f * layout.spacing.x * (float)layout.currow;
-                auto hdiff = (layout.geometry.GetHeight() - layout.cols[layout.currcol].x - totalspacing) * 0.5f;
+                auto totalspacing = GetTotalSpacing(layout, DIR_Vertical);
+                auto hdiff = (layout.geometry.GetHeight() - layout.cols[layout.currcol].y - totalspacing) * 0.5f;
 
                 if (hdiff > 0.f)
                 {
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
                         auto& widget = Context.layoutItems[idx];
-                        if (widget.col == layout.currcol)
-                        {
-                            widget.content.TranslateY(hdiff);
-                            widget.padding.TranslateY(hdiff);
-                            widget.border.TranslateY(hdiff);
-                            widget.margin.TranslateY(hdiff);
-                        }
+                        if (widget.col == layout.currcol) TranslateY(widget, hdiff);
                     }
                 }
             }
-            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandV))
+            else if ((layout.alignment & TextAlignJustify) && (layout.fill & FD_Vertical))
             {
                 auto hdiff = (layout.geometry.GetHeight() - layout.cols[layout.currcol].x) /
                     ((float)layout.currow + 1.f);
@@ -163,10 +248,7 @@ namespace glimmer
                         if (widget.col == layout.currcol)
                         {
                             auto translatex = currposx - widget.margin.Min.y;
-                            widget.content.TranslateY(translatex);
-                            widget.padding.TranslateY(translatex);
-                            widget.border.TranslateY(translatex);
-                            widget.margin.TranslateY(translatex);
+                            TranslateY(widget, hdiff);
                             currposx += widget.margin.GetHeight() + hdiff;
                         }
                     }
@@ -179,18 +261,18 @@ namespace glimmer
 
     static void AlignCrossAxisItems(LayoutDescriptor& layout, int depth)
     {
-        if ((layout.sizing & ExpandH) == 0)
+        if ((layout.fill & FD_Horizontal) == 0)
             layout.geometry.Max.x = Context.layoutItems[layout.itemidx].margin.Max.x = layout.maxdim.x;
-        if ((layout.sizing & ExpandV) == 0)
+        if ((layout.fill & FD_Vertical) == 0)
             layout.geometry.Max.y = Context.layoutItems[layout.itemidx].margin.Max.y = layout.maxdim.y;
 
         switch (layout.type)
         {
         case Layout::Horizontal:
         {
-            if ((layout.alignment & TextAlignVCenter) && (layout.sizing & ExpandV))
+            if ((layout.alignment & TextAlignVCenter) && (layout.fill & FD_Vertical))
             {
-                auto totalspacing = (float)layout.currow * layout.spacing.y;
+                auto totalspacing = GetTotalSpacing(layout, DIR_Vertical);
                 auto cumulativey = layout.cumulative.y + layout.maxdim.y;
                 auto vdiff = (layout.geometry.GetHeight() - totalspacing - cumulativey) * 0.5f;
 
@@ -199,14 +281,11 @@ namespace glimmer
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
                         auto& widget = Context.layoutItems[idx];
-                        widget.margin.TranslateY(vdiff);
-                        widget.border.TranslateY(vdiff);
-                        widget.padding.TranslateY(vdiff);
-                        widget.content.TranslateY(vdiff);
+                        TranslateY(widget, vdiff);
                     }
                 }
             }
-            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandV))
+            else if ((layout.alignment & TextAlignJustify) && (layout.fill & FD_Vertical))
             {
                 auto cumulativey = layout.cumulative.y + layout.maxdim.y;
                 auto vdiff = (layout.geometry.GetHeight() - cumulativey) / ((float)layout.currow + 1.f);
@@ -218,11 +297,22 @@ namespace glimmer
                     {
                         auto& widget = Context.layoutItems[idx];
                         auto translatey = currposy - widget.margin.Min.y;
-                        widget.margin.TranslateY(translatey);
-                        widget.border.TranslateY(translatey);
-                        widget.padding.TranslateY(translatey);
-                        widget.content.TranslateY(translatey);
+                        TranslateY(widget, vdiff);
                         currposy += vdiff + widget.margin.GetHeight();
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignBottom) && (layout.fill & FD_Vertical))
+            {
+                auto totalspacing = GetTotalSpacing(layout, DIR_Vertical);
+                auto vdiff = layout.geometry.GetHeight() - layout.maxdim.y - totalspacing;
+
+                if (vdiff > 0.f)
+                {
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.layoutItems[idx];
+                        TranslateY(widget, vdiff);
                     }
                 }
             }
@@ -231,9 +321,9 @@ namespace glimmer
 
         case Layout::Vertical:
         {
-            if ((layout.alignment & TextAlignHCenter) && (layout.sizing & ExpandH))
+            if ((layout.alignment & TextAlignHCenter) && (layout.fill & FD_Horizontal))
             {
-                auto totalspacing = (float)layout.currcol * layout.spacing.x;
+                auto totalspacing = GetTotalSpacing(layout, DIR_Horizontal);
                 auto cumulativex = layout.cumulative.x + layout.maxdim.x;
                 auto hdiff = (layout.geometry.GetWidth() - totalspacing - cumulativex) * 0.5f;
 
@@ -242,14 +332,11 @@ namespace glimmer
                     for (auto idx = layout.from; idx <= layout.to; ++idx)
                     {
                         auto& widget = Context.layoutItems[idx];
-                        widget.margin.TranslateX(hdiff);
-                        widget.border.TranslateX(hdiff);
-                        widget.padding.TranslateX(hdiff);
-                        widget.content.TranslateX(hdiff);
+                        TranslateX(widget, hdiff);
                     }
                 }
             }
-            else if ((layout.alignment & TextAlignJustify) && (layout.sizing & ExpandH))
+            else if ((layout.alignment & TextAlignJustify) && (layout.fill & FD_Horizontal))
             {
                 auto cumulativex = layout.cumulative.x + layout.maxdim.x;
                 auto hdiff = (layout.geometry.GetWidth() - cumulativex) / ((float)layout.currcol + 1.f);
@@ -261,11 +348,22 @@ namespace glimmer
                     {
                         auto& widget = Context.layoutItems[idx];
                         auto translatex = currposy - widget.margin.Min.x;
-                        widget.margin.TranslateX(translatex);
-                        widget.border.TranslateX(translatex);
-                        widget.padding.TranslateX(translatex);
-                        widget.content.TranslateX(translatex);
+                        TranslateX(widget, hdiff);
                         currposy += hdiff + widget.margin.GetWidth();
+                    }
+                }
+            }
+            else if ((layout.alignment & TextAlignRight) && (layout.fill & FD_Vertical))
+            {
+                auto totalspacing = GetTotalSpacing(layout, DIR_Horizontal);
+                auto vdiff = layout.geometry.GetWidth() - layout.maxdim.x - totalspacing;
+
+                if (vdiff > 0.f)
+                {
+                    for (auto idx = layout.from; idx <= layout.to; ++idx)
+                    {
+                        auto& widget = Context.layoutItems[idx];
+                        TranslateX(widget, vdiff);
                     }
                 }
             }
@@ -276,7 +374,9 @@ namespace glimmer
 
     ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item)
     {
-        ImVec2 offset = layout.nextpos;
+        ImVec2 offset = layout.nextpos - layout.geometry.Min;
+        layout.currow = std::max(layout.currow, (int16_t)0);
+        layout.currcol = std::max(layout.currcol, (int16_t)0);
 
         switch (layout.type)
         {
@@ -284,13 +384,14 @@ namespace glimmer
         {
             auto width = item.margin.GetWidth();
 
-            if ((layout.sizing & ExpandH) && (layout.hofmode == OverflowMode::Wrap))
+            if ((layout.fill & FD_Horizontal) && (layout.hofmode == OverflowMode::Wrap))
             {
                 if (layout.nextpos.x + width > layout.geometry.Max.x)
                 {
-                    layout.geometry.Max.y += layout.maxdim.y;
-                    offset = ImVec2{ layout.geometry.Min.x, layout.geometry.Max.y - layout.maxdim.y };
-                    layout.nextpos.x = offset.x + width;
+                    if ((layout.fill & FD_Vertical) == 0) layout.geometry.Max.y += layout.maxdim.y;
+
+                    offset = ImVec2{ 0.f, layout.cumulative.y + layout.maxdim.y };
+                    layout.nextpos.x = width;
                     layout.nextpos.y = offset.y;
                     AlignLayoutAxisItems(layout);
 
@@ -314,12 +415,15 @@ namespace glimmer
             }
             else
             {
-                if ((layout.sizing & ExpandH) == 0) layout.geometry.Max.x += width;
+                if ((layout.fill & FD_Horizontal) == 0) layout.geometry.Max.x += width;
                 layout.nextpos.x += width;
                 layout.maxdim.y = std::max(layout.maxdim.y, item.margin.GetHeight());
-                if ((layout.sizing & ExpandV) == 0) layout.geometry.Max.y = layout.geometry.Min.y + layout.maxdim.y;
+                if ((layout.fill & FD_Vertical) == 0) layout.geometry.Max.y = layout.geometry.Min.y + layout.maxdim.y;
                 else layout.cumulative.y = layout.maxdim.y;
+                layout.currcol++;
+                layout.rows[layout.currow].x += width;
             }
+
             break;
         }
 
@@ -327,16 +431,18 @@ namespace glimmer
         {
             auto height = item.margin.GetHeight();
 
-            if ((layout.sizing & ExpandV) && (layout.vofmode == OverflowMode::Wrap))
+            if ((layout.fill & FD_Vertical) && (layout.vofmode == OverflowMode::Wrap))
             {
                 if (layout.nextpos.y + height > layout.geometry.Max.y)
                 {
-                    layout.geometry.Max.x += layout.maxdim.x;
-                    offset = ImVec2{ layout.geometry.Max.x - layout.maxdim.x, layout.geometry.Min.y };
+                    if ((layout.fill & FD_Vertical) == 0) layout.geometry.Max.x += layout.maxdim.x;
+
+                    offset = ImVec2{ layout.cumulative.x + layout.maxdim.x, 0.f };
                     layout.nextpos.x = offset.x;
-                    layout.nextpos.y = offset.y + height;
+                    layout.nextpos.y = height;
                     AlignLayoutAxisItems(layout);
 
+                    layout.cumulative.x += layout.maxdim.x;
                     layout.maxdim.x = 0.f;
                     layout.currow = 0;
                     layout.currcol++;
@@ -355,175 +461,187 @@ namespace glimmer
             }
             else
             {
-                if ((layout.sizing & ExpandV) == 0) layout.geometry.Max.y += height;
+                if ((layout.fill & FD_Vertical) == 0) layout.geometry.Max.y += height;
                 layout.nextpos.y += height;
                 layout.maxdim.x = std::max(layout.maxdim.x, item.margin.GetWidth());
-                if ((layout.sizing & ExpandH) == 0) layout.geometry.Max.x = layout.geometry.Min.x + layout.maxdim.x;
+                if ((layout.fill & FD_Horizontal) == 0) layout.geometry.Max.x = layout.geometry.Min.x + layout.maxdim.x;
+                layout.currow++;
+                layout.cols[layout.currcol].y += height;
             }
             break;
         }
 
         case Layout::Grid:
         {
-
-
             break;
         }
         default:
             break;
         }
 
+        item.margin.Translate(offset);
+        item.border.Translate(offset);
+        item.padding.Translate(offset);
+        item.content.Translate(offset);
+        item.text.Translate(offset);
         Context.layoutItems.push_back(item);
+        
+        if (!Context.spans.empty() && (Context.spans.top() & OnlyOnce) != 0) Context.spans.pop();
+
         if (layout.from == -1) layout.from = layout.to = (int16_t)(Context.layoutItems.size() - 1);
         else layout.to = (int16_t)(Context.layoutItems.size() - 1);
         layout.itemidx = layout.to;
+
+#ifdef GLIMMER_USE_CLAY_LAYOUT
+        Clay__OpenElement();
+        Clay_ElementDeclaration decl;
+        decl.custom.customData = reinterpret_cast<void*>((intptr_t)layout.to);
+        decl.layout.layoutDirection = layout.fill & FD_Horizontal ? Clay_LayoutDirection::CLAY_LEFT_TO_RIGHT : Clay_LayoutDirection::CLAY_TOP_TO_BOTTOM;
+        decl.clip.vertical = decl.clip.horizontal = false;
+        decl.userData = nullptr;
+        decl.id.id = 0;
+        decl.backgroundColor.a = 0;
+        decl.cornerRadius.bottomLeft = decl.cornerRadius.bottomRight = decl.cornerRadius.topLeft = decl.cornerRadius.topRight = decl.border.width.betweenChildren = 0;
+        decl.image.imageData = nullptr;
+        decl.border.width.top = decl.border.width.bottom = decl.border.width.left = decl.border.width.right = 0;
+
+        decl.layout.sizing.width.size.minMax.min = decl.layout.sizing.width.size.minMax.max = item.margin.GetWidth();
+        decl.layout.sizing.width.type = item.sizing & ExpandH ? Clay__SizingType::CLAY__SIZING_TYPE_GROW : 
+            item.relative.x > 0.f ? Clay__SizingType::CLAY__SIZING_TYPE_PERCENT : Clay__SizingType::CLAY__SIZING_TYPE_FIXED;
+
+        decl.layout.sizing.height.size.minMax.min = decl.layout.sizing.height.size.minMax.max = item.margin.GetHeight();
+        decl.layout.sizing.height.type = item.sizing & ExpandV ? Clay__SizingType::CLAY__SIZING_TYPE_GROW :
+            item.relative.y > 0.f ? Clay__SizingType::CLAY__SIZING_TYPE_PERCENT : Clay__SizingType::CLAY__SIZING_TYPE_FIXED;
+
+        Clay__ConfigureOpenElement(decl);
+        Clay__CloseElement();
+#endif
+
         return offset;
     }
 
-    static void ComputeInitialGeometry(LayoutDescriptor& layout, const StyleDescriptor& style)
+    static ImRect GetAvailableSpace(int32_t direction, ImVec2 nextpos, const NeighborWidgets& neighbors)
     {
-        if (Context.currLayoutDepth > 0)
-        {
-            auto& parent = Context.layouts[Context.currLayoutDepth - 1];
-            const auto& sizing = Context.sizing[Context.currSizingDepth];
+        ImRect available;
+        auto maxabs = Context.MaximumAbsExtent();
 
-            // Ideally, for left or right alignment for parent, and expand for child
-            // The child should be flexible and shrink to accommodate siblings?
-            // TODO: Add a shrink flag to layouts?
-            if ((layout.fill & FD_Horizontal) && (parent.sizing & ExpandH))
-            {
-                layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
-                layout.geometry.Max.x = parent.prevpos.x - parent.spacing.x;
-            }
-            else if (parent.alignment & TextAlignLeft)
-            {
-                layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
+        available.Min.y = nextpos.y;
+        available.Max.y = neighbors.bottom == -1 ? maxabs.y : Context.GetGeometry(neighbors.bottom).Min.y;
+        available.Min.x = nextpos.x;
+        available.Max.x = neighbors.right == -1 ? maxabs.x : Context.GetGeometry(neighbors.right).Min.x;
 
-                if (sizing.horizontal != FIT_SZ)
-                {
-                    auto hmeasure = sizing.relativeh ?
-                        (parent.geometry.GetWidth() * sizing.horizontal) :
-                        sizing.horizontal;
-                    layout.geometry.Max.x = layout.geometry.Min.x + hmeasure;
-                }
-                else
-                {
-                    layout.sizing &= ~ExpandH;
-                    layout.geometry.Max.x = layout.geometry.Min.x + layout.spacing.x;
-                }
-
-                parent.nextpos.x = layout.geometry.Max.x + parent.spacing.x;
-            }
-            else if (parent.alignment & TextAlignRight)
-            {
-                layout.geometry.Max.x = parent.prevpos.x - layout.spacing.x;
-
-                if (layout.fill & FD_Horizontal) layout.geometry.Min.x = parent.nextpos.x + layout.spacing.x;
-                else if (sizing.horizontal != FIT_SZ)
-                {
-                    auto hmeasure = sizing.relativeh ?
-                        (parent.geometry.GetWidth() * sizing.horizontal) :
-                        sizing.horizontal;
-                    layout.geometry.Min.x = layout.geometry.Max.x - hmeasure;
-                }
-
-                parent.prevpos.x = layout.geometry.Min.x - parent.spacing.x;
-            }
-
-            if ((layout.fill & FD_Vertical) && (parent.sizing & ExpandV))
-            {
-                layout.geometry.Max.y = parent.prevpos.y - parent.spacing.y;
-                layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
-            }
-            else if (parent.alignment & TextAlignTop)
-            {
-                layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
-
-                if (sizing.vertical != FIT_SZ)
-                {
-                    auto vmeasure = sizing.relativev ?
-                        (parent.geometry.GetHeight() * sizing.vertical) :
-                        sizing.vertical;
-                    layout.geometry.Max.y = layout.geometry.Min.y + vmeasure;
-                }
-                else
-                {
-                    layout.sizing &= ~ExpandV;
-                    layout.geometry.Max.y = layout.geometry.Min.y + layout.spacing.y;
-                }
-
-                parent.nextpos.y = layout.geometry.Max.y + parent.spacing.y;
-            }
-            else if (parent.alignment & TextAlignBottom)
-            {
-                layout.geometry.Max.y = parent.prevpos.y - layout.spacing.y;
-
-                if (layout.fill & FD_Vertical) layout.geometry.Min.y = parent.nextpos.y + layout.spacing.y;
-                else if (sizing.vertical != FIT_SZ)
-                {
-                    auto vmeasure = sizing.relativev ?
-                        (parent.geometry.GetHeight() * sizing.vertical) :
-                        sizing.vertical;
-                    layout.geometry.Min.y = layout.geometry.Max.y - vmeasure;
-                }
-
-                parent.prevpos.y = layout.geometry.Max.y - parent.spacing.y;
-            }
-        }
-        else
-        {
-            layout.geometry.Max = ImGui::GetCurrentWindow()->Size;
-        }
-
-        layout.geometry.Min += ImVec2{ style.border.left.thickness, style.border.top.thickness };
-        layout.geometry.Max -= ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-        layout.nextpos = layout.geometry.Min + layout.spacing;
-
-        if (layout.sizing & ExpandH) layout.prevpos.x = layout.geometry.Max.x - layout.spacing.x;
-        if (layout.sizing & ExpandV) layout.prevpos.y = layout.geometry.Max.y - layout.spacing.y;
+        return available;
     }
 
-    ImRect BeginLayout(Layout type, FillDirection fill, int32_t alignment, ImVec2 spacing, const NeighborWidgets& neighbors)
+    static bool IsLayoutDependentOnContent(const LayoutDescriptor& layout)
     {
-        assert(Context.currSizingDepth > -1);
-        Context.currLayoutDepth++;
+        return layout.fill != 0;
+    }
 
+    ImRect BeginLayout(Layout type, int32_t fill, int32_t alignment, bool wrap, ImVec2 spacing, const NeighborWidgets& neighbors)
+    {
+        auto& layout = Context.layouts.push();
         const auto& style = Context.currStyleStates == 0 ? Context.pushedStyles[WSI_Default].top() : Context.currStyle[WSI_Default];
-        auto& layout = Context.layouts[Context.currLayoutDepth];
+
         layout.type = type;
         layout.alignment = alignment;
         layout.fill = fill;
         layout.spacing = spacing;
+        layout.type == Layout::Horizontal ? (layout.hofmode = wrap ? OverflowMode::Wrap : OverflowMode::Scroll) :
+            (layout.vofmode = wrap ? OverflowMode::Wrap : OverflowMode::Scroll);
+        
+        auto nextpos = Context.NextAdHocPos();
+        ImRect available = GetAvailableSpace(alignment, nextpos, neighbors);
 
-        ComputeInitialGeometry(layout, style);
+#ifdef GLIMMER_USE_CLAY_LAYOUT
+        if (Context.layouts.size() == 1)
+        {
+            uint64_t totalMemorySize = Clay_MinMemorySize();
+            if (LayoutMemory == nullptr) LayoutMemory = malloc(totalMemorySize);
+            LayoutArena = Clay_CreateArenaWithCapacityAndMemory(totalMemorySize, LayoutMemory);
+            Clay_Initialize(LayoutArena, { available.GetWidth(), available.GetHeight() }, {NULL});
+            Clay_BeginLayout();
+        }
+
+        Clay__OpenElement();
+        Clay_ElementDeclaration decl;
+        decl.layout.layoutDirection = layout.type == Layout::Horizontal ? Clay_LayoutDirection::CLAY_LEFT_TO_RIGHT : Clay_LayoutDirection::CLAY_TOP_TO_BOTTOM;
+        decl.layout.childGap = layout.spacing.x;
+        decl.layout.childAlignment.x = alignment & TextAlignHCenter ? Clay_LayoutAlignmentX::CLAY_ALIGN_X_CENTER : 
+            alignment & TextAlignRight ? Clay_LayoutAlignmentX::CLAY_ALIGN_X_RIGHT : Clay_LayoutAlignmentX::CLAY_ALIGN_X_LEFT;
+        decl.layout.childAlignment.y = alignment & TextAlignVCenter ? Clay_LayoutAlignmentY::CLAY_ALIGN_Y_BOTTOM : 
+            alignment & TextAlignBottom ? Clay_LayoutAlignmentY::CLAY_ALIGN_Y_BOTTOM : Clay_LayoutAlignmentY::CLAY_ALIGN_Y_TOP;
+
+        decl.layout.sizing.width.size.minMax.min = decl.layout.sizing.width.size.minMax.max = available.GetWidth();
+        decl.layout.sizing.width.type = Clay__SizingType::CLAY__SIZING_TYPE_FIXED;
+        decl.layout.sizing.height.size.minMax.min = decl.layout.sizing.height.size.minMax.max = available.GetHeight();
+        decl.layout.sizing.height.type = Clay__SizingType::CLAY__SIZING_TYPE_FIXED;
+        decl.clip.vertical = decl.clip.horizontal = false;
+        decl.userData = nullptr;
+        decl.backgroundColor.a = 0;
+        decl.cornerRadius.bottomLeft = decl.cornerRadius.bottomRight = decl.cornerRadius.topLeft = decl.cornerRadius.topRight = 0;
+        decl.image.imageData = nullptr;
+        decl.border.width.top = decl.border.width.bottom = decl.border.width.left = decl.border.width.right = decl.border.width.betweenChildren = 0;
+
+        decl.image.imageData = decl.custom.customData = nullptr;
+        decl.floating.attachTo = CLAY_ATTACH_TO_NONE;
+        Clay__ConfigureOpenElement(decl);
+
+        // Do we need to do this?
+        /*if (!Context.containerStack.empty())
+        {
+            auto id = Context.containerStack.top();
+            auto wtype = (WidgetType)(id >> 16);
+
+            Clay_SetExternalScrollHandlingEnabled(true);
+            Clay_SetQueryScrollOffsetFunction([](uint32_t id, void* data) {
+                Context.ScrollRegion(id);
+            });
+        }*/
+#else
+        // ...
+#endif
+
+        layout.geometry = available;
+        layout.nextpos = nextpos;
         return layout.geometry;
     }
 
-    ImRect BeginLayout(Layout type, std::string_view css, const NeighborWidgets& neighbors)
+    void NextRow()
     {
-        Context.currLayoutDepth++;
-
-        auto& layout = Context.layouts[Context.currLayoutDepth];
-        const auto& style = Context.currStyleStates == 0 ? Context.pushedStyles[WSI_Default].top() : Context.currStyle[WSI_Default];
-        layout.type = type;
-        auto pwidth = Context.currLayoutDepth > 0 ? Context.layouts[Context.currLayoutDepth - 1].geometry.GetWidth() : 1.f;
-        auto pheight = Context.currLayoutDepth > 0 ? Context.layouts[Context.currLayoutDepth - 1].geometry.GetHeight() : 1.f;
-        auto [sizing, hasSizing ] = ParseLayoutStyle(layout, css, pwidth, pheight);
-
-        if (hasSizing)
+        if (!Context.layouts.empty())
         {
-            PushSizing(sizing.horizontal, sizing.vertical, sizing.relativeh, sizing.relativev);
-            layout.popSizingOnEnd = true;
+            auto& layout = Context.layouts.top();
+            if (layout.type == Layout::Horizontal && layout.hofmode == OverflowMode::Wrap)
+            {
+                layout.cumulative.y += layout.maxdim.y;
+                layout.maxdim.y = 0.f;
+                layout.currcol = 0;
+                layout.currow++;
+                layout.rows[layout.currow].x = 0.f;
+            }
         }
+    }
 
-        ComputeInitialGeometry(layout, style);
-        return layout.geometry;
+    void NextColumn()
+    {
+        if (!Context.layouts.empty())
+        {
+            auto& layout = Context.layouts.top();
+            if (layout.type == Layout::Horizontal && layout.hofmode == OverflowMode::Wrap)
+            {
+                layout.cumulative.x += layout.maxdim.x;
+                layout.maxdim.x = 0.f;
+                layout.currow = 0;
+                layout.currcol++;
+                layout.cols[layout.currcol].y = 0.f;
+            }
+        }
     }
 
     void PushSizing(float width, float height, bool relativew, bool relativeh)
     {
-        Context.currSizingDepth++;
-        auto& sizing = Context.sizing[Context.currSizingDepth];
+        auto& sizing = Context.sizing.push();
         sizing.horizontal = width;
         sizing.vertical = height;
         sizing.relativeh = relativew;
@@ -532,120 +650,218 @@ namespace glimmer
 
     void PopSizing(int depth)
     {
-        while (depth > 0 && Context.currSizingDepth > 0)
-        {
-            Context.sizing[Context.currSizingDepth] = Sizing{};
-            Context.currSizingDepth--;
-            depth--;
-        }
+        Context.sizing.pop(depth);
     }
 
-    ImRect EndLayout(int depth)
+    void UpdateGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
     {
-        ImRect res;
-        auto& style = Context.currStyleStates == 0 ? Context.pushedStyles[WSI_Default].top() : Context.currStyle[WSI_Default];
+        item.margin.Min.x = bbox.Min.x;
+        item.margin.Max.x = bbox.Max.x;
 
-        while (depth > 0 && Context.currLayoutDepth > -1)
+        item.border.Min.x = item.margin.Min.x + style.margin.left;
+        item.border.Max.x = item.margin.Max.x - style.margin.right;
+
+        item.padding.Min.x = item.border.Min.x + style.border.left.thickness;
+        item.padding.Max.x = item.border.Max.x - style.border.right.thickness;
+
+        item.content.Min.x = item.padding.Min.x + style.padding.left;
+        item.content.Max.x = item.padding.Max.x - style.padding.right;
+
+        auto textw = item.text.GetWidth();
+        item.text.Min.x = item.content.Min.x;
+        item.text.Max.x = item.text.Min.x + textw;
+
+        item.margin.Min.y = bbox.Min.y;
+        item.margin.Max.y = bbox.Max.y;
+
+        item.border.Min.y = item.margin.Min.y + style.margin.top;
+        item.border.Max.y = item.margin.Max.y - style.margin.bottom;
+
+        item.padding.Min.y = item.border.Min.y + style.border.top.thickness;
+        item.padding.Max.y = item.border.Max.y - style.border.bottom.thickness;
+
+        item.content.Min.y = item.padding.Min.y + style.padding.top;
+        item.content.Max.y = item.padding.Max.y - style.padding.bottom;
+
+        auto texth = item.text.GetHeight();
+        item.text.Min.y = item.content.Min.y;
+        item.text.Max.y = item.text.Min.y + texth;
+    }
+
+    static WidgetDrawResult RenderWidget(LayoutItemDescriptor& item)
+    {
+        WidgetDrawResult result;
+        auto bbox = item.margin;
+        auto wtype = (WidgetType)(item.id >> 16);
+        LOG("Rendering widget at (%f, %f) to (%f, %f)\n", bbox.Min.x, bbox.Min.y, bbox.Max.x, bbox.Max.y);
+
+        switch (wtype)
         {
-            // Align items in last row/column and align overall items
-            // in cross-axis for flex-row/column layouts
-            auto& layout = Context.layouts[Context.currLayoutDepth];
-            AlignLayoutAxisItems(layout);
-            AlignCrossAxisItems(layout, depth);
-            //Context.layoutItems[layout.itemidx].viewport = layout.nextpos;
-
-            // Update parent's nextpos as this layout is complete. This step is
-            // necessary as sublayout may need to perform actual layout before
-            // knowing its own dimension
-            if (Context.currLayoutDepth > 0)
-                Context.layouts[Context.currLayoutDepth - 1].nextpos +=
-                ImVec2{ layout.geometry.GetWidth(), layout.geometry.GetHeight() };
-
-            DrawBorderRect(layout.geometry.Min, layout.geometry.Max, style.border, Config.bgcolor,
-                *Config.renderer);
-
-            if (layout.popSizingOnEnd) PopSizing();
-
-            if (Context.currLayoutDepth > 0)
-            {
-                auto& parent = Context.layouts[Context.currLayoutDepth];
-                LayoutItemDescriptor desc;
-                desc.wtype = WT_Sublayout;
-                desc.margin = layout.geometry;
-                desc.id = Context.currLayoutDepth;
-                AddItemToLayout(parent, desc);
-            }
-
-            if (Context.currLayoutDepth == 0)
-            {
-                /*ImVec2 initpos{0.f, 0.f};
-                //int layoutidxs[128];
-                //auto totalLayouts = 0;
-                //std::fill(std::begin(layoutidxs), std::end(layoutidxs), -1);
-
-                //// Extract all sublayouts
-                //for (auto idx = 0; idx < (int)Context.layoutItems.size(); ++idx)
-                //{
-                //    if (Context.layoutItems[idx].wtype == WT_Sublayout)
-                //    {
-                //        layoutidxs[totalLayouts++] = idx;
-                //        totalLayouts++;
-                //    }
-                //}
-
-                //// Sort by depth
-                //std::sort(std::begin(layoutidxs), std::begin(layoutidxs) + totalLayouts, [](int lhs, int rhs) {
-                //        auto lhsdepth = Context.layoutItems[lhs].id;
-                //        auto rhsdepth = Context.layoutItems[rhs].id;
-                //        return lhsdepth == rhsdepth ? lhs < rhs : lhsdepth < rhsdepth;
-                //    });
-
-                /*auto currdepth = 0;
-                for (auto layoutidx = 0; layoutidx < totalLayouts; layoutidx++)
-                {
-                    auto& layout = Context.layoutItems[layoutidx];
-
-                    if (layout.id > 0)
-                    {
-                        auto width = layout.margin.GetWidth();
-                        layout.margin.Min.x = initpos.x;
-                        layout.margin.Max.x = layout.margin.Min.x + width;
-
-                    }
-
-                    currdepth = layout.id;
-                }*/
-
-                // Handle scroll panes...
-                for (auto& widget : Context.layoutItems)
-                {
-                    /*switch (widget.wtype)
-                    {
-                    case WT_Label:
-                    {
-                        LabelImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
-                            *Config.renderer);
-                        break;
-                    }
-                    case WT_Button:
-                    {
-                        ButtonImpl(widget.id, widget.margin, widget.border, widget.padding, widget.content, widget.text,
-                            *Config.renderer);
-                        break;
-                    }
-                    default:
-                        break;
-                    }*/
-                }
-            }
-
-            res = Context.layouts[Context.currLayoutDepth].geometry;
-            Context.layouts[Context.currLayoutDepth] = LayoutDescriptor{};
-            --Context.currLayoutDepth;
-            --depth;
+        case glimmer::WT_Label: {
+            auto& state = Context.GetState(item.id).state.label;
+            auto flags = ToTextFlags(state.type);
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = LabelImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer, flags);
+            break;
+        }
+        case glimmer::WT_Button: {
+            auto& state = Context.GetState(item.id).state.button;
+            auto flags = ToTextFlags(state.type);
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = ButtonImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_RadioButton: {
+            auto& state = Context.GetState(item.id).state.radio;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = RadioButtonImpl(item.id, state, item.margin, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_ToggleButton: {
+            auto& state = Context.GetState(item.id).state.toggle;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = ToggleButtonImpl(item.id, state, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_Checkbox: {
+            auto& state = Context.GetState(item.id).state.checkbox;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = CheckboxImpl(item.id, state, item.margin, item.padding, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_Slider:
+            break;
+        case glimmer::WT_TextInput: {
+            auto& state = Context.GetState(item.id).state.input;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = TextInputImpl(item.id, state, item.margin, item.content, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_DropDown: {
+            auto& state = Context.GetState(item.id).state.dropdown;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = DropDownImpl(item.id, state, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            break;
+        }
+        case glimmer::WT_TabBar:
+            break;
+        case glimmer::WT_ItemGrid: {
+            auto& state = Context.GetState(item.id).state.grid;
+            const auto& style = Context.GetStyle(state.state);
+            UpdateGeometry(item, bbox, style);
+            Context.AddItemGeometry(item.id, bbox);
+            result = ItemGridImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            break;
+        }
+        default:
+            break;
         }
 
-        return res;
+        return result;
+    }
+
+    WidgetDrawResult EndLayout(int depth)
+    {
+        WidgetDrawResult result;
+        ImRect geometry;
+        
+        while (depth > 0 && !Context.layouts.empty())
+        {
+#ifdef GLIMMER_USE_CLAY_LAYOUT
+            Clay__CloseElement();
+
+            if (Context.layouts.size() == 1)
+            {
+                const auto& layout = Context.layouts.top();
+                auto renderCommands = Clay_EndLayout();
+
+                for (auto idx = 0; idx < renderCommands.length; ++idx)
+                {
+                    auto& command = renderCommands.internalArray[idx];
+                    if (command.commandType == CLAY_RENDER_COMMAND_TYPE_CUSTOM)
+                    {
+                        ImRect bbox = { { command.boundingBox.x, command.boundingBox.y }, { command.boundingBox.x + command.boundingBox.width,
+                            command.boundingBox.y + command.boundingBox.height } };
+                        bbox.Translate(layout.geometry.Min);
+                        auto data = command.renderData.custom;
+                        auto id = (int16_t)((intptr_t)(data.customData));
+                        RenderWidget(id, bbox);
+                    }
+                }
+            }
+#else
+            auto& layout = Context.layouts.top();
+
+            if (!IsLayoutDependentOnContent(layout) || Context.layouts.size() == 1)
+            {
+                AlignLayoutAxisItems(layout);
+                AlignCrossAxisItems(layout, depth);
+            }
+            else
+            {
+                auto& parent = Context.layouts.top(1);
+                auto& item = Context.layoutItems.emplace_back();
+
+                item.id = (WT_Layout << 16) | (parent.children.size() - 1);
+                item.to = (int16_t)(Context.layoutItems.size() - 1);
+                if (item.from == -1) item.from = item.to;
+                parent.children.emplace_back(layout);
+            }
+
+            if (Context.layouts.size() == 1)
+            {
+                /*if (layout.vofmode == OverflowMode::Scroll || layout.hofmode == OverflowMode::Scroll)
+                {
+                    auto& region = layout.scroll;
+                    const auto& style = Context.GetStyle(WS_Default);
+
+                    auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+                    LayoutItemDescriptor wdesc;
+                    wdesc.margin = layout.geometry;
+                    wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                    wdesc.border.Max = wdesc.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+                    DrawBorderRect(wdesc.border.Min, wdesc.border.Max, style.border, style.bgcolor, renderer);
+
+                    region.viewport = wdesc.content;
+                    region.enabled = { layout.vofmode == OverflowMode::Scroll, layout.hofmode == OverflowMode::Scroll };
+                    renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
+                    Context.containerStack.push(id);
+                }*/
+
+                for (auto& item : Context.layoutItems)
+                    if (auto res = RenderWidget(item); res.event != WidgetEvent::None)
+                        result = res;
+                geometry = layout.geometry;
+
+
+            }
+#endif
+
+            --depth;
+            Context.layouts.pop();
+        }
+
+        if (Context.layouts.empty())
+        {
+            Context.layoutItems.clear();
+            Context.adhocLayout.top().nextpos = geometry.Max;
+        }
+
+        return result;
     }
 
 #pragma endregion

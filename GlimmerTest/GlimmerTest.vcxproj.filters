@@ -25,6 +25,9 @@
     <Filter Include="Header Files\image">
       <UniqueIdentifier>{053fcbc6-dc84-462a-881d-af44dc194a3c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\layout">
+      <UniqueIdentifier>{8ebe991e-2db2-4d9f-b04f-8dc145b5827d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\glimmer.h">
@@ -92,6 +95,9 @@
     </ClInclude>
     <ClInclude Include="..\src\libs\inc\stb_image\stb_image.h">
       <Filter>Header Files\image</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\clay\clay.h">
+      <Filter>Header Files\layout</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

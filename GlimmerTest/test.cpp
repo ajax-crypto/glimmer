@@ -226,7 +226,7 @@ public:
         tid = glimmer::GetNextId(glimmer::WT_DropDown);
         auto& dd = glimmer::GetWidgetState(tid).state.dropdown;
         dd.text = "DropDown";
-        dd.ShowList = [](ImVec2, ImVec2 sz, glimmer::DropDownState&) {
+        /*dd.ShowList = [](ImVec2, ImVec2 sz, glimmer::DropDownState&) {
             static int lid1 = glimmer::GetNextId(glimmer::WT_Label);
             static int lid2 = glimmer::GetNextId(glimmer::WT_Label);
 
@@ -235,7 +235,11 @@ public:
             glimmer::Move(glimmer::FD_Vertical);
             glimmer::GetWidgetState(lid2).state.label.text = "Second";
             glimmer::Label(lid2);
-        };
+        };*/
+        std::vector<std::pair<glimmer::WidgetType, std::string_view>> options;
+        options.emplace_back(glimmer::WT_Checkbox, "Option 1");
+        options.emplace_back(glimmer::WT_Checkbox, "Option 2");
+        dd.options = options;
         widgets[DROPDOWN] = tid;
 
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
@@ -329,33 +333,38 @@ public:
 
                     NextSplitRegion();
 
-                    Move(FD_Vertical);
-                    PushStyle("background-color: rgb(150, 150, 150)");
-                    Label(widgets[BOTTOM], FromBottom);
-                    Move(FD_Horizontal);
+                    //Move(FD_Horizontal);
+                    BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignHCenter | TextAlignBottom, false, { 5.f, 5.f },
+                        NeighborWidgets{ .top = widgets[UPPER] });
 
-                    PushStyle("padding: 0px; margin: 0px;");
-                    ToggleButton(widgets[TOGGLE], ToRight);
+                        PushStyle("background-color: rgb(150, 150, 150)");
+                        Label(widgets[BOTTOM]);
+                        Move(FD_Horizontal);
 
-                    Move(FD_Horizontal);
-                    RadioButton(widgets[RADIO], ToRight);
+                        PushStyle("padding: 0px; margin: 0px;");
+                        ToggleButton(widgets[TOGGLE], ToRight);
 
-                    Move(FD_Horizontal);
-                    PushStyle("border: 1px solid black; width: 200px;");
-                    PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
-                    TextInput(widgets[INPUT], ToRight);
-                    PopStyle(1, WS_Selected);
+                        Move(FD_Horizontal);
+                        RadioButton(widgets[RADIO], ToRight);
 
-                    Move(FD_Horizontal);
-                    DropDown(widgets[DROPDOWN], ToRight);
-                    PopStyle(2);
+                        Move(FD_Horizontal);
+                        PushStyle("border: 1px solid black; width: 200px;");
+                        PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
+                        TextInput(widgets[INPUT], ToRight);
+                        PopStyle(1, WS_Selected);
 
-                    PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
-                    PushStyle(WS_Checked, "background-color: blue; color: white;");
-                    Move(FD_Horizontal);
-                    Checkbox(widgets[CHECKBOX], ToRight);
-                    PopStyle(1, WS_Default);
-                    PopStyle(1, WS_Checked);
+                        Move(FD_Horizontal);
+                        DropDown(widgets[DROPDOWN], ToRight);
+                        PopStyle(2);
+
+                        PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
+                        PushStyle(WS_Checked, "background-color: blue; color: white;");
+                        Move(FD_Horizontal);
+                        Checkbox(widgets[CHECKBOX], ToRight);
+                        PopStyle(1, WS_Default);
+                        PopStyle(1, WS_Checked);
+
+                    EndLayout();
 
                     Move(widgets[LEFT], widgets[UPPER], true, true);
                     PushStyle("background-color: white; padding: 5px;");

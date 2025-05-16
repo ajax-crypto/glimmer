@@ -72,6 +72,8 @@ namespace glimmer
         }
     }
 
+    WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors);
+
     static bool IsBetween(float point, float min, float max, float tolerance = 0.f)
     {
         return (point < (max + tolerance)) && (point > (min - tolerance));
@@ -85,19 +87,6 @@ namespace glimmer
     static bool operator>(ImVec2 lhs, ImVec2 rhs)
     {
         return lhs.x > rhs.x || lhs.y > rhs.y;
-    }
-
-    static int32_t ToTextFlags(TextType type)
-    {
-        int32_t result = 0;
-        switch (type)
-        {
-            case glimmer::TextType::PlainText: result |= TextIsPlainText; break;
-            case glimmer::TextType::RichText: result |= TextIsRichText; break;
-            case glimmer::TextType::SVG: result |= TextIsSVG; break;
-            default: break;
-        }
-        return result;
     }
 
     static ImVec2 GetTextSize(TextType type, std::string_view text, const FontStyle& font, float width, IRenderer& renderer)
@@ -255,14 +244,14 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (Context.currLayoutDepth > -1)
+            if (!Context.layouts.empty())
             {
-                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandH) == 0;
+                auto isLayoutFit = (Context.layouts.top().fill & FD_Horizontal) == 0;
 
                 if (!isLayoutFit)
                 {
-                    setHFromExpansion((geometry & ToLeft) ? Context.layouts[Context.currLayoutDepth].prevpos.x :
-                        Context.layouts[Context.currLayoutDepth].nextpos.x);
+                    setHFromExpansion((geometry & ToLeft) ? Context.layouts.top().prevpos.x :
+                        Context.layouts.top().nextpos.x);
                     hexpanded = true;
                 }
                 else
@@ -297,14 +286,14 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (Context.currLayoutDepth > -1)
+            if (!Context.layouts.empty())
             {
-                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandV) == 0;
+                auto isLayoutFit = (Context.layouts.top().fill & FD_Vertical) == 0;
 
                 if (!isLayoutFit)
                 {
-                    setVFromExpansion((geometry & ToTop) ? Context.layouts[Context.currLayoutDepth].prevpos.y :
-                        Context.layouts[Context.currLayoutDepth].nextpos.y);
+                    setVFromExpansion((geometry & ToTop) ? Context.layouts.top().prevpos.y :
+                        Context.layouts.top().nextpos.y);
                     vexpanded = true;
                 }
                 else
@@ -436,7 +425,7 @@ namespace glimmer
         }
     }
 
-    static WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags)
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
@@ -640,7 +629,7 @@ namespace glimmer
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
-    static WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer)
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer)
     {
         auto& style = Context.GetStyle(state.state);
         auto& check = Context.CheckboxState(id);
@@ -1503,7 +1492,7 @@ namespace glimmer
         return { bounds, { content.Min, content.Min + size } };
     }
 
-    static WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer)
     {
         WidgetDrawResult result;
@@ -1551,7 +1540,7 @@ namespace glimmer
             ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
         else state._hoverDuration == 0;
 
-        if (state.opened && state.ShowList != nullptr)
+        if (state.opened)
         {
             auto maxrect = ImGui::GetCurrentWindow()->InnerClipRect;
             auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
@@ -1561,7 +1550,62 @@ namespace glimmer
                 ImVec2{ padding.Min.x, maxh };
 
             Context.ToggleDeferedRendering(true);
-            state.ShowList(available1, available2, state);
+
+            if (state.ShowList)
+                state.ShowList(available1, available2, state);
+            else
+            {
+                auto& optstates = Context.dropDownOptions[id & 0xffff];
+                if (optstates.empty()) optstates.reserve(state.options.size());
+                auto optidx = 0;
+                
+                for (const auto& option : state.options)
+                {
+                    if ((int)optstates.size() <= optidx)
+                    {
+                        auto& optstate = optstates.emplace_back();
+                        switch (option.first)
+                        {
+                        case WT_Checkbox:
+                        {
+                            optstate.first = GetNextId(WT_Checkbox);
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetState(optstate.first).state.checkbox.check = state.selected == optidx ?
+                                CheckState::Checked : CheckState::Unchecked;
+                            GetWidgetState(optstate.second).state.label.text = option.second;
+                            break;
+                        }
+                        case WT_ToggleButton:
+                        {
+                            optstate.first = GetNextId(WT_ToggleButton);
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
+                            GetWidgetState(optstate.second).state.label.text = option.second;
+                            break;
+                        }
+                        case WT_Invalid:
+                        {
+                            optstate.first = -1;
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
+                            break;
+                        }
+                        default: break;
+                        }
+                    }
+
+                    auto& optstate = optstates[optidx];
+                    if (optstate.first != -1)
+                    {
+                        auto type = (WidgetType)(optstate.first >> 16);
+                        Widget(optstate.first, type, ToBottomRight, {});
+                        Move(FD_Horizontal);
+                    }
+                    Widget(optstate.second, WT_Label, ToBottomRight, {});
+                    Move(FD_Vertical);
+                    Context.adhocLayout.top().nextpos.x = 0.f;
+                }
+            }
 
             if (Context.deferedRenderer->size.y > 0.f && !ImGui::IsKeyPressed(ImGuiKey_Escape))
             {
@@ -1570,7 +1614,7 @@ namespace glimmer
                 ImVec2 origin{ border.Min.x, padding.Max.y }, size{ Context.deferedRenderer->size };
 
                 if ((origin + size) > ImGui::GetCurrentWindow()->InnerClipRect.Max)
-                    origin.y = origin.y - size.y;
+                    origin.y = origin.y - size.y - padding.GetHeight();
 
                 std::to_chars(buffer, buffer + 31, id);
                 ImGui::SetNextWindowPos(origin);
@@ -1594,7 +1638,7 @@ namespace glimmer
         return result;
     }
 
-    static WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer)
     {
         WidgetDrawResult result;
@@ -2358,10 +2402,7 @@ namespace glimmer
         }
 
         Context.maxids[WT_SplitterScrollRegion] = 0;
-
-        assert(Context.currLayoutDepth == -1);
-        assert(Context.currSizingDepth == 0);
-        assert(Context.currSpanDepth == -1);
+        assert(Context.layouts.empty());
     }
 
     int32_t GetNextId(WidgetType type)
@@ -2402,57 +2443,7 @@ namespace glimmer
         wdesc.content.Max.y = wdesc.padding.Max.y;
     }
 
-    static void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
-        float width = 0.f, float height = 0.f)
-    {
-        auto totalsz = Context.MaximumAbsExtent();
-        auto nextpos = Context.NextAdHocPos();
-        if (width <= 0.f) width = totalsz.x - nextpos.x;
-        if (height <= 0.f) height = totalsz.y - nextpos.y;
-
-        wdesc.margin.Min = nextpos;
-        wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-        wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-        wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
-
-        if (style.specified & StyleWidth)
-        {
-            auto w = ImClamp(style.dimension.x, style.mindim.x, style.maxdim.x);
-            wdesc.content.Max.x = wdesc.content.Min.x + w;
-            wdesc.padding.Max.x = wdesc.content.Max.x + style.padding.right;
-            wdesc.border.Max.x = wdesc.padding.Max.x + style.border.right.thickness;
-            wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
-        }
-        else
-        {
-            if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
-            else wdesc.margin.Max.x = wdesc.margin.Min.x + width;
-
-            wdesc.border.Max.x = wdesc.margin.Max.x - style.margin.right;
-            wdesc.padding.Max.x = wdesc.border.Max.x - style.border.right.thickness;
-            wdesc.content.Max.x = wdesc.padding.Max.x - style.padding.right;
-        }
-
-        if (style.specified & StyleHeight)
-        {
-            auto h = ImClamp(style.dimension.y, style.mindim.x, style.maxdim.x);
-            wdesc.content.Max.y = wdesc.content.Min.y + h;
-            wdesc.padding.Max.y = wdesc.content.Max.y + style.padding.bottom;
-            wdesc.border.Max.y = wdesc.padding.Max.y + style.border.bottom.thickness;
-            wdesc.margin.Max.y = wdesc.border.Max.y + style.margin.bottom;
-        }
-        else
-        {
-            if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
-            else wdesc.margin.Max.y = wdesc.margin.Min.y + height;
-
-            wdesc.border.Max.y = wdesc.margin.Max.y - style.margin.bottom;
-            wdesc.padding.Max.y = wdesc.border.Max.y - style.border.bottom.thickness;
-            wdesc.content.Max.y = wdesc.padding.Max.y - style.padding.bottom;
-        }
-    }
-
-    static WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
+    WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
     {
         assert((id & 0xffff) <= (int)Context.states[type].size());
         WidgetDrawResult result;
@@ -2473,13 +2464,15 @@ namespace glimmer
             CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
             auto& style = Context.GetStyle(state.state);
 
-            if (Context.currLayoutDepth != -1)
+            if (!Context.layouts.empty())
             {
-                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto& layout = Context.layouts.top();
                 auto pos = layout.geometry.Min;
                 
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
@@ -2497,12 +2490,14 @@ namespace glimmer
             CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
             auto& style = Context.GetStyle(state.state);
 
-            if (Context.currLayoutDepth != -1)
+            if (!Context.layouts.empty())
             {
-                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto& layout = Context.layouts.top();
                 auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
@@ -2521,10 +2516,21 @@ namespace glimmer
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = RadioButtonBounds(state, wdesc.margin);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = RadioButtonImpl(wid, state, bounds, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = RadioButtonImpl(wid, state, bounds, renderer);
+                Context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
             break;
         }
         case WT_ToggleButton: {
@@ -2534,10 +2540,22 @@ namespace glimmer
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto [bounds, textsz] = ToggleButtonBounds(state, wdesc.content, renderer);
 
-            renderer.SetClipRect(bounds.Min, bounds.Max);
-            result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(bounds.Min, bounds.Max);
+                result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
+                Context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_Checkbox: {
@@ -2547,10 +2565,22 @@ namespace glimmer
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = CheckboxBounds(state, wdesc.margin);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
+                Context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_TextInput: {
@@ -2559,10 +2589,22 @@ namespace glimmer
             CopyStyle(Context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, 0.f, style.font.size + 2.f);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
+                Context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_DropDown: {
@@ -2580,10 +2622,22 @@ namespace glimmer
                 wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
             }
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
+                Context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_TabBar: {
@@ -2592,9 +2646,21 @@ namespace glimmer
             CopyStyle(Context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, 0.f, 0.f);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                // TODO: ...
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_ItemGrid: {
@@ -2603,10 +2669,22 @@ namespace glimmer
             CopyStyle(Context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!Context.layouts.empty())
+            {
+                auto& layout = Context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+                Context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         default: break;
@@ -2799,10 +2877,34 @@ namespace glimmer
         renderer.SetClipRect(nextpos, nextpos + sz);
         DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
         DrawBackground(nextpos, nextpos + sz, style, renderer);
+        auto radius = std::max(splittersz - 2.f, 1.f);
+        if (el.dir == DIR_Vertical)
+        {
+            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
+            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
+            startpos.x += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        else
+        {
+            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
+            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
+            startpos.y += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
         renderer.ResetClipRect();
 
         if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
         {
+            ImGui::SetMouseCursor(el.dir == DIR_Vertical ? ImGuiMouseCursor_ResizeNS : ImGuiMouseCursor_ResizeEW);
             auto isDrag = ImGui::IsMouseDown(ImGuiMouseButton_Left);
             if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
             state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
@@ -2821,7 +2923,11 @@ namespace glimmer
             }
             else state.isdragged[state.current] = false;
         }
-        else state.states[state.current] = WS_Default;
+        else
+        {
+            state.states[state.current] = WS_Default;
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+        }
 
         state.current++;
         assert(state.current < 8);

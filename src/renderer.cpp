@@ -675,7 +675,7 @@ namespace glimmer
 
     struct DeferredRenderer final : public IRenderer
     {
-        Vector<std::pair<DrawingOps, DrawParams>, int32_t, 64> queue;
+        Vector<std::pair<DrawingOps, DrawParams>, int32_t, 32> queue{ 32 };
         ImVec2(*TextMeasure)(std::string_view text, void* fontptr, float sz, float wrapWidth);
 
         DeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth))

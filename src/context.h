@@ -32,12 +32,6 @@ namespace glimmer
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
-    struct ElementSpan
-    {
-        int32_t direction = 0;
-        bool popWhenUsed = false;
-    };
-
     struct ItemGridStyleDescriptor
     {
         uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
@@ -207,15 +201,11 @@ namespace glimmer
         std::vector<InputTextInternalState> inputTextStates;
         std::vector<SplitterInternalState> splitterStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
+        std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
 
         DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
         StyleDescriptor currStyle[WSI_Total];
         int32_t currStyleStates = 0;
-
-        Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
-        Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes];
-
-        DynamicStack<int32_t, int16_t> containerStack{ 16 };
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
@@ -224,26 +214,37 @@ namespace glimmer
         DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
         DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
 
+        // Layout related members
+        Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
+        Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes]{
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ false },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ false },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true } };
+        DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
+        FixedSizeStack<LayoutDescriptor, GLIMMER_MAX_LAYOUT_NESTING> layouts;
+        FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
+        FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
+        DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
         int tempids[WT_TotalTypes];
 
-        // Whether we are in a frame being rendered
+        // Whether we are in a frame being rendered + current renderer
         bool InsideFrame = false;
-
-        int32_t currLayoutDepth = -1;
-        LayoutDescriptor layouts[GLIMMER_MAX_LAYOUT_NESTING];
-
-        int32_t currSizingDepth = 0;
-        Sizing sizing[GLIMMER_MAX_LAYOUT_NESTING];
-
-        int32_t currSpanDepth = -1;
-        ElementSpan spans[GLIMMER_MAX_LAYOUT_NESTING];
-        
-        DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
-
         bool usingDeferred = false;
         IRenderer* deferedRenderer = nullptr;
 
