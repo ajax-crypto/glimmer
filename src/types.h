@@ -2,8 +2,7 @@
 
 #define IM_RICHTEXT_MAX_COLORSTOPS 4
 
-#include "imgui.h"
-#include "imgui_internal.h"
+#include "platform.h"
 #include "utils.h"
 
 #include <string_view>
@@ -79,6 +78,7 @@ namespace glimmer
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
+        IPlatform* platform = nullptr;
         void* userData = nullptr;
     };
 

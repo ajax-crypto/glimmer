@@ -4,7 +4,15 @@
 #include "style.h"
 #include "draw.h"
 
-#ifdef GLIMMER_USE_CLAY_LAYOUT
+#define GLIMMER_FAST_LAYOUT_ENGINE 0
+#define GLIMMER_CLAY_LAYOUT_ENGINE 1
+#define GLIMMER_YOGA_LAYOUT_ENGINE 2
+
+#ifndef GLIMMER_LAYOUT_ENGINE
+#define GLIMMER_LAYOUT_ENGINE GLIMMER_FAST_LAYOUT_ENGINE
+#endif
+
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
 #define CLAY_IMPLEMENTATION
 #include "clay/clay.h"
 
@@ -15,19 +23,19 @@ void* LayoutMemory = nullptr;
 namespace glimmer
 {
     WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags);
     WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer);
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer);
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer);
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer);
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
 
 #pragma region Layout functions
 
@@ -139,6 +147,7 @@ namespace glimmer
         }
     }
 
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
     static float GetTotalSpacing(LayoutDescriptor& layout, Direction dir)
     {
         return dir == DIR_Horizontal ? (((float)layout.currcol + 1.f) * layout.spacing.x) :
@@ -371,9 +380,11 @@ namespace glimmer
         }
         }
     }
+#endif
 
     ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item)
     {
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
         ImVec2 offset = layout.nextpos - layout.geometry.Min;
         layout.currow = std::max(layout.currow, (int16_t)0);
         layout.currcol = std::max(layout.currcol, (int16_t)0);
@@ -491,8 +502,9 @@ namespace glimmer
         if (layout.from == -1) layout.from = layout.to = (int16_t)(Context.layoutItems.size() - 1);
         else layout.to = (int16_t)(Context.layoutItems.size() - 1);
         layout.itemidx = layout.to;
+        return offset;
 
-#ifdef GLIMMER_USE_CLAY_LAYOUT
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
         Clay__OpenElement();
         Clay_ElementDeclaration decl;
         decl.custom.customData = reinterpret_cast<void*>((intptr_t)layout.to);
@@ -515,9 +527,9 @@ namespace glimmer
 
         Clay__ConfigureOpenElement(decl);
         Clay__CloseElement();
+        return ImVec2{ 0, 0 };
 #endif
-
-        return offset;
+        
     }
 
     static ImRect GetAvailableSpace(int32_t direction, ImVec2 nextpos, const NeighborWidgets& neighbors)
@@ -553,7 +565,7 @@ namespace glimmer
         auto nextpos = Context.NextAdHocPos();
         ImRect available = GetAvailableSpace(alignment, nextpos, neighbors);
 
-#ifdef GLIMMER_USE_CLAY_LAYOUT
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
         if (Context.layouts.size() == 1)
         {
             uint64_t totalMemorySize = Clay_MinMemorySize();
@@ -598,8 +610,6 @@ namespace glimmer
                 Context.ScrollRegion(id);
             });
         }*/
-#else
-        // ...
 #endif
 
         layout.geometry = available;
@@ -653,7 +663,7 @@ namespace glimmer
         Context.sizing.pop(depth);
     }
 
-    void UpdateGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
+    static void UpdateGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
     {
         item.margin.Min.x = bbox.Min.x;
         item.margin.Max.x = bbox.Max.x;
@@ -688,12 +698,13 @@ namespace glimmer
         item.text.Max.y = item.text.Min.y + texth;
     }
 
-    static WidgetDrawResult RenderWidget(LayoutItemDescriptor& item)
+    static WidgetDrawResult RenderWidget(LayoutItemDescriptor& item, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto bbox = item.margin;
         auto wtype = (WidgetType)(item.id >> 16);
-        LOG("Rendering widget at (%f, %f) to (%f, %f)\n", bbox.Min.x, bbox.Min.y, bbox.Max.x, bbox.Max.y);
+        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        //LOG("Rendering widget at (%f, %f) to (%f, %f)\n", bbox.Min.x, bbox.Min.y, bbox.Max.x, bbox.Max.y);
 
         switch (wtype)
         {
@@ -703,7 +714,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = LabelImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer, flags);
+            result = LabelImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
             break;
         }
         case glimmer::WT_Button: {
@@ -712,7 +723,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = ButtonImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            result = ButtonImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
         case glimmer::WT_RadioButton: {
@@ -720,7 +731,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = RadioButtonImpl(item.id, state, item.margin, *Config.renderer);
+            result = RadioButtonImpl(item.id, state, item.margin, renderer, io);
             break;
         }
         case glimmer::WT_ToggleButton: {
@@ -728,7 +739,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = ToggleButtonImpl(item.id, state, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, *Config.renderer);
+            result = ToggleButtonImpl(item.id, state, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
             break;
         }
         case glimmer::WT_Checkbox: {
@@ -736,7 +747,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = CheckboxImpl(item.id, state, item.margin, item.padding, *Config.renderer);
+            result = CheckboxImpl(item.id, state, item.margin, item.padding, renderer, io);
             break;
         }
         case glimmer::WT_Slider:
@@ -746,7 +757,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = TextInputImpl(item.id, state, item.margin, item.content, *Config.renderer);
+            result = TextInputImpl(item.id, state, item.margin, item.content, renderer, io);
             break;
         }
         case glimmer::WT_DropDown: {
@@ -754,7 +765,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = DropDownImpl(item.id, state, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            result = DropDownImpl(item.id, state, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
         case glimmer::WT_TabBar:
@@ -764,7 +775,7 @@ namespace glimmer
             const auto& style = Context.GetStyle(state.state);
             UpdateGeometry(item, bbox, style);
             Context.AddItemGeometry(item.id, bbox);
-            result = ItemGridImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, *Config.renderer);
+            result = ItemGridImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
         default:
@@ -781,7 +792,7 @@ namespace glimmer
         
         while (depth > 0 && !Context.layouts.empty())
         {
-#ifdef GLIMMER_USE_CLAY_LAYOUT
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
             Clay__CloseElement();
 
             if (Context.layouts.size() == 1)
@@ -803,7 +814,7 @@ namespace glimmer
                     }
                 }
             }
-#else
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
             auto& layout = Context.layouts.top();
 
             if (!IsLayoutDependentOnContent(layout) || Context.layouts.size() == 1)
@@ -824,6 +835,8 @@ namespace glimmer
 
             if (Context.layouts.size() == 1)
             {
+                auto io = Config.platform->CurrentIO();
+
                 /*if (layout.vofmode == OverflowMode::Scroll || layout.hofmode == OverflowMode::Scroll)
                 {
                     auto& region = layout.scroll;
@@ -843,7 +856,7 @@ namespace glimmer
                 }*/
 
                 for (auto& item : Context.layoutItems)
-                    if (auto res = RenderWidget(item); res.event != WidgetEvent::None)
+                    if (auto res = RenderWidget(item, io); res.event != WidgetEvent::None)
                         result = res;
                 geometry = layout.geometry;
 

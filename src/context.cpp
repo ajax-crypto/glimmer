@@ -260,32 +260,6 @@ namespace glimmer
             maxids[idx] = 0;
             states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
         }
-
-        KeyMappings.resize(1024, { 0, 0 });
-        KeyMappings[ImGuiKey_0] = { '0', ')' }; KeyMappings[ImGuiKey_1] = { '1', '!' }; KeyMappings[ImGuiKey_2] = { '2', '@' };
-        KeyMappings[ImGuiKey_3] = { '3', '#' }; KeyMappings[ImGuiKey_4] = { '4', '$' }; KeyMappings[ImGuiKey_5] = { '5', '%' };
-        KeyMappings[ImGuiKey_6] = { '6', '^' }; KeyMappings[ImGuiKey_7] = { '7', '&' }; KeyMappings[ImGuiKey_8] = { '8', '*' };
-        KeyMappings[ImGuiKey_9] = { '9', '(' };
-
-        KeyMappings[ImGuiKey_A] = { 'A', 'a' }; KeyMappings[ImGuiKey_B] = { 'B', 'b' }; KeyMappings[ImGuiKey_C] = { 'C', 'c' };
-        KeyMappings[ImGuiKey_D] = { 'D', 'd' }; KeyMappings[ImGuiKey_E] = { 'E', 'e' }; KeyMappings[ImGuiKey_F] = { 'F', 'f' };
-        KeyMappings[ImGuiKey_G] = { 'G', 'g' }; KeyMappings[ImGuiKey_H] = { 'H', 'h' }; KeyMappings[ImGuiKey_I] = { 'I', 'i' };
-        KeyMappings[ImGuiKey_J] = { 'J', 'j' }; KeyMappings[ImGuiKey_K] = { 'K', 'k' }; KeyMappings[ImGuiKey_L] = { 'L', 'l' };
-        KeyMappings[ImGuiKey_M] = { 'M', 'm' }; KeyMappings[ImGuiKey_N] = { 'N', 'n' }; KeyMappings[ImGuiKey_O] = { 'O', 'o' };
-        KeyMappings[ImGuiKey_P] = { 'P', 'p' }; KeyMappings[ImGuiKey_Q] = { 'Q', 'q' }; KeyMappings[ImGuiKey_R] = { 'R', 'r' };
-        KeyMappings[ImGuiKey_S] = { 'S', 's' }; KeyMappings[ImGuiKey_T] = { 'T', 't' }; KeyMappings[ImGuiKey_U] = { 'U', 'u' };
-        KeyMappings[ImGuiKey_V] = { 'V', 'v' }; KeyMappings[ImGuiKey_W] = { 'W', 'w' }; KeyMappings[ImGuiKey_X] = { 'X', 'x' };
-        KeyMappings[ImGuiKey_Y] = { 'Y', 'y' }; KeyMappings[ImGuiKey_Z] = { 'Z', 'z' };
-
-        KeyMappings[ImGuiKey_Apostrophe] = { '\'', '"' }; KeyMappings[ImGuiKey_Backslash] = { '\\', '|' };
-        KeyMappings[ImGuiKey_Slash] = { '/', '?' }; KeyMappings[ImGuiKey_Comma] = { ',', '<' };
-        KeyMappings[ImGuiKey_Minus] = { '-', '_' }; KeyMappings[ImGuiKey_Period] = { '.', '>' };
-        KeyMappings[ImGuiKey_Semicolon] = { ';', ':' }; KeyMappings[ImGuiKey_Equal] = { '=', '+' };
-        KeyMappings[ImGuiKey_LeftBracket] = { '[', '{' }; KeyMappings[ImGuiKey_RightBracket] = { ']', '}' };
-        KeyMappings[ImGuiKey_Space] = { ' ', ' ' }; KeyMappings[ImGuiKey_Tab] = { '\t', '\t' };
-        KeyMappings[ImGuiKey_GraveAccent] = { '`', '~' };
-
-        // TODO: Add mappings for keypad buttons...
     }
     
     SplitterInternalState::SplitterInternalState()

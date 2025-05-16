@@ -426,21 +426,21 @@ namespace glimmer
     }
 
     WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
     {
         assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
 
         WidgetDrawResult result;
         auto& state = Context.GetState(id).state.label;
         auto& style = Context.GetStyle(state.state);
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
+        auto ismouseover = padding.Contains(io.mousepos);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
         DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
 
-        if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
             ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
         else state._hoverDuration == 0;
 
@@ -449,23 +449,23 @@ namespace glimmer
     }
 
     WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& state = Context.GetState(id).state.button;
         auto& style = Context.GetStyle(state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
         state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+            io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
         DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
 
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (ismouseover && io.clicked())
             result.event = WidgetEvent::Clicked;
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        else if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
             ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
         else state._hoverDuration == 0;
 
@@ -504,7 +504,8 @@ namespace glimmer
         return { result, text };
     }
 
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer)
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, 
+        IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
 
@@ -515,7 +516,7 @@ namespace glimmer
         auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
         auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
         auto movement = extent.GetWidth() - (2.f * (radius + extra));
-        auto moveAmount = toggle.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
+        auto moveAmount = toggle.animate ? (io.deltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
         toggle.progress += std::fabsf(moveAmount / movement);
 
         auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
@@ -559,7 +560,7 @@ namespace glimmer
         renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
         auto mouseover = extent.Contains(mousepos);
 
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (mouseover && io.clicked())
         {
             result.event = WidgetEvent::Clicked;
             state.checked = !state.checked;
@@ -568,7 +569,7 @@ namespace glimmer
         }
 
         toggle.btnpos = toggle.animate ? center.x : -1.f;
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+        state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
             mouseover ? WS_Hovered : WS_Default;
         state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
         result.geometry = extent;
@@ -581,7 +582,8 @@ namespace glimmer
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer)
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, 
+        IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& style = Context.GetStyle(state.state);
@@ -601,13 +603,13 @@ namespace glimmer
             renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
         }
 
-        auto ratio = radio.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) : 0.f;
+        auto ratio = radio.animate ? (io.deltaTime / specificStyle.animate) : 0.f;
         radio.progress += ratio;
         radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
         radio.animate = radio.radius > 0.f && radio.radius < maxrad;
         auto mouseover = extent.Contains(mousepos);
 
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (mouseover && io.clicked())
         {
             result.event = WidgetEvent::Clicked;
             state.checked = !state.checked;
@@ -616,7 +618,7 @@ namespace glimmer
             radio.radius = state.checked ? 0.f : maxrad;
         }
 
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
+        state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
             mouseover ? WS_Hovered : WS_Default;
         state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
         result.geometry = extent;
@@ -629,7 +631,8 @@ namespace glimmer
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer)
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, 
+        IRenderer& renderer, const IODescriptor& io)
     {
         auto& style = Context.GetStyle(state.state);
         auto& check = Context.CheckboxState(id);
@@ -640,7 +643,7 @@ namespace glimmer
         auto height = padding.GetHeight(), width = padding.GetWidth();
 
         if (check.animate && check.progress < 1.f)
-            check.progress += (ImGui::GetIO().DeltaTime / 0.25f);
+            check.progress += (io.deltaTime / 0.25f);
 
         switch (state.check)
         {
@@ -664,11 +667,11 @@ namespace glimmer
 
         auto mousepos = ImGui::GetIO().MousePos;
         auto mouseover = extent.Contains(mousepos);
-        auto isclicked = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        auto isclicked = mouseover && io.isLeftMouseDown();
         state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
             mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
 
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (mouseover && io.clicked())
         {
             state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
             state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
@@ -745,7 +748,7 @@ namespace glimmer
     }
 
     static bool HandleHScroll(ScrollBarState& scroll, float width, const ImRect& viewport,
-        ImVec2 mousepos, IRenderer& renderer, float btnsz, bool showButtons = true)
+        ImVec2 mousepos, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true)
     {
         auto hasHScroll = false;
         float gripExtent = 0.f;
@@ -762,9 +765,9 @@ namespace glimmer
             if (hasMouseInteraction || hasOpacity)
             {
                 if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime) + scroll.opacity, 255.f);
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
                 else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime), 0.f);
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
 
                 auto lrsz = showButtons ? btnsz : 0.f;
                 ImRect left{ { viewport.Min.x, viewport.Max.y - lrsz }, { viewport.Min.x + lrsz, viewport.Max.y } };
@@ -792,7 +795,7 @@ namespace glimmer
 
                 if (grip.Contains(mousepos))
                 {
-                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnHGrip)
                         {
@@ -822,13 +825,13 @@ namespace glimmer
                     else
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
 
-                    if (left.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (left.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
-                    else if (right.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    else if (right.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
                 }
 
-                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnHGrip)
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnHGrip)
                 {
                     scroll.mouseDownOnHGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
@@ -841,7 +844,8 @@ namespace glimmer
         return hasHScroll;
     }
 
-    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos, IRenderer& renderer, float btnsz, bool hasHScroll = false)
+    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos, 
+        IRenderer& renderer, const IODescriptor& io, float btnsz, bool hasHScroll = false)
     {
         const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
         const auto vheight = viewport.GetHeight();
@@ -856,9 +860,9 @@ namespace glimmer
             if (hasMouseInteraction || hasOpacity)
             {
                 if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime) + scroll.opacity, 255.f);
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
                 else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime), 0.f);
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
 
                 auto extrah = hasHScroll ? btnsz : 0.f;
                 ImRect top{ { viewport.Max.x - btnsz, viewport.Min.y }, { viewport.Max.x, viewport.Min.y + btnsz } };
@@ -883,7 +887,7 @@ namespace glimmer
 
                 if (grip.Contains(mousepos))
                 {
-                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnVGrip)
                         {
@@ -913,13 +917,13 @@ namespace glimmer
                     else
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
 
-                    if (top.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (top.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
-                    else if (bottom.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
                 }
 
-                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnVGrip)
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
                 {
                     scroll.mouseDownOnVGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
@@ -944,6 +948,7 @@ namespace glimmer
         static char buffer[256] = { 0 };
         auto dest = 0;
         auto sz = end - start + 2;
+        IPlatform& platform = *Config.platform;
 
         if (sz > 254)
         {
@@ -951,7 +956,7 @@ namespace glimmer
             for (auto idx = start; idx <= end; ++idx, ++dest)
                 hbuffer[dest] = string[idx];
             hbuffer[dest] = 0;
-            ImGui::SetClipboardText(hbuffer);
+            platform.SetClipboardText(hbuffer);
             std::free(hbuffer);
         }
         else
@@ -960,12 +965,13 @@ namespace glimmer
             for (auto idx = start; idx <= end; ++idx, ++dest)
                 buffer[dest] = string[idx];
             buffer[dest] = 0;
-            ImGui::SetClipboardText(buffer);
+            platform.SetClipboardText(buffer);
         }
     }
 
     // TODO: capslock and insert state is global -> poll and find out...
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer)
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
+        IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         const auto& style = Context.GetStyle(state.state);
@@ -1031,14 +1037,14 @@ namespace glimmer
         renderer.ResetFont();
 
         auto mouseover = content.Contains(mousepos) || (state.state & WS_Pressed);
-        auto ispressed = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto hasclick = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+        auto ispressed = mouseover && io.isLeftMouseDown();
+        auto hasclick = io.clicked();
         auto isclicked = (hasclick && mouseover) || (!hasclick && (state.state & WS_Focused));
         ImGui::SetMouseCursor(mouseover ? ImGuiMouseCursor_TextInput : ImGuiMouseCursor_Arrow);
         mouseover ? state.state |= WS_Hovered : state.state &= ~WS_Hovered;
         ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
         isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
-        if (input.lastClickTime != -1.f) input.lastClickTime += ImGui::GetIO().DeltaTime;
+        if (input.lastClickTime != -1.f) input.lastClickTime += io.deltaTime;
 
         // When mouse is down inside the input, text selection is in progress
         // Hence, either text selection is starting, in which case record the start position.
@@ -1179,13 +1185,11 @@ namespace glimmer
                     input.caretVisible = !input.caretVisible;
                     input.lastCaretShowTime = 0.f;
                 }
-                else input.lastCaretShowTime += ImGui::GetIO().DeltaTime;
+                else input.lastCaretShowTime += io.deltaTime;
 
-                for (auto key = (int)ImGuiKey_NamedKey_BEGIN; key != ImGuiKey_NamedKey_END; ++key)
+                for (auto key = 0; io.key[key] != Key_Invalid; ++key)
                 {
-                    if (key >= ImGuiKey_MouseLeft && key <= ImGuiKey_MouseWheelY) continue;
-
-                    if (ImGui::IsKeyPressed((ImGuiKey)key))
+                    if (true)
                     {
                         input.lastCaretShowTime = 0.f;
                         input.caretVisible = true;
@@ -1461,7 +1465,7 @@ namespace glimmer
             Context.ToggleDeferedRendering(false);
         }
 
-        if (!state.text.empty()) HandleHScroll(input.scroll, input.pixelpos.back(), content, mousepos, renderer, 5.f, false);
+        if (!state.text.empty()) HandleHScroll(input.scroll, input.pixelpos.back(), content, mousepos, renderer, io, 5.f, false);
         return result;
     }
 
@@ -1493,13 +1497,13 @@ namespace glimmer
     }
 
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& style = Context.GetStyle(state.state);
         auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
         state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+            io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -1515,11 +1519,11 @@ namespace glimmer
         renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
             ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
 
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (ismouseover && io.clicked())
         {
             result.event = WidgetEvent::Clicked; state.opened = !state.opened;
         }
-        else if (ismouseover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        else if (ismouseover && io.isLeftMouseDoubleClicked())
         {
             if (state.isComboBox)
             {
@@ -1530,13 +1534,13 @@ namespace glimmer
                     for (auto ch : state.text) text.push_back(ch);
                 }
 
-                auto res = TextInputImpl(state.inputId, state.input, margin, content, renderer);
+                auto res = TextInputImpl(state.inputId, state.input, margin, content, renderer, io);
                 if (res.event == WidgetEvent::Edited)
                     state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
                 state.opened = true;
             }
         }
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        else if (ismouseover && !state.tooltip.empty() && !io.isLeftMouseDown())
             ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
         else state._hoverDuration == 0;
 
@@ -1639,7 +1643,7 @@ namespace glimmer
     }
 
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& state = Context.GetState(id).state.tab;
@@ -1661,16 +1665,16 @@ namespace glimmer
 
                 auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
                 tab.state.state = !ismouseover ? WS_Default :
-                    ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+                    io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
 
                 DrawBoxShadow(border.Min, border.Max, style, renderer);
                 DrawBackground(border.Min, border.Max, style, renderer);
                 DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
                 DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
 
-                if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                if (ismouseover && io.clicked())
                     result.event = WidgetEvent::Clicked;
-                else if (ismouseover && !tab.state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                else if (ismouseover && !tab.state.tooltip.empty() && !io.isLeftMouseDown())
                     ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, renderer);
                 else tab.state._hoverDuration == 0;
 
@@ -1717,7 +1721,7 @@ namespace glimmer
     }
 
     static void HandleColumnResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridState::ColumnConfig& hdr,
-        ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col)
+        ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
 
@@ -1728,7 +1732,7 @@ namespace glimmer
         if (!evprop.mouseDown)
             ImGui::SetMouseCursor(isMouseNearColDrag ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
 
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        if (io.isLeftMouseDown())
         {
             if (!evprop.mouseDown)
             {
@@ -1751,7 +1755,7 @@ namespace glimmer
                 gridstate.state = ItemGridCurrentState::ResizingColumns;
             }
         }
-        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
+        else if (!io.isLeftMouseDown() && evprop.mouseDown)
         {
             if (mousepos.x != -FLT_MAX && mousepos.y != -FLT_MAX)
             {
@@ -1769,13 +1773,13 @@ namespace glimmer
     }
 
     static void HandleColumnReorder(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
-        ImVec2 mousepos, int level, int vcol)
+        ImVec2 mousepos, int level, int vcol, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ReorderingColumns) return;
 
         auto col = gridstate.colmap[level].vtol[vcol];
         auto& hdr = headers[level][col];
-        auto isMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        auto isMouseDown = io.isLeftMouseDown();
         ImRect moveTriggerRect{ hdr.content.Min + ImVec2{ 5.5f, 0.f }, hdr.content.Max - ImVec2{ 5.5f, 0.f } };
 
         if (isMouseDown && moveTriggerRect.Contains(mousepos) && !gridstate.drag.mouseDown)
@@ -1845,10 +1849,11 @@ namespace glimmer
         }
     }
 
-    static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content, ImVec2 sz)
+    static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content, 
+        ImVec2 sz, const IODescriptor& io)
     {
-        auto hasHScroll = HandleHScroll(scroll, sz.x, content, mousepos, renderer, Config.scrollbarSz);
-        HandleVScroll(scroll, sz.y, content, mousepos, renderer, Config.scrollbarSz, hasHScroll);
+        auto hasHScroll = HandleHScroll(scroll, sz.x, content, mousepos, renderer, io, Config.scrollbarSz);
+        HandleVScroll(scroll, sz.y, content, mousepos, renderer, io, Config.scrollbarSz, hasHScroll);
     }
 
     static ImRect DrawCells(ItemGridState& state, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int32_t row, int16_t col,
@@ -1903,16 +1908,8 @@ namespace glimmer
         return itemcontent;
     }
 
-    template <typename T>
-    int Find(T* start, T* end, T value)
-    {
-        for (auto it = start; it != end; ++it)
-            if (*it == value) return (int)(it - start);
-        return -1;
-    }
-
     WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& state = Context.GetState(id).state.grid;
@@ -1921,7 +1918,7 @@ namespace glimmer
         auto mousepos = ImGui::GetIO().MousePos;
         auto ismouseover = padding.Contains(mousepos);
         state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+            io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -2142,11 +2139,11 @@ namespace glimmer
                 {
                     auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
                     if (headers[level][prevcol].props & COL_Resizable)
-                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col);
+                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col, io);
                 }
 
                 if (hdr.props & COL_Moveable)
-                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol);
+                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol, io);
             }
 
             posy += maxh;
@@ -2349,7 +2346,7 @@ namespace glimmer
 
         gridstate.totalsz.y = totalh;
         gridstate.totalsz.x = width;
-        HandleScrollBars(gridstate.scroll, renderer, mousepos, content, gridstate.totalsz);
+        HandleScrollBars(gridstate.scroll, renderer, mousepos, content, gridstate.totalsz, io);
 
         // Reset header calculations for next frame
         for (auto level = 0; level < (int)headers.size(); ++level)
@@ -2362,12 +2359,10 @@ namespace glimmer
             }
         }
 
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        if (ismouseover && io.clicked())
             result.event = WidgetEvent::Clicked;
-        else if (ismouseover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        else if (ismouseover && io.isLeftMouseDoubleClicked())
             result.event = WidgetEvent::DoubleClicked;
-        else if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-            result.event = WidgetEvent::RightClicked;
 
         result.geometry = margin;
         return result;
@@ -2376,33 +2371,6 @@ namespace glimmer
     WindowConfig& GetWindowConfig()
     {
         return Config;
-    }
-
-    void BeginFrame()
-    {
-        Context.InsideFrame = true;
-        Context.adhocLayout.push();
-    }
-
-    void EndFrame()
-    {
-        Context.InsideFrame = false;
-        Context.adhocLayout.clear();
-        Context.layoutItems.clear();
-
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            Context.pushedStyles[idx].clear();
-            Context.pushedStyles[idx].push();
-        }
-
-        for (auto idx = 0; idx < WT_TotalTypes; ++idx)
-        {
-            Context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-        }
-
-        Context.maxids[WT_SplitterScrollRegion] = 0;
-        assert(Context.layouts.empty());
     }
 
     int32_t GetNextId(WidgetType type)
@@ -2449,6 +2417,7 @@ namespace glimmer
         WidgetDrawResult result;
 
         auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& platform = *Config.platform;
         LayoutItemDescriptor wdesc;
         wdesc.wtype = type;
         wdesc.id = id;
@@ -2456,6 +2425,7 @@ namespace glimmer
 
         auto wid = (type << 16) | id;
         auto maxxy = Context.MaximumAbsExtent();
+        auto io = Config.platform->CurrentIO();
 
         switch (type)
         {
@@ -2481,7 +2451,7 @@ namespace glimmer
                     Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 Context.AddItemGeometry(wid, wdesc.margin);
                 auto flags = ToTextFlags(state.type);
-                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, flags);
+                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, io, flags);
             }
             break;
         }
@@ -2505,7 +2475,7 @@ namespace glimmer
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
                     Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 Context.AddItemGeometry(wid, wdesc.margin);
-                result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+                result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, io);
             }
             break;
         }
@@ -2527,7 +2497,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-                result = RadioButtonImpl(wid, state, bounds, renderer);
+                result = RadioButtonImpl(wid, state, bounds, renderer, io);
                 Context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -2551,7 +2521,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(bounds.Min, bounds.Max);
-                result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
+                result = ToggleButtonImpl(wid, state, bounds, textsz, renderer, io);
                 Context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -2576,7 +2546,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-                result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
+                result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer, io);
                 Context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -2600,7 +2570,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-                result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
+                result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer, io);
                 Context.AddItemGeometry(wid, wdesc.margin);
                 renderer.ResetClipRect();
             }
@@ -2633,7 +2603,8 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-                result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
+                result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, 
+                    wdesc.content, textrect, renderer, io);
                 Context.AddItemGeometry(wid, wdesc.margin);
                 renderer.ResetClipRect();
             }
@@ -2680,7 +2651,8 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-                result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+                result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, 
+                    wdesc.content, wdesc.text, renderer, io);
                 Context.AddItemGeometry(wid, wdesc.margin);
                 renderer.ResetClipRect();
             }
@@ -2765,16 +2737,17 @@ namespace glimmer
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
-        auto mousepos = ImGui::GetMousePos();
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
         if (region.viewport.Max.x < region.max.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
         if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
         Context.PopContainer(id);
@@ -2854,7 +2827,8 @@ namespace glimmer
     {
         auto& el = Context.splitterStack.top();
         auto& state = Context.SplitterState(el.id);
-        auto mousepos = ImGui::GetMousePos();
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
         const auto& style = Context.GetStyle(WS_Default);
         const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
         auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
@@ -2905,7 +2879,7 @@ namespace glimmer
         if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
         {
             ImGui::SetMouseCursor(el.dir == DIR_Vertical ? ImGuiMouseCursor_ResizeNS : ImGuiMouseCursor_ResizeEW);
-            auto isDrag = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            auto isDrag = io.isLeftMouseDown();
             if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
             state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
             
@@ -2985,16 +2959,17 @@ namespace glimmer
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
-        auto mousepos = ImGui::GetMousePos();
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
         if (region.viewport.Max.x < region.max.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
         if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
         Context.containerStack.pop();

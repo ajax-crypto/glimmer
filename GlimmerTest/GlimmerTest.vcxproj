@@ -172,7 +172,12 @@
     <ClInclude Include="..\src\libs\inc\imgui\imstb_truetype.h" />
     <ClInclude Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h" />
     <ClInclude Include="..\src\libs\inc\lunasvg\lunasvg.h" />
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_growth_policy.h" />
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_hash.h" />
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_map.h" />
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_set.h" />
     <ClInclude Include="..\src\libs\inc\stb_image\stb_image.h" />
+    <ClInclude Include="..\src\platform.h" />
     <ClInclude Include="..\src\renderer.h" />
     <ClInclude Include="..\src\style.h" />
     <ClInclude Include="..\src\types.h" />
@@ -192,6 +197,7 @@
     <ClCompile Include="..\src\libs\src\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_tables.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_widgets.cpp" />
+    <ClCompile Include="..\src\platform.cpp" />
     <ClCompile Include="..\src\renderer.cpp" />
     <ClCompile Include="..\src\style.cpp" />
     <ClCompile Include="..\src\widgets.cpp" />

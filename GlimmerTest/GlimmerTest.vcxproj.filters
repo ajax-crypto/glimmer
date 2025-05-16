@@ -28,6 +28,9 @@
     <Filter Include="Header Files\layout">
       <UniqueIdentifier>{8ebe991e-2db2-4d9f-b04f-8dc145b5827d}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\hashmap">
+      <UniqueIdentifier>{3bf49897-de10-47de-8f67-8c06ddfdf152}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\glimmer.h">
@@ -99,6 +102,21 @@
     <ClInclude Include="..\src\libs\inc\clay\clay.h">
       <Filter>Header Files\layout</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_growth_policy.h">
+      <Filter>Header Files\hashmap</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_hash.h">
+      <Filter>Header Files\hashmap</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_map.h">
+      <Filter>Header Files\hashmap</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\inc\robinmap\robin_set.h">
+      <Filter>Header Files\hashmap</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="test.cpp">
@@ -148,6 +166,9 @@
     </ClCompile>
     <ClCompile Include="..\src\libs\src\imgui_tables.cpp">
       <Filter>Source Files\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\platform.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

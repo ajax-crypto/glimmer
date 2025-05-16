@@ -155,8 +155,6 @@ namespace glimmer
         }
     };
 
-    inline std::vector<std::pair<char, char>> KeyMappings;
-
     struct AdHocLayoutState
     {
         ImVec2 nextpos{ 0.f, 0.f }; // position of next widget
