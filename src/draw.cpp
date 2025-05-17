@@ -233,7 +233,8 @@ namespace glimmer
             if ((flags & FontStyleOverflowMarquee) != 0 &&
                 !disabled && style.index.animation != InvalidIdx)
             {
-                auto& animation = Context.animations[style.index.animation];
+                auto& context = GetContext();
+                auto& animation = context.animations[style.index.animation];
                 ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
                     textrect.GetSize();
 

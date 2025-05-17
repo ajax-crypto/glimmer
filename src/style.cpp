@@ -1190,6 +1190,7 @@ namespace glimmer
         std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
     {
         std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
+        auto& context = GetContext();
 
         // When pushing style, the default style behaves slightly differently then rest
         // The default style inherits from parent in the stack if present, parse the CSS and gets pushed
@@ -1198,15 +1199,15 @@ namespace glimmer
         {
             if (!css[style].empty())
             {
-                auto& pushed = Context.pushedStyles[style].push();
+                auto& pushed = context.pushedStyles[style].push();
 
-                if (Context.pushedStyles[style].size() >= 2)
+                if (context.pushedStyles[style].size() >= 2)
                 {
-                    pushed = Context.pushedStyles[WSI_Default].next(1);
+                    pushed = context.pushedStyles[WSI_Default].next(1);
                     pushed.bgcolor = IM_COL32_BLACK_TRANS;
                 }
                 else if (style != WSI_Default)
-                    pushed = Context.pushedStyles[WSI_Default].top();
+                    pushed = context.pushedStyles[WSI_Default].top();
 
                 pushed.From(css[style]);
             }
@@ -1216,12 +1217,13 @@ namespace glimmer
     void PushStyle(WidgetState state, std::string_view css)
     {
         auto idx = log2((unsigned)state);
+        auto& context = GetContext();
 
-        if (idx == WSI_Default)  Context.pushedStyles[idx].push().From(css);
+        if (idx == WSI_Default)  context.pushedStyles[idx].push().From(css);
         else
         {
-            const auto& defstyle = Context.pushedStyles[WSI_Default].top();
-            auto& style = Context.pushedStyles[idx].push(defstyle);
+            const auto& defstyle = context.pushedStyles[WSI_Default].top();
+            auto& style = context.pushedStyles[idx].push(defstyle);
             style.From(css);
             style.specified |= defstyle.specified;
         }
@@ -1231,39 +1233,42 @@ namespace glimmer
         std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
     {
         std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
+        auto& context = GetContext();
 
         for (auto style = 0; style < WSI_Total; ++style)
         {
             if (!css[style].empty())
             {
-                Context.currStyleStates |= (1 << style);
+                context.currStyleStates |= (1 << style);
 
                 if (style != WSI_Default)
                 {
-                    Context.currStyle[style] = GetCurrentStyle(WS_Default);
-                    Context.currStyle[style].bgcolor = IM_COL32_BLACK_TRANS;
+                    context.currStyle[style] = GetCurrentStyle(WS_Default);
+                    context.currStyle[style].bgcolor = IM_COL32_BLACK_TRANS;
                 }
 
-                Context.currStyle[style].From(css[style]);
+                context.currStyle[style].From(css[style]);
             }
         }
     }
 
     StyleDescriptor& GetCurrentStyle(int32_t state)
     {
-        return Context.GetStyle(state);
+        auto& context = GetContext();
+        return context.GetStyle(state);
     }
 
     void PopStyle(int depth, int32_t state)
     {
+        auto& context = GetContext();
         for (auto style = 0; style < WSI_Total; ++style)
         {
             if ((1 << style) & state)
             {
                 auto limit = depth;
-                while (!Context.pushedStyles[style].empty() && limit > 0)
+                while (!context.pushedStyles[style].empty() && limit > 0)
                 {
-                    Context.pushedStyles[style].pop();
+                    context.pushedStyles[style].pop();
                     limit--;
                 }
             }
@@ -1417,8 +1422,8 @@ namespace glimmer
 
                 if (checkForDuplicate)
                 {
-                    for (auto idx = 0; idx < Context.toggleButtonStyles.size(); ++idx)
-                        if (std::memcmp(&(Context.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
+                    for (auto idx = 0; idx < context.toggleButtonStyles.size(); ++idx)
+                        if (std::memcmp(&(context.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
                         {
                             found = true;
                             index.custom = idx;
@@ -1427,8 +1432,8 @@ namespace glimmer
 
                 if (!found)
                 {
-                    index.custom = (uint16_t)Context.toggleButtonStyles.size();
-                    Context.toggleButtonStyles.push_back(desc.toggle);
+                    index.custom = (uint16_t)context.toggleButtonStyles.size();
+                    context.toggleButtonStyles.push_back(desc.toggle);
                 }
             }*/
         }

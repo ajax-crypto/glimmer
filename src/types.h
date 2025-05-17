@@ -2,8 +2,7 @@
 
 #define IM_RICHTEXT_MAX_COLORSTOPS 4
 
-#include "imgui.h"
-#include "imgui_internal.h"
+#include "platform.h"
 #include "utils.h"
 
 #include <string_view>
@@ -79,6 +78,7 @@ namespace glimmer
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
+        IPlatform* platform = nullptr;
         void* userData = nullptr;
     };
 
@@ -96,7 +96,7 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
-        WT_Bounds, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
+        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
         WT_Slider,
         WT_TextInput,
         WT_DropDown,
@@ -172,7 +172,7 @@ namespace glimmer
     {
         ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
         ImVec2 max; // maximum coordinates of the widgets inside region
-        Vector<int32_t, int16_t> widgets; // widget ids for defered rendering
+        //Vector<int32_t, int16_t> widgets; // widget ids for defered rendering
     };
 
     struct ScrollableRegion : public LayoutRegion
@@ -195,6 +195,8 @@ namespace glimmer
         Direction dir;
         TextInputState input;
         int32_t inputId = -1;
+        int32_t selected = -1;
+        std::span<std::pair<WidgetType, std::string_view>> options;
         bool isComboBox = false;
         bool opened = false;
         void (*ShowList)(ImVec2, ImVec2, DropDownState&) = nullptr;
@@ -322,6 +324,7 @@ namespace glimmer
 
         WidgetStateData(WidgetType type);
         WidgetStateData(const WidgetStateData& src);
+        WidgetStateData& operator=(const WidgetStateData& src);
         ~WidgetStateData();
     };
 
@@ -329,6 +332,7 @@ namespace glimmer
     {
         ExpandH = 2, ExpandV = 4, ExpandAll = ExpandH | ExpandV,
         ToLeft = 8, ToRight = 16, ToBottom = 32, ToTop = 64,
+        OnlyOnce = 1 << 16,
         FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
         ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,
         ToTopLeft = ToTop | ToLeft, ToTopRight = ToTop | ToRight
@@ -361,11 +365,29 @@ namespace glimmer
         TextAlignLeading = TextAlignLeft | TextAlignVCenter
     };
 
+    enum FontStyleFlag : int32_t
+    {
+        FontStyleNone = 0,
+        FontStyleNormal = 1,
+        FontStyleBold = 1 << 1,
+        FontStyleItalics = 1 << 2,
+        FontStyleLight = 1 << 3,
+        FontStyleStrikethrough = 1 << 4,
+        FontStyleUnderline = 1 << 5,
+        FontStyleOverflowEllipsis = 1 << 6,
+        FontStyleNoWrap = 1 << 7,
+        FontStyleOverflowMarquee = 1 << 8,
+        TextIsPlainText = 1 << 9,
+        TextIsRichText = 1 << 10,
+        TextIsSVG = 1 << 11
+    };
+
     struct LayoutItemDescriptor
     {
         WidgetType wtype = WidgetType::WT_Invalid;
         int32_t id = -1;
         ImRect margin, border, padding, content, text;
+        ImVec2 relative;
         int32_t sizing = 0;
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
@@ -379,17 +401,19 @@ namespace glimmer
         int32_t alignment = TextAlignLeading;
         int16_t from = -1, to = -1, itemidx = -1;
         int16_t currow = -1, currcol = -1;
-        int32_t sizing;
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
         ImVec2 spacing{ 0.f, 0.f };
         ImVec2 maxdim{ 0.f, 0.f };
         ImVec2 cumulative{ 0.f, 0.f };
-        ImVec2 rows[8];
-        ImVec2 cols[8];
+        ImVec2 rows[32];
+        ImVec2 cols[32];
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
+        ScrollableRegion scroll;
         bool popSizingOnEnd = false;
+
+        Vector<LayoutDescriptor, int16_t, 16> children{ false };
     };
 
     struct Sizing
@@ -407,4 +431,17 @@ namespace glimmer
         float initial = 0.5f;
         bool scrollable = true;
     };
+
+    inline int32_t ToTextFlags(TextType type)
+    {
+        int32_t result = 0;
+        switch (type)
+        {
+        case glimmer::TextType::PlainText: result |= TextIsPlainText; break;
+        case glimmer::TextType::RichText: result |= TextIsRichText; break;
+        case glimmer::TextType::SVG: result |= TextIsSVG; break;
+        default: break;
+        }
+        return result;
+    }
 }

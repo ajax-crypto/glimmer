@@ -104,13 +104,24 @@ namespace glimmer
             std::free(_data);
         }
 
-        Vector(Sz initialsz = blocksz)
-            : _capacity{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+        explicit Vector(bool init = true)
+        {
+            if (init)
+            {
+                _capacity = blocksz;
+                _data = (T*)std::malloc(sizeof(T) * blocksz);
+                _default_init(0, _capacity);
+            }
+        }
+
+        template <typename IntegralT>
+        explicit Vector(IntegralT initialsz)
+            : _capacity{ (Sz)initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
         {
             _default_init(0, _capacity);
         }
 
-        Vector(Sz initialsz, const T& el)
+        explicit Vector(Sz initialsz, const T& el)
             : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
         {
             std::fill(_data, _data + _capacity, el);
@@ -209,7 +220,11 @@ namespace glimmer
         void _default_init(Sz from, Sz to)
         {
             if constexpr (std::is_default_constructible_v<T> && !std::is_scalar_v<T>)
-                std::fill(_data + from, _data + to, T{});
+                while (from != to)
+                {
+                    new (_data + from) T{};
+                    ++from;
+                }
             else if constexpr (std::is_arithmetic_v<T>)
                 std::fill(_data + from, _data + to, T{ 0 });
         }
@@ -241,11 +256,15 @@ namespace glimmer
 
         static_assert(capacity > 0, "capacity has to be a +ve value");
 
-        FixedSizeStack()
+        FixedSizeStack(bool init = true)
         {
             _data = (T*)std::malloc(sizeof(T) * capacity);
-            if constexpr (std::is_default_constructible_v<T>)
-                std::fill(_data, _data + capacity, T{});
+
+            if (init)
+            {
+                if constexpr (std::is_default_constructible_v<T>)
+                    std::fill(_data, _data + capacity, T{});
+            }
         }
 
         ~FixedSizeStack()
@@ -277,14 +296,15 @@ namespace glimmer
         void clear() { pop(_size); }
 
         int size() const { return _size; }
+        bool empty() const { return _size == 0; }
         T* begin() const { return _data; }
         T* end() const { return _data + _size; }
 
         T& operator[](int idx) { return _data[idx]; }
         T const& operator[](int idx) const { return _data[idx]; }
 
-        T& top() { return _data[_size - 1]; }
-        T const& top() const { return _data[_size - 1]; }
+        T& top(int depth = 0) { return _data[_size - 1 - depth]; }
+        T const& top(int depth = 0) const { return _data[_size - 1 - depth]; }
 
         T& next(int amount) { return _data[_size - 1 - amount]; }
         T const& next(int amount) const { return _data[_size - 1 - amount]; }

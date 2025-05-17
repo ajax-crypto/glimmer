@@ -59,6 +59,27 @@ namespace glimmer
         }
     }
 
+    WidgetStateData& WidgetStateData::operator=(const WidgetStateData& src)
+    {
+        type = src.type;
+        switch (src.type)
+        {
+        case WT_Label: state.label = src.state.label; break;
+        case WT_Button: state.button = src.state.button; break;
+        case WT_RadioButton: state.radio = src.state.radio; break;
+        case WT_ToggleButton: state.toggle = src.state.toggle; break;
+        case WT_Checkbox: state.checkbox = src.state.checkbox; break;
+        case WT_TextInput: state.input = src.state.input; break;
+        case WT_DropDown: state.dropdown = src.state.dropdown; break;
+        case WT_SplitterScrollRegion: [[fallthrough]];
+        case WT_Scrollable: state.scroll = src.state.scroll; break;
+        case WT_TabBar: state.tab = src.state.tab; break;
+        case WT_ItemGrid: state.grid = src.state.grid; break;
+        default: break;
+        }
+        return *this;
+    }
+
     WidgetStateData::~WidgetStateData()
     {
         switch (type)
@@ -71,6 +92,8 @@ namespace glimmer
         default: break;
         }
     }
+
+    WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors);
 
     static bool IsBetween(float point, float min, float max, float tolerance = 0.f)
     {
@@ -85,19 +108,6 @@ namespace glimmer
     static bool operator>(ImVec2 lhs, ImVec2 rhs)
     {
         return lhs.x > rhs.x || lhs.y > rhs.y;
-    }
-
-    static int32_t ToTextFlags(TextType type)
-    {
-        int32_t result = 0;
-        switch (type)
-        {
-            case glimmer::TextType::PlainText: result |= TextIsPlainText; break;
-            case glimmer::TextType::RichText: result |= TextIsRichText; break;
-            case glimmer::TextType::SVG: result |= TextIsSVG; break;
-            default: break;
-        }
-        return result;
     }
 
     static ImVec2 GetTextSize(TextType type, std::string_view text, const FontStyle& font, float width, IRenderer& renderer)
@@ -140,6 +150,7 @@ namespace glimmer
         ImRect content, padding, border, margin;
         const auto& borderstyle = style.border;
         const auto& font = style.font;
+        auto& context = GetContext();
         margin.Min = pos;
 
         if (geometry & ToLeft)
@@ -255,14 +266,14 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (Context.currLayoutDepth > -1)
+            if (!context.layouts.empty())
             {
-                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandH) == 0;
+                auto isLayoutFit = (context.layouts.top().fill & FD_Horizontal) == 0;
 
                 if (!isLayoutFit)
                 {
-                    setHFromExpansion((geometry & ToLeft) ? Context.layouts[Context.currLayoutDepth].prevpos.x :
-                        Context.layouts[Context.currLayoutDepth].nextpos.x);
+                    setHFromExpansion((geometry & ToLeft) ? context.layouts.top().prevpos.x :
+                        context.layouts.top().nextpos.x);
                     hexpanded = true;
                 }
                 else
@@ -275,8 +286,8 @@ namespace glimmer
             else
             {
                 // If widget has a expand size policy then expand upto neighbors or upto window size
-                setHFromExpansion((geometry & ToLeft) ? neighbors.left == -1 ? 0.f : Context.GetGeometry(neighbors.left).Max.x
-                    : neighbors.right == -1 ? width : Context.GetGeometry(neighbors.right).Min.x);
+                setHFromExpansion((geometry & ToLeft) ? neighbors.left == -1 ? 0.f : context.GetGeometry(neighbors.left).Max.x
+                    : neighbors.right == -1 ? width : context.GetGeometry(neighbors.right).Min.x);
                 hexpanded = true;
             }
         }
@@ -297,14 +308,14 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (Context.currLayoutDepth > -1)
+            if (!context.layouts.empty())
             {
-                auto isLayoutFit = (Context.layouts[Context.currLayoutDepth].sizing & ExpandV) == 0;
+                auto isLayoutFit = (context.layouts.top().fill & FD_Vertical) == 0;
 
                 if (!isLayoutFit)
                 {
-                    setVFromExpansion((geometry & ToTop) ? Context.layouts[Context.currLayoutDepth].prevpos.y :
-                        Context.layouts[Context.currLayoutDepth].nextpos.y);
+                    setVFromExpansion((geometry & ToTop) ? context.layouts.top().prevpos.y :
+                        context.layouts.top().nextpos.y);
                     vexpanded = true;
                 }
                 else
@@ -321,8 +332,8 @@ namespace glimmer
             else
             {
                 // If widget has a expand size policy then expand upto neighbors or upto window size
-                setVFromExpansion((geometry & ToTop) ? neighbors.top == -1 ? 0.f : Context.GetGeometry(neighbors.top).Max.y
-                    : neighbors.bottom == -1 ? height : Context.GetGeometry(neighbors.bottom).Min.y);
+                setVFromExpansion((geometry & ToTop) ? neighbors.top == -1 ? 0.f : context.GetGeometry(neighbors.top).Max.y
+                    : neighbors.bottom == -1 ? height : context.GetGeometry(neighbors.bottom).Min.y);
                 vexpanded = true;
             }
         }
@@ -436,261 +447,34 @@ namespace glimmer
         }
     }
 
-    static WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, int32_t textflags)
+    template <typename StringT>
+    static void CopyToClipboard(StringT& string, int start, int end)
     {
-        assert((id & 0xffff) <= (int)Context.states[WT_Label].size());
+        static char buffer[256] = { 0 };
+        auto dest = 0;
+        auto sz = end - start + 2;
+        IPlatform& platform = *Config.platform;
 
-        WidgetDrawResult result;
-        auto& state = Context.GetState(id).state.label;
-        auto& style = Context.GetStyle(state.state);
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
-
-        if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        result.geometry = margin;
-        return result;
-    }
-
-    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-        auto& state = Context.GetState(id).state.button;
-        auto& style = Context.GetStyle(state.state);
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-        state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
-
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            result.event = WidgetEvent::Clicked;
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        result.geometry = margin;
-        return result;
-    }
-
-    static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
-    {
-        auto& style = Context.GetStyle(state.state);
-        auto& specificStyle = Context.toggleButtonStyles[log2((unsigned)state.state)].top();
-        ImRect result;
-        ImVec2 text;
-        result.Min = result.Max = extent.Min;
-
-        if (specificStyle.showText)
+        if (sz > 254)
         {
-            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY,
-                specificStyle.fontsz, FT_Bold);
-
-            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
-            result.Max += text;
-            renderer.ResetFont();
-
-            auto extra = 2.f * (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
-            result.Max.x += extra;
-            result.Max.y += extra;
+            char* hbuffer = (char*)std::malloc(sz);
+            for (auto idx = start; idx <= end; ++idx, ++dest)
+                hbuffer[dest] = string[idx];
+            hbuffer[dest] = 0;
+            platform.SetClipboardText(hbuffer);
+            std::free(hbuffer);
         }
         else
         {
-            result.Max.x += ((extent.GetHeight()) * 2.f); 
-            result.Max.y += extent.GetHeight();
+            std::memset(buffer, 0, 256);
+            for (auto idx = start; idx <= end; ++idx, ++dest)
+                buffer[dest] = string[idx];
+            buffer[dest] = 0;
+            platform.SetClipboardText(buffer);
         }
-
-        return { result, text };
     }
 
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-
-        auto& style = Context.GetStyle(state.state);
-        auto& specificStyle = Context.toggleButtonStyles[log2((unsigned)state.state)].top();
-        auto& toggle = Context.ToggleState(id);
-
-        auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
-        auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
-        auto movement = extent.GetWidth() - (2.f * (radius + extra));
-        auto moveAmount = toggle.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
-        toggle.progress += std::fabsf(moveAmount / movement);
-
-        auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
-            : extent.Min + ImVec2{ radius + extra, extra + radius }
-        : ImVec2{ toggle.btnpos, extra + radius };
-        center.x = ImClamp(center.x + moveAmount, extent.Min.x + (extra * 0.5f), extent.Max.x - extra);
-        center.y = extent.Min.y + (extent.GetHeight() * 0.5f);
-        toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
-
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto dist = std::sqrtf((mousepos.x - center.x) * (mousepos.x - center.x) + (mousepos.y - center.y) * (mousepos.y - center.y));
-        auto rounded = extent.GetHeight() * 0.5f;
-        auto tcol = specificStyle.trackColor;
-        if (toggle.animate)
-        {
-            auto prevTCol = state.checked ? Context.toggleButtonStyles[WSI_Default].top().trackColor :
-                Context.toggleButtonStyles[WSI_Checked].top().trackColor;
-            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
-            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
-            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
-            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
-            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
-            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
-            tcol = ToRGBA(tr, tg, tb, ta);
-        }
-
-        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
-            specificStyle.trackBorderThickness);
-
-        if (specificStyle.showText && !toggle.animate)
-        {
-            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
-            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
-                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
-            renderer.ResetFont();
-        }
-
-        renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
-        auto mouseover = extent.Contains(mousepos);
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result.event = WidgetEvent::Clicked;
-            state.checked = !state.checked;
-            toggle.animate = true;
-            toggle.progress = 0.f;
-        }
-
-        toggle.btnpos = toggle.animate ? center.x : -1.f;
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
-            mouseover ? WS_Hovered : WS_Default;
-        state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
-        result.geometry = extent;
-        return result;
-    }
-
-    static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
-    {
-        const auto& style = Context.GetStyle(state.state);
-        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
-    }
-
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-        auto& style = Context.GetStyle(state.state);
-        auto& specificStyle = Context.radioButtonStyles[log2((unsigned)state.state)].top();
-        auto& radio = Context.RadioState(id);
-        auto mousepos = ImGui::GetIO().MousePos;
-
-        auto radius = extent.GetWidth() * 0.5f;
-        auto center = extent.Min + ImVec2{ radius, radius };
-        renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
-        auto maxrad = radius * specificStyle.checkedRadius;
-        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
-        radius = radio.radius;
-
-        if (radius > 0.f)
-        {
-            renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
-        }
-
-        auto ratio = radio.animate ? (ImGui::GetIO().DeltaTime / specificStyle.animate) : 0.f;
-        radio.progress += ratio;
-        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
-        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
-        auto mouseover = extent.Contains(mousepos);
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result.event = WidgetEvent::Clicked;
-            state.checked = !state.checked;
-            radio.animate = true;
-            radio.progress = 0.f;
-            radio.radius = state.checked ? 0.f : maxrad;
-        }
-
-        state.state = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Hovered | WS_Pressed :
-            mouseover ? WS_Hovered : WS_Default;
-        state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
-        result.geometry = extent;
-        return result;
-    }
-
-    static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
-    {
-        const auto& style = Context.GetStyle(state.state);
-        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
-    }
-
-    static WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer)
-    {
-        auto& style = Context.GetStyle(state.state);
-        auto& check = Context.CheckboxState(id);
-        WidgetDrawResult result;
-
-        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
-        DrawBackground(extent.Min, extent.Max, style, renderer);
-        auto height = padding.GetHeight(), width = padding.GetWidth();
-
-        if (check.animate && check.progress < 1.f)
-            check.progress += (ImGui::GetIO().DeltaTime / 0.25f);
-
-        switch (state.check)
-        {
-        case CheckState::Checked:
-        {
-            auto start = ImVec2{ padding.Min.x, padding.Min.y + (height * 0.5f) };
-            auto end = ImVec2{ padding.Min.x + (width * 0.333f), padding.Max.y };
-            auto tickw = padding.Max.x - end.x;
-            renderer.DrawLine(start, end, style.fgcolor, 2.f);
-            renderer.DrawLine(end, ImVec2{ padding.Max.x - ((1.f - check.progress) * tickw), padding.Min.y +
-                ((1.f - check.progress) * height) }, style.fgcolor, 2.f);
-            break;
-        }
-        case CheckState::Partial:
-            renderer.DrawLine(padding.Min + ImVec2{ 0.f, height * 0.5f }, padding.Max - 
-                ImVec2{ 0.f, height * 0.5f }, style.fgcolor, 2.f);
-            break;
-        default:
-            break;
-        }
-
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto mouseover = extent.Contains(mousepos);
-        auto isclicked = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
-            mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
-
-        if (mouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
-            state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
-            result.event = WidgetEvent::Clicked;
-            check.animate = state.check != CheckState::Unchecked;
-            check.progress = 0.f;
-        }
-        
-        result.geometry = extent;
-        return result;
-    }
+#pragma region Event Handling
 
     static void UpdatePosition(const TextInputState& state, int index, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
     {
@@ -756,7 +540,7 @@ namespace glimmer
     }
 
     static bool HandleHScroll(ScrollBarState& scroll, float width, const ImRect& viewport,
-        ImVec2 mousepos, IRenderer& renderer, float btnsz, bool showButtons = true)
+        ImVec2 mousepos, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true)
     {
         auto hasHScroll = false;
         float gripExtent = 0.f;
@@ -773,9 +557,9 @@ namespace glimmer
             if (hasMouseInteraction || hasOpacity)
             {
                 if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime) + scroll.opacity, 255.f);
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
                 else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime), 0.f);
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
 
                 auto lrsz = showButtons ? btnsz : 0.f;
                 ImRect left{ { viewport.Min.x, viewport.Max.y - lrsz }, { viewport.Min.x + lrsz, viewport.Max.y } };
@@ -803,7 +587,7 @@ namespace glimmer
 
                 if (grip.Contains(mousepos))
                 {
-                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnHGrip)
                         {
@@ -833,13 +617,13 @@ namespace glimmer
                     else
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
 
-                    if (left.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (left.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
-                    else if (right.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    else if (right.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
                 }
 
-                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnHGrip)
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnHGrip)
                 {
                     scroll.mouseDownOnHGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
@@ -852,7 +636,8 @@ namespace glimmer
         return hasHScroll;
     }
 
-    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos, IRenderer& renderer, float btnsz, bool hasHScroll = false)
+    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos,
+        IRenderer& renderer, const IODescriptor& io, float btnsz, bool hasHScroll = false)
     {
         const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
         const auto vheight = viewport.GetHeight();
@@ -867,9 +652,9 @@ namespace glimmer
             if (hasMouseInteraction || hasOpacity)
             {
                 if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime) + scroll.opacity, 255.f);
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
                 else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * ImGui::GetCurrentContext()->IO.DeltaTime), 0.f);
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
 
                 auto extrah = hasHScroll ? btnsz : 0.f;
                 ImRect top{ { viewport.Max.x - btnsz, viewport.Min.y }, { viewport.Max.x, viewport.Min.y + btnsz } };
@@ -894,7 +679,7 @@ namespace glimmer
 
                 if (grip.Contains(mousepos))
                 {
-                    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnVGrip)
                         {
@@ -924,13 +709,13 @@ namespace glimmer
                     else
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
 
-                    if (top.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    if (top.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
-                    else if (bottom.Contains(mousepos) && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
                 }
 
-                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && scroll.mouseDownOnVGrip)
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
                 {
                     scroll.mouseDownOnVGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
@@ -939,7 +724,7 @@ namespace glimmer
 
             if (viewport.Contains(mousepos))
             {
-                auto rotation = ImGui::GetCurrentContext()->IO.MouseWheel;
+                auto rotation = io.mouseWheel;
                 scroll.pos.y = ImClamp(rotation + scroll.pos.y, 0.f, posrange);
             }
 
@@ -949,691 +734,698 @@ namespace glimmer
         return false;
     }
 
-    template <typename StringT>
-    static void CopyToClipboard(StringT& string, int start, int end)
+    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        static char buffer[256] = { 0 };
-        auto dest = 0;
-        auto sz = end - start + 2;
-
-        if (sz > 254)
+        auto& context = GetContext();
+        if (!context.deferEvents)
         {
-            char* hbuffer = (char*)std::malloc(sz);
-            for (auto idx = start; idx <= end; ++idx, ++dest)
-                hbuffer[dest] = string[idx];
-            hbuffer[dest] = 0;
-            ImGui::SetClipboardText(hbuffer);
-            std::free(hbuffer);
+            auto& state = context.GetState(id).state.label;
+            auto ismouseover = padding.Contains(io.mousepos);
+            if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+            else state._hoverDuration == 0;
         }
-        else
-        {
-            std::memset(buffer, 0, 256);
-            for (auto idx = start; idx <= end; ++idx, ++dest)
-                buffer[dest] = string[idx];
-            buffer[dest] = 0;
-            ImGui::SetClipboardText(buffer);
-        }
+        else context.deferedEvents.emplace_back(WT_Label, id, margin, border, padding, content, text);
     }
 
-    // TODO: capslock and insert state is global -> poll and find out...
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer)
+    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        WidgetDrawResult result;
-        const auto& style = Context.GetStyle(state.state);
-        auto& input = Context.InputTextState(id);
-        auto mousepos = ImGui::GetIO().MousePos;
-
-        if (state.state & WS_Focused)
-            renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
-
-        DrawBackground(extent.Min, extent.Max, style, renderer);
-        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
-        renderer.SetCurrentFont(style.font.font, style.font.size);
-
-        if (state.text.empty() && !(state.state & WS_Focused))
+        auto& context = GetContext();
+        if (!context.deferEvents)
         {
-            auto phstyle = style;
-            auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
-            fa = 150;
-            phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
-            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled,
-                phstyle, renderer, FontStyleOverflowMarquee);
+            auto& state = context.GetState(id).state.button;
+            auto ismouseover = padding.Contains(io.mousepos);
+            state.state = !ismouseover ? WS_Default :
+                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            if (ismouseover && io.clicked())
+                result.event = WidgetEvent::Clicked;
+            else if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+            else state._hoverDuration == 0;
         }
-        else
+        else context.deferedEvents.emplace_back(WT_Button, id, margin, border, padding, content, text);
+    }
+
+    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io, 
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        if (!context.deferEvents)
         {
-            if (state.selection.second != -1)
+            auto& radio = context.RadioState(id);
+            auto& state = context.GetState(id).state.radio;
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+
+            if (mouseover && io.clicked())
             {
-                std::string_view text{ state.text.data(), state.text.size() };
-                auto selection = state.selection;
-                selection = { std::min(state.selection.first, state.selection.second),
-                    std::max(state.selection.first, state.selection.second) };
-                std::string_view parts[3] = { text.substr(0, selection.first),
-                    text.substr(selection.first, selection.second - selection.first + 1),
-                    text.substr(selection.second + 1) };
-                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y }, textsz;
-
-                if (!parts[0].empty())
-                {
-                    textsz = renderer.GetTextSize(parts[0], style.font.font, style.font.size);
-                    renderer.DrawText(parts[0], startpos, style.fgcolor);
-                    startpos.x += textsz.x;
-                }
-
-                const auto& selstyle = Context.GetStyle(WS_Selected);
-                textsz = renderer.GetTextSize(parts[1], style.font.font, style.font.size);
-                renderer.DrawRect(startpos, startpos + textsz, selstyle.bgcolor, true);
-                renderer.DrawText(parts[1], startpos, selstyle.fgcolor);
-                startpos.x += textsz.x;
-
-                if (!parts[2].empty())
-                {
-                    textsz = renderer.GetTextSize(parts[2], style.font.font, style.font.size);
-                    renderer.DrawText(parts[2], startpos, style.fgcolor);
-                }
+                result.event = WidgetEvent::Clicked;
+                state.checked = !state.checked;
+                radio.animate = true;
+                radio.progress = 0.f;
+                radio.radius = state.checked ? 0.f : maxrad;
             }
-            else
+
+            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
+                mouseover ? WS_Hovered : WS_Default;
+            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        }
+        else context.deferedEvents.emplace_back(WT_RadioButton, id, extent, maxrad);
+    }
+
+    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        if (!context.deferEvents)
+        {
+            auto& toggle = context.ToggleState(id);
+            auto& state = context.GetState(id).state.toggle;
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+
+            if (mouseover && io.clicked())
             {
-                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y };
-                std::string_view text{ state.text.data(), state.text.size() };
-                renderer.DrawText(text, startpos, style.fgcolor);
+                result.event = WidgetEvent::Clicked;
+                state.checked = !state.checked;
+                toggle.animate = true;
+                toggle.progress = 0.f;
+            }
+
+            toggle.btnpos = toggle.animate ? center.x : -1.f;
+            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
+                mouseover ? WS_Hovered : WS_Default;
+            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        }
+        else context.deferedEvents.emplace_back(WT_ToggleButton, id, center, extent);
+    }
+
+    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
+        {
+            auto& check = context.CheckboxState(id);
+            auto& state = context.GetState(id).state.checkbox;
+
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+            auto isclicked = mouseover && io.isLeftMouseDown();
+            state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
+                mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
+
+            if (mouseover && io.clicked())
+            {
+                state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
+                state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
+                result.event = WidgetEvent::Clicked;
+                check.animate = state.check != CheckState::Unchecked;
+                check.progress = 0.f;
             }
         }
+        else context.deferedEvents.emplace_back(WT_Checkbox, id, extent);
+    }
 
-        renderer.ResetFont();
+    void HandleTextInputEvent(int32_t id, const ImRect& content, const IODescriptor& io,
+        IRenderer& renderer, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
 
-        auto mouseover = content.Contains(mousepos) || (state.state & WS_Pressed);
-        auto ispressed = mouseover && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-        auto hasclick = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-        auto isclicked = (hasclick && mouseover) || (!hasclick && (state.state & WS_Focused));
-        ImGui::SetMouseCursor(mouseover ? ImGuiMouseCursor_TextInput : ImGuiMouseCursor_Arrow);
-        mouseover ? state.state |= WS_Hovered : state.state &= ~WS_Hovered;
-        ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
-        isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
-        if (input.lastClickTime != -1.f) input.lastClickTime += ImGui::GetIO().DeltaTime;
-
-        // When mouse is down inside the input, text selection is in progress
-        // Hence, either text selection is starting, in which case record the start position.
-        // If mouse gets released at the same position, it is a click and not a selection,
-        // in which case, move the caret to the respective char position.
-        // If mouse gets dragged, select the region of text
-        if (state.state & WS_Pressed)
+        if (!context.deferEvents)
         {
-            if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
+            auto& state = context.GetState(id).state.input;
+            auto& input = context.InputTextState(id);
+            auto& style = context.GetStyle(state.state);
+
+            auto mousepos = io.mousepos;
+            auto mouseover = content.Contains(mousepos) || (state.state & WS_Pressed);
+            auto ispressed = mouseover && io.isLeftMouseDown();
+            auto hasclick = io.clicked();
+            auto isclicked = (hasclick && mouseover) || (!hasclick && (state.state & WS_Focused));
+            Config.platform->SetMouseCursor(mouseover ? MouseCursor::TextInput : MouseCursor::Arrow);
+            mouseover ? state.state |= WS_Hovered : state.state &= ~WS_Hovered;
+            ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
+            isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
+            if (input.lastClickTime != -1.f) input.lastClickTime += io.deltaTime;
+
+            // When mouse is down inside the input, text selection is in progress
+            // Hence, either text selection is starting, in which case record the start position.
+            // If mouse gets released at the same position, it is a click and not a selection,
+            // in which case, move the caret to the respective char position.
+            // If mouse gets dragged, select the region of text
+            if (state.state & WS_Pressed)
             {
-                auto posx = mousepos.x - content.Min.x;
-                if (input.selectionStart == -1.f) input.selectionStart = posx;
-                else if ((std::fabsf(input.selectionStart - posx) > 5.f) || input.isSelecting)
+                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
                 {
-                    if (state.selection.first == -1)
+                    auto posx = mousepos.x - content.Min.x;
+                    if (input.selectionStart == -1.f) input.selectionStart = posx;
+                    else if ((std::fabsf(input.selectionStart - posx) > 5.f) || input.isSelecting)
                     {
-                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart + input.scroll.pos.x);
+                        if (state.selection.first == -1)
+                        {
+                            auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart + input.scroll.pos.x);
+                            if (it != input.pixelpos.end())
+                            {
+                                auto idx = it - input.pixelpos.begin();
+                                if (idx > 0 && (*it - posx) > 0.f) --idx;
+                                state.selection.first = it - input.pixelpos.begin();
+                                input.isSelecting = true;
+                                input.caretVisible = false;
+                                input.caretpos = state.selection.first + 1;
+                            }
+                        }
+
+                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
+
                         if (it != input.pixelpos.end())
                         {
                             auto idx = it - input.pixelpos.begin();
                             if (idx > 0 && (*it - posx) > 0.f) --idx;
-                            state.selection.first = it - input.pixelpos.begin();
-                            input.isSelecting = true;
-                            input.caretVisible = false;
-                            input.caretpos = state.selection.first + 1;
-                        }
-                    }
 
-                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
-
-                    if (it != input.pixelpos.end())
-                    {
-                        auto idx = it - input.pixelpos.begin();
-                        if (idx > 0 && (*it - posx) > 0.f) --idx;
-
-                        auto prevpos = input.caretpos;
-                        state.selection.second = it - input.pixelpos.begin();
-                        input.caretpos = state.selection.second + 1;
-
-                        if (state.selection.second > state.selection.first)
-                        {
-                            if ((prevpos < input.caretpos) && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x > content.GetWidth()))
-                            {
-                                auto width = std::fabsf(input.pixelpos[input.caretpos - 1] - (input.caretpos > 1 ? input.pixelpos[input.caretpos - 2] : 0.f));
-                                input.moveRight(width);
-                            }
-                        }
-                        else
-                        {
-                            if (prevpos > input.caretpos && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x < 0.f))
-                            {
-                                auto width = std::fabsf(input.pixelpos[prevpos - 1] - (prevpos > 1 ? input.pixelpos[prevpos - 2] : 0.f));
-                                input.moveLeft(width);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
-            {
-                auto posx = mousepos.x - content.Min.x;
-
-                // This means we have clicked, not selecting text
-                if (std::fabsf(input.selectionStart - posx) < 5.f)
-                {
-                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
-                    auto idx = it - input.pixelpos.begin();
-
-                    // This is a double click, select entire content
-                    if (IsBetween(input.lastClickTime, 0.f, 1.f) && !state.text.empty())
-                    {
-                        state.selection.first = 0;
-                        state.selection.second = (int)state.text.size() - 1;
-                        input.selectionStart = -1.f;
-                        input.caretVisible = false;
-                        input.lastClickTime = -1.f;
-                        result.event = WidgetEvent::Selected;
-                    }
-                    else
-                    {
-                        input.caretVisible = true;
-                        state.selection.first = state.selection.second = -1;
-                        input.caretpos = idx;
-                        input.isSelecting = false;
-                        input.selectionStart = -1.f;
-                        input.lastClickTime = 0.f;
-                        result.event = WidgetEvent::Focused;
-                    }
-                }
-                else if (input.selectionStart != -1.f)
-                {
-                    if (state.selection.first == -1)
-                    {
-                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart + input.scroll.pos.x);
-                        if (it != input.pixelpos.end())
-                        {
-                            auto idx = it - input.pixelpos.begin();
-                            if (idx > 0 && (*it - posx) > 0.f) --idx;
-                            state.selection.first = it - input.pixelpos.begin();
-                            input.isSelecting = true;
-                            input.caretVisible = false;
-                        }
-                    }
-
-                    auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
-
-                    if (it != input.pixelpos.end())
-                    {
-                        auto idx = it - input.pixelpos.begin();
-                        if (idx > 0 && (*it - posx) > 0.f) --idx;
-
-                        state.selection.second = it - input.pixelpos.begin();
-                        result.event = WidgetEvent::Selected;
-                        input.caretVisible = false;
-                        input.isSelecting = false;
-                        input.caretpos = state.selection.second + 1;
-                    }
-                }
-
-                input.selectionStart = -1.f;
-            }
-
-            if (state.state & WS_Focused)
-            {
-                if (input.caretVisible)
-                {
-                    auto isCaretAtEnd = input.caretpos == (int)state.text.size();
-                    auto offset = isCaretAtEnd && (input.scroll.pos.x == 0.f) ? 1.f : 0.f;
-                    auto cursorxpos = (!input.pixelpos.empty() ? input.pixelpos[input.caretpos - 1] - input.scroll.pos.x : 0.f) + offset;
-                    renderer.DrawLine(content.Min + ImVec2{ cursorxpos, 1.f }, content.Min + ImVec2{ cursorxpos, content.GetHeight() - 1.f }, style.fgcolor, 2.f);
-                }
-
-                if (input.lastCaretShowTime > 0.5f && state.selection.second == -1)
-                {
-                    input.caretVisible = !input.caretVisible;
-                    input.lastCaretShowTime = 0.f;
-                }
-                else input.lastCaretShowTime += ImGui::GetIO().DeltaTime;
-
-                for (auto key = (int)ImGuiKey_NamedKey_BEGIN; key != ImGuiKey_NamedKey_END; ++key)
-                {
-                    if (key >= ImGuiKey_MouseLeft && key <= ImGuiKey_MouseWheelY) continue;
-
-                    if (ImGui::IsKeyPressed((ImGuiKey)key))
-                    {
-                        input.lastCaretShowTime = 0.f;
-                        input.caretVisible = true;
-
-                        if (key == ImGuiKey_LeftArrow)
-                        {
                             auto prevpos = input.caretpos;
+                            state.selection.second = it - input.pixelpos.begin();
+                            input.caretpos = state.selection.second + 1;
 
-                            if (ImGui::GetIO().KeyMods & ImGuiMod_Shift)
+                            if (state.selection.second > state.selection.first)
                             {
-                                if (state.selection.second == -1)
+                                if ((prevpos < input.caretpos) && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x > content.GetWidth()))
                                 {
-                                    input.selectionStart = input.pixelpos[input.caretpos];
-                                    state.selection.first = input.caretpos;
-                                    state.selection.second = input.caretpos;
-                                }
-                                else
-                                    state.selection.second = std::max(state.selection.second - 1, 0);
-
-                                input.caretpos = std::max(input.caretpos - 1, 0);
-                                input.caretVisible = false;
-                            }
-                            else input.caretpos = std::max(input.caretpos - 1, 0);
-
-                            if (prevpos > input.caretpos && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x < 0.f))
-                            {
-                                auto width = std::fabsf(input.pixelpos[prevpos - 1] - (prevpos > 1 ? input.pixelpos[prevpos - 2] : 0.f));
-                                input.moveLeft(width);
-                            }
-                        }
-                        else if (key == ImGuiKey_RightArrow)
-                        {
-                            auto prevpos = input.caretpos;
-
-                            if (ImGui::GetIO().KeyMods & ImGuiMod_Shift)
-                            {
-                                if (state.selection.second == -1)
-                                {
-                                    input.selectionStart = input.pixelpos[input.caretpos];
-                                    state.selection.first = input.caretpos;
-                                    state.selection.second = input.caretpos;
-                                }
-                                else
-                                    state.selection.second = std::min(state.selection.second + 1, (int)state.text.size() - 1);
-
-                                input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
-                                input.caretVisible = false;
-                            }
-                            else input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
-
-                            if ((prevpos < input.caretpos) && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x > content.GetWidth()))
-                            {
-                                auto width = std::fabsf(input.pixelpos[input.caretpos - 1] - (input.caretpos > 1 ? input.pixelpos[input.caretpos - 2] : 0.f));
-                                input.moveRight(width);
-                            }
-                        }
-                        else if (key == ImGuiKey_CapsLock) input.capslock = !input.capslock;
-                        else if (key == ImGuiKey_Insert) input.replace = !input.replace;
-                        else if (key == ImGuiKey_Backspace)
-                        {
-                            if (state.selection.second == -1)
-                            {
-                                std::string_view text{ state.text.data(), state.text.size() };
-                                auto caretAtEnd = input.caretpos == (int)text.size();
-                                if (text.empty()) continue;
-
-                                auto& op = input.ops.push();
-                                op.type = TextOpType::Deletion;
-                                op.opmem[0] = state.text[input.caretpos - 1];
-                                op.opmem[1] = 0;
-                                op.range = std::make_pair(input.caretpos - 1, 1);
-                                op.caretpos = input.caretpos;
-
-                                if (caretAtEnd)
-                                {
-                                    if (input.scroll.pos.x != 0.f)
-                                    {
-                                        auto width = input.pixelpos.back() - input.pixelpos[input.pixelpos.size() - 2];
-                                        input.moveLeft(width);
-                                    }
-
-                                    state.text.pop_back();
-                                    input.pixelpos.pop_back();
-                                }
-                                else RemoveCharAt(input.caretpos, state, input);
-
-                                input.caretpos--;
-                            }
-                            else DeleteSelectedText(state, input, style, renderer);
-
-                            result.event = WidgetEvent::Edited;
-                        }
-                        else if (key == ImGuiKey_Delete)
-                        {
-                            if (state.selection.second == -1)
-                            {
-                                std::string_view text{ state.text.data(), state.text.size() };
-                                auto caretAtEnd = input.caretpos == (int)text.size();
-                                if (text.empty()) continue;
-
-                                if (!caretAtEnd) RemoveCharAt(input.caretpos + 1, state, input);
-                            }
-                            else DeleteSelectedText(state, input, style, renderer);
-
-                            result.event = WidgetEvent::Edited;
-                        }
-                        else if (key == ImGuiKey_Space || (key >= ImGuiKey_0 && key <= ImGuiKey_Z) ||
-                            (key >= ImGuiKey_Apostrophe && key <= ImGuiKey_GraveAccent) ||
-                            (key >= ImGuiKey_Keypad0 && key <= ImGuiKey_KeypadEqual))
-                        {
-                            if (key == ImGuiKey_V && ImGui::GetIO().KeyMods & ImGuiMod_Ctrl)
-                            {
-                                auto content = ImGui::GetClipboardText();
-                                auto length = (int32_t)std::strlen(content);
-
-                                if (length > 0)
-                                {
-                                    auto caretAtEnd = input.caretpos == (int)state.text.size();
-                                    input.pixelpos.expand(length, 0.f);
-
-                                    if (caretAtEnd)
-                                    {
-                                        for (auto idx = 0; idx < length; ++idx)
-                                        {
-                                            state.text.push_back(content[idx]);
-                                            auto sz = renderer.GetTextSize(std::string_view{ content + idx, 1 }, style.font.font, style.font.size).x;
-                                            input.pixelpos.push_back(sz + (state.text.size() > 1u ? input.pixelpos.back() : 0.f));
-                                        }
-                                    }
-                                    else
-                                    {
-                                        for (auto idx = (int)state.text.size() - 1; idx >= input.caretpos; --idx)
-                                            state.text[idx] = state.text[idx - length];
-                                        for (auto idx = 0; idx < length; ++idx)
-                                            state.text[idx + input.caretpos] = content[idx];
-
-                                        UpdatePosition(state, input.caretpos, input, style, renderer);
-                                    }
-
-                                    auto& op = input.ops.push();
-                                    op.type = TextOpType::Addition;
-                                    op.range = std::make_pair(input.caretpos, std::min(length, 127));
-                                    std::memcpy(op.opmem, content, std::min(length, 127));
-                                    op.opmem[length] = 0;
-
-                                    input.caretpos += length;
-                                    result.event = WidgetEvent::Edited;
-                                }
-                            }
-                            else if (key == ImGuiKey_C && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl) && state.selection.second != -1)
-                            {
-                                CopyToClipboard(state.text, state.selection.first, state.selection.second);
-                            }
-                            else if (key == ImGuiKey_X && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl) && state.selection.second != -1)
-                            {
-                                CopyToClipboard(state.text, state.selection.first, state.selection.second);
-                                DeleteSelectedText(state, input, style, renderer);
-                            }
-                            else if (key == ImGuiKey_A && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl))
-                            {
-                                if (!state.text.empty())
-                                {
-                                    state.selection.first = 0;
-                                    state.selection.second = (int)state.text.size() - 1;
-                                    input.selectionStart = -1.f;
-                                    input.caretVisible = false;
-                                }
-                            }
-                            else if (key == ImGuiKey_Z && (ImGui::GetIO().KeyMods & ImGuiMod_Ctrl))
-                            {
-                                if (!input.ops.empty())
-                                {
-                                    auto op = input.ops.undo().value();
-
-                                    switch (op.type)
-                                    {
-                                    case TextOpType::Deletion:
-                                    {
-                                        auto length = op.range.second;
-                                        input.pixelpos.expand(length, 0.f);
-                                        state.text.resize(state.text.size() + length);
-
-                                        for (auto idx = (int)state.text.size() - 1; idx >= op.range.first; --idx)
-                                            state.text[idx] = state.text[idx - length];
-                                        for (auto idx = 0; idx < length; ++idx)
-                                            state.text[idx + op.range.first] = op.opmem[idx];
-
-                                        UpdatePosition(state, op.range.first, input, style, renderer);
-                                        input.caretpos = op.caretpos;
-                                        break;
-                                    }
-                                    default:
-                                        break;
-                                    }
+                                    auto width = std::fabsf(input.pixelpos[input.caretpos - 1] - (input.caretpos > 1 ? input.pixelpos[input.caretpos - 2] : 0.f));
+                                    input.moveRight(width);
                                 }
                             }
                             else
                             {
-                                const auto& io = ImGui::GetIO();
-                                std::string_view text{ state.text.data(), state.text.size() };
-                                auto ch = io.KeyShift ? KeyMappings[key].second : KeyMappings[key].first;
-                                ch = input.capslock ? std::toupper(ch) : std::tolower(ch);
-                                auto caretAtEnd = input.caretpos == (int)text.size();
-
-                                if (caretAtEnd)
+                                if (prevpos > input.caretpos && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x < 0.f))
                                 {
-                                    state.text.push_back(ch);
-                                    std::string_view newtext{ state.text.data(), state.text.size() };
-                                    auto lastpos = (int)state.text.size() - 1;
-                                    auto width = renderer.GetTextSize(newtext.substr(lastpos, 1), style.font.font, style.font.size).x;
-                                    auto nextw = width + (lastpos > 0 ? input.pixelpos[lastpos - 1] : 0.f);
-                                    input.pixelpos.push_back(nextw);
-                                    input.scroll.pos.x = std::max(0.f, input.pixelpos.back() - content.GetWidth());
+                                    auto width = std::fabsf(input.pixelpos[prevpos - 1] - (prevpos > 1 ? input.pixelpos[prevpos - 2] : 0.f));
+                                    input.moveLeft(width);
                                 }
-                                else
-                                {
-                                    if (!input.replace)
-                                    {
-                                        state.text.push_back(0);
-                                        input.pixelpos.push_back(0.f);
-                                        for (auto from = (int)state.text.size() - 2; from >= input.caretpos; --from)
-                                            state.text[from + 1] = state.text[from];
-                                        state.text[input.caretpos] = (char)ch;
-                                        UpdatePosition(state, input.caretpos, input, style, renderer);
-                                    }
-                                    else
-                                    {
-                                        // TODO: Position update is not required for monospace fonts, can optimize this
-                                        state.text[input.caretpos] = (char)ch;
-                                        UpdatePosition(state, input.caretpos, input, style, renderer);
-
-                                    }
-                                }
-
-                                input.caretpos++;
-                                result.event = WidgetEvent::Edited;
                             }
                         }
                     }
                 }
             }
-        }
-
-        if (result.event == WidgetEvent::Edited && state.ShowList != nullptr)
-        {
-            Context.ToggleDeferedRendering(true);
-            state.ShowList(state, { content.GetWidth(), content.GetHeight() });
-
-            if (Context.deferedRenderer->size.y > 0.f && !ImGui::IsKeyPressed(ImGuiKey_Escape))
+            else
             {
-                char buffer[32];
-                std::memset(buffer, 0, 32);
-                ImVec2 origin{ extent.Min.x, extent.Max.y }, size{ extent.GetWidth(), Context.deferedRenderer->size.y };
-
-                if ((origin + size) > ImGui::GetCurrentWindow()->InnerClipRect.Max)
-                    origin.y = origin.y - size.y;
-
-                std::to_chars(buffer, buffer + 31, id);
-                ImGui::SetNextWindowPos(origin);
-                ImGui::SetNextWindowSize(size);
-
-                if (ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
                 {
-                    renderer.SetClipRect(origin, origin + size, false);
-                    Context.deferedRenderer->Render(renderer, origin);
-                    renderer.ResetClipRect();
+                    auto posx = mousepos.x - content.Min.x;
+
+                    // This means we have clicked, not selecting text
+                    if (std::fabsf(input.selectionStart - posx) < 5.f)
+                    {
+                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
+                        auto idx = it - input.pixelpos.begin();
+
+                        // This is a double click, select entire content
+                        if (IsBetween(input.lastClickTime, 0.f, 1.f) && !state.text.empty())
+                        {
+                            state.selection.first = 0;
+                            state.selection.second = (int)state.text.size() - 1;
+                            input.selectionStart = -1.f;
+                            input.caretVisible = false;
+                            input.lastClickTime = -1.f;
+                            result.event = WidgetEvent::Selected;
+                        }
+                        else
+                        {
+                            input.caretVisible = true;
+                            state.selection.first = state.selection.second = -1;
+                            input.caretpos = idx;
+                            input.isSelecting = false;
+                            input.selectionStart = -1.f;
+                            input.lastClickTime = 0.f;
+                            result.event = WidgetEvent::Focused;
+                        }
+                    }
+                    else if (input.selectionStart != -1.f)
+                    {
+                        if (state.selection.first == -1)
+                        {
+                            auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), input.selectionStart + input.scroll.pos.x);
+                            if (it != input.pixelpos.end())
+                            {
+                                auto idx = it - input.pixelpos.begin();
+                                if (idx > 0 && (*it - posx) > 0.f) --idx;
+                                state.selection.first = it - input.pixelpos.begin();
+                                input.isSelecting = true;
+                                input.caretVisible = false;
+                            }
+                        }
+
+                        auto it = std::lower_bound(input.pixelpos.begin(), input.pixelpos.end(), posx + input.scroll.pos.x);
+
+                        if (it != input.pixelpos.end())
+                        {
+                            auto idx = it - input.pixelpos.begin();
+                            if (idx > 0 && (*it - posx) > 0.f) --idx;
+
+                            state.selection.second = it - input.pixelpos.begin();
+                            result.event = WidgetEvent::Selected;
+                            input.caretVisible = false;
+                            input.isSelecting = false;
+                            input.caretpos = state.selection.second + 1;
+                        }
+                    }
+
+                    input.selectionStart = -1.f;
                 }
 
-                ImGui::End();
+                if (state.state & WS_Focused)
+                {
+                    if (input.caretVisible)
+                    {
+                        auto isCaretAtEnd = input.caretpos == (int)state.text.size();
+                        auto offset = isCaretAtEnd && (input.scroll.pos.x == 0.f) ? 1.f : 0.f;
+                        auto cursorxpos = (!input.pixelpos.empty() ? input.pixelpos[input.caretpos - 1] - input.scroll.pos.x : 0.f) + offset;
+                        renderer.DrawLine(content.Min + ImVec2{ cursorxpos, 1.f }, content.Min + ImVec2{ cursorxpos, content.GetHeight() - 1.f }, style.fgcolor, 2.f);
+                    }
+
+                    if (input.lastCaretShowTime > 0.5f && state.selection.second == -1)
+                    {
+                        input.caretVisible = !input.caretVisible;
+                        input.lastCaretShowTime = 0.f;
+                    }
+                    else input.lastCaretShowTime += io.deltaTime;
+
+                    for (auto key = 0; io.key[key] != Key_Invalid; ++key)
+                    {
+                        if (true)
+                        {
+                            input.lastCaretShowTime = 0.f;
+                            input.caretVisible = true;
+
+                            if (key == ImGuiKey_LeftArrow)
+                            {
+                                auto prevpos = input.caretpos;
+
+                                if (io.modifiers & ShiftKeyMod)
+                                {
+                                    if (state.selection.second == -1)
+                                    {
+                                        input.selectionStart = input.pixelpos[input.caretpos];
+                                        state.selection.first = input.caretpos;
+                                        state.selection.second = input.caretpos;
+                                    }
+                                    else
+                                        state.selection.second = std::max(state.selection.second - 1, 0);
+
+                                    input.caretpos = std::max(input.caretpos - 1, 0);
+                                    input.caretVisible = false;
+                                }
+                                else input.caretpos = std::max(input.caretpos - 1, 0);
+
+                                if (prevpos > input.caretpos && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x < 0.f))
+                                {
+                                    auto width = std::fabsf(input.pixelpos[prevpos - 1] - (prevpos > 1 ? input.pixelpos[prevpos - 2] : 0.f));
+                                    input.moveLeft(width);
+                                }
+                            }
+                            else if (key == ImGuiKey_RightArrow)
+                            {
+                                auto prevpos = input.caretpos;
+
+                                if (io.modifiers & ShiftKeyMod)
+                                {
+                                    if (state.selection.second == -1)
+                                    {
+                                        input.selectionStart = input.pixelpos[input.caretpos];
+                                        state.selection.first = input.caretpos;
+                                        state.selection.second = input.caretpos;
+                                    }
+                                    else
+                                        state.selection.second = std::min(state.selection.second + 1, (int)state.text.size() - 1);
+
+                                    input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
+                                    input.caretVisible = false;
+                                }
+                                else input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
+
+                                if ((prevpos < input.caretpos) && (input.pixelpos[input.caretpos - 1] - input.scroll.pos.x > content.GetWidth()))
+                                {
+                                    auto width = std::fabsf(input.pixelpos[input.caretpos - 1] - (input.caretpos > 1 ? input.pixelpos[input.caretpos - 2] : 0.f));
+                                    input.moveRight(width);
+                                }
+                            }
+                            else if (key == ImGuiKey_CapsLock) input.capslock = !input.capslock;
+                            else if (key == ImGuiKey_Insert) input.replace = !input.replace;
+                            else if (key == ImGuiKey_Backspace)
+                            {
+                                if (state.selection.second == -1)
+                                {
+                                    std::string_view text{ state.text.data(), state.text.size() };
+                                    auto caretAtEnd = input.caretpos == (int)text.size();
+                                    if (text.empty()) continue;
+
+                                    auto& op = input.ops.push();
+                                    op.type = TextOpType::Deletion;
+                                    op.opmem[0] = state.text[input.caretpos - 1];
+                                    op.opmem[1] = 0;
+                                    op.range = std::make_pair(input.caretpos - 1, 1);
+                                    op.caretpos = input.caretpos;
+
+                                    if (caretAtEnd)
+                                    {
+                                        if (input.scroll.pos.x != 0.f)
+                                        {
+                                            auto width = input.pixelpos.back() - input.pixelpos[input.pixelpos.size() - 2];
+                                            input.moveLeft(width);
+                                        }
+
+                                        state.text.pop_back();
+                                        input.pixelpos.pop_back();
+                                    }
+                                    else RemoveCharAt(input.caretpos, state, input);
+
+                                    input.caretpos--;
+                                }
+                                else DeleteSelectedText(state, input, style, renderer);
+
+                                result.event = WidgetEvent::Edited;
+                            }
+                            else if (key == ImGuiKey_Delete)
+                            {
+                                if (state.selection.second == -1)
+                                {
+                                    std::string_view text{ state.text.data(), state.text.size() };
+                                    auto caretAtEnd = input.caretpos == (int)text.size();
+                                    if (text.empty()) continue;
+
+                                    if (!caretAtEnd) RemoveCharAt(input.caretpos + 1, state, input);
+                                }
+                                else DeleteSelectedText(state, input, style, renderer);
+
+                                result.event = WidgetEvent::Edited;
+                            }
+                            else if (key == ImGuiKey_Space || (key >= ImGuiKey_0 && key <= ImGuiKey_Z) ||
+                                (key >= ImGuiKey_Apostrophe && key <= ImGuiKey_GraveAccent) ||
+                                (key >= ImGuiKey_Keypad0 && key <= ImGuiKey_KeypadEqual))
+                            {
+                                if (key == ImGuiKey_V && io.modifiers & CtrlKeyMod)
+                                {
+                                    auto content = Config.platform->GetClipboardText();
+                                    auto length = (int)content.size();
+
+                                    if (length > 0)
+                                    {
+                                        auto caretAtEnd = input.caretpos == (int)state.text.size();
+                                        input.pixelpos.expand(length, 0.f);
+
+                                        if (caretAtEnd)
+                                        {
+                                            for (auto idx = 0; idx < length; ++idx)
+                                            {
+                                                state.text.push_back(content[idx]);
+                                                auto sz = renderer.GetTextSize(std::string_view{ content.data() + idx, 1 }, style.font.font, style.font.size).x;
+                                                input.pixelpos.push_back(sz + (state.text.size() > 1u ? input.pixelpos.back() : 0.f));
+                                            }
+                                        }
+                                        else
+                                        {
+                                            for (auto idx = (int)state.text.size() - 1; idx >= input.caretpos; --idx)
+                                                state.text[idx] = state.text[idx - length];
+                                            for (auto idx = 0; idx < length; ++idx)
+                                                state.text[idx + input.caretpos] = content[idx];
+
+                                            UpdatePosition(state, input.caretpos, input, style, renderer);
+                                        }
+
+                                        auto& op = input.ops.push();
+                                        op.type = TextOpType::Addition;
+                                        op.range = std::make_pair(input.caretpos, std::min(length, 127));
+                                        std::memcpy(op.opmem, content.data(), std::min(length, 127));
+                                        op.opmem[length] = 0;
+
+                                        input.caretpos += length;
+                                        result.event = WidgetEvent::Edited;
+                                    }
+                                }
+                                else if (key == ImGuiKey_C && (io.modifiers & CtrlKeyMod) && state.selection.second != -1)
+                                {
+                                    CopyToClipboard(state.text, state.selection.first, state.selection.second);
+                                }
+                                else if (key == ImGuiKey_X && (io.modifiers & CtrlKeyMod) && state.selection.second != -1)
+                                {
+                                    CopyToClipboard(state.text, state.selection.first, state.selection.second);
+                                    DeleteSelectedText(state, input, style, renderer);
+                                }
+                                else if (key == ImGuiKey_A && (io.modifiers & CtrlKeyMod))
+                                {
+                                    if (!state.text.empty())
+                                    {
+                                        state.selection.first = 0;
+                                        state.selection.second = (int)state.text.size() - 1;
+                                        input.selectionStart = -1.f;
+                                        input.caretVisible = false;
+                                    }
+                                }
+                                else if (key == ImGuiKey_Z && (io.modifiers & CtrlKeyMod))
+                                {
+                                    if (!input.ops.empty())
+                                    {
+                                        auto op = input.ops.undo().value();
+
+                                        switch (op.type)
+                                        {
+                                        case TextOpType::Deletion:
+                                        {
+                                            auto length = op.range.second;
+                                            input.pixelpos.expand(length, 0.f);
+                                            state.text.resize(state.text.size() + length);
+
+                                            for (auto idx = (int)state.text.size() - 1; idx >= op.range.first; --idx)
+                                                state.text[idx] = state.text[idx - length];
+                                            for (auto idx = 0; idx < length; ++idx)
+                                                state.text[idx + op.range.first] = op.opmem[idx];
+
+                                            UpdatePosition(state, op.range.first, input, style, renderer);
+                                            input.caretpos = op.caretpos;
+                                            break;
+                                        }
+                                        default:
+                                            break;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    std::string_view text{ state.text.data(), state.text.size() };
+                                    auto ch = io.modifiers & ShiftKeyMod ? KeyMappings[key].second : KeyMappings[key].first;
+                                    ch = input.capslock ? std::toupper(ch) : std::tolower(ch);
+                                    auto caretAtEnd = input.caretpos == (int)text.size();
+
+                                    if (caretAtEnd)
+                                    {
+                                        state.text.push_back(ch);
+                                        std::string_view newtext{ state.text.data(), state.text.size() };
+                                        auto lastpos = (int)state.text.size() - 1;
+                                        auto width = renderer.GetTextSize(newtext.substr(lastpos, 1), style.font.font, style.font.size).x;
+                                        auto nextw = width + (lastpos > 0 ? input.pixelpos[lastpos - 1] : 0.f);
+                                        input.pixelpos.push_back(nextw);
+                                        input.scroll.pos.x = std::max(0.f, input.pixelpos.back() - content.GetWidth());
+                                    }
+                                    else
+                                    {
+                                        if (!input.replace)
+                                        {
+                                            state.text.push_back(0);
+                                            input.pixelpos.push_back(0.f);
+                                            for (auto from = (int)state.text.size() - 2; from >= input.caretpos; --from)
+                                                state.text[from + 1] = state.text[from];
+                                            state.text[input.caretpos] = (char)ch;
+                                            UpdatePosition(state, input.caretpos, input, style, renderer);
+                                        }
+                                        else
+                                        {
+                                            // TODO: Position update is not required for monospace fonts, can optimize this
+                                            state.text[input.caretpos] = (char)ch;
+                                            UpdatePosition(state, input.caretpos, input, style, renderer);
+
+                                        }
+                                    }
+
+                                    input.caretpos++;
+                                    result.event = WidgetEvent::Edited;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Context.ToggleDeferedRendering(false);
-        }
-
-        if (!state.text.empty()) HandleHScroll(input.scroll, input.pixelpos.back(), content, mousepos, renderer, 5.f, false);
-        return result;
-    }
-
-    static void AlignVCenter(float height, int level, ItemGridState& state, const StyleDescriptor& style)
-    {
-        auto& headers = state.config.headers;
-
-        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-        {
-            auto& hdr = headers[level][col];
-            hdr.content.Max.y = height;
-
-            auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
-            if (vdiff > 0.f)
-                hdr.textrect.TranslateY(vdiff);
-        }
-    }
-
-    static std::pair<ImRect, ImRect> DropDownBounds(int32_t id, DropDownState& state, const ImRect& content, IRenderer& renderer)
-    {
-        auto& style = Context.GetStyle(state.state);
-        auto size = renderer.GetTextSize(state.text, style.font.font, style.font.size);
-        ImRect bounds = content;
-
-        if (bounds.GetWidth() < size.x + style.font.size)
-            bounds.Max.x = bounds.Min.x + size.x + style.font.size;
-
-        return { bounds, { content.Min, content.Min + size } };
-    }
-
-    static WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-        auto& style = Context.GetStyle(state.state);
-        auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-        state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-
-        if (!(state.opened && state.isComboBox))
-            DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
-
-        auto arrowh = style.font.size * 0.33333f;
-        auto arroww = style.font.size * 0.25f;
-        renderer.DrawLine(ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh },
-            ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh)}, style.fgcolor, 2.f);
-        renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
-            ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
-
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            result.event = WidgetEvent::Clicked; state.opened = !state.opened;
-        }
-        else if (ismouseover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-        {
-            if (state.isComboBox)
+            if (result.event == WidgetEvent::Edited && state.ShowList != nullptr)
             {
-                if (state.inputId == -1)
+                context.ToggleDeferedRendering(true);
+                state.ShowList(state, { content.GetWidth(), content.GetHeight() });
+
+                if (context.deferedRenderer->size.y > 0.f && !io.isKeyPressed(Key_Escape))
                 {
-                    state.inputId = GetNextId(WT_TextInput);
-                    auto& text = GetWidgetState(state.inputId).state.input.text;
-                    for (auto ch : state.text) text.push_back(ch);
+                    char buffer[32];
+                    std::memset(buffer, 0, 32);
+                    ImVec2 origin{ content.Min.x, content.Max.y }, size{ content.GetWidth(), context.deferedRenderer->size.y };
+
+                    if ((origin + size) > context.WindowSize())
+                        origin.y = origin.y - size.y;
+
+                    std::to_chars(buffer, buffer + 31, id);
+                    ImGui::SetNextWindowPos(origin);
+                    ImGui::SetNextWindowSize(size);
+
+                    if (ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+                    {
+                        renderer.SetClipRect(origin, origin + size, false);
+                        context.deferedRenderer->Render(renderer, origin);
+                        renderer.ResetClipRect();
+                    }
+
+                    ImGui::End();
                 }
 
-                auto res = TextInputImpl(state.inputId, state.input, margin, content, renderer);
-                if (res.event == WidgetEvent::Edited)
-                    state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
-                state.opened = true;
-            }
-        }
-        else if (ismouseover && !state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-        else state._hoverDuration == 0;
-
-        if (state.opened && state.ShowList != nullptr)
-        {
-            auto maxrect = ImGui::GetCurrentWindow()->InnerClipRect;
-            auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
-            ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
-                ImVec2{ padding.Max.x, maxh };
-            ImVec2 available2 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Min.y } :
-                ImVec2{ padding.Min.x, maxh };
-
-            Context.ToggleDeferedRendering(true);
-            state.ShowList(available1, available2, state);
-
-            if (Context.deferedRenderer->size.y > 0.f && !ImGui::IsKeyPressed(ImGuiKey_Escape))
-            {
-                char buffer[32];
-                std::memset(buffer, 0, 32);
-                ImVec2 origin{ border.Min.x, padding.Max.y }, size{ Context.deferedRenderer->size };
-
-                if ((origin + size) > ImGui::GetCurrentWindow()->InnerClipRect.Max)
-                    origin.y = origin.y - size.y;
-
-                std::to_chars(buffer, buffer + 31, id);
-                ImGui::SetNextWindowPos(origin);
-                ImGui::SetNextWindowSize(size);
-
-                if (ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
-                {
-                    renderer.SetClipRect(origin, origin + size, false);
-                    Context.deferedRenderer->Render(renderer, origin);
-                    renderer.ResetClipRect();
-                }
-
-                ImGui::End();
+                context.ToggleDeferedRendering(false);
             }
 
-            Context.ToggleDeferedRendering(false);
+            if (!state.text.empty()) HandleHScroll(input.scroll, input.pixelpos.back(), content, mousepos, renderer, io, 5.f, false);
         }
-
-        result.geometry = margin;
-        return result;
+        else context.deferedEvents.emplace_back(WT_TextInput, id, content);
     }
 
-    static WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
-    {
-        WidgetDrawResult result;
-        auto& state = Context.GetState(id).state.tab;
-        auto& map = Context.TabStates(id);
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content,
+        IRenderer& renderer, const IODescriptor& io);
 
-        if (state.horizontal)
+    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, 
+        const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
         {
-            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
+            auto& state = context.GetState(id).state.dropdown;
+            auto ismouseover = padding.Contains(io.mousepos);
+            state.state = !ismouseover ? WS_Default :
+                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            if (ismouseover && io.clicked())
             {
-                if (map.map.vtol[vcol] == -1)
+                result.event = WidgetEvent::Clicked; state.opened = !state.opened;
+            }
+            else if (ismouseover && io.isLeftMouseDoubleClicked())
+            {
+                if (state.isComboBox)
                 {
-                    map.map.vtol[vcol] = vcol;
-                    map.map.ltov[vcol] = vcol;
+                    if (state.inputId == -1)
+                    {
+                        state.inputId = GetNextId(WT_TextInput);
+                        auto& text = GetWidgetState(state.inputId).state.input.text;
+                        for (auto ch : state.text) text.push_back(ch);
+                    }
+
+                    auto res = TextInputImpl(state.inputId, state.input, margin, content, renderer, io);
+                    if (res.event == WidgetEvent::Edited)
+                        state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
+                    state.opened = true;
+                }
+            }
+            else if (ismouseover && !state.tooltip.empty() && !io.isLeftMouseDown())
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+            else state._hoverDuration == 0;
+
+            if (state.opened)
+            {
+                ImRect maxrect{ { 0.f, 0.f }, context.WindowSize() };
+                auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
+                ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
+                    ImVec2{ padding.Max.x, maxh };
+                ImVec2 available2 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Min.y } :
+                    ImVec2{ padding.Min.x, maxh };
+
+                // Create the popup with its own context
+                auto& overlayctx = PushContext(id);
+                overlayctx.ToggleDeferedRendering(true);
+                overlayctx.deferEvents = true;
+
+                if (state.ShowList)
+                    state.ShowList(available1, available2, state);
+                else
+                {
+                    auto& optstates = overlayctx.dropDownOptions[id & 0xffff];
+                    if (optstates.empty()) optstates.reserve(state.options.size());
+                    auto optidx = 0;
+
+                    for (const auto& option : state.options)
+                    {
+                        if ((int)optstates.size() <= optidx)
+                        {
+                            auto& optstate = optstates.emplace_back();
+                            switch (option.first)
+                            {
+                            case WT_Checkbox:
+                            {
+                                optstate.first = GetNextId(WT_Checkbox);
+                                optstate.second = GetNextId(WT_Label);
+                                GetWidgetState(optstate.first).state.checkbox.check = state.selected == optidx ?
+                                    CheckState::Checked : CheckState::Unchecked;
+                                GetWidgetState(optstate.second).state.label.text = option.second;
+                                break;
+                            }
+                            case WT_ToggleButton:
+                            {
+                                optstate.first = GetNextId(WT_ToggleButton);
+                                optstate.second = GetNextId(WT_Label);
+                                GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
+                                GetWidgetState(optstate.second).state.label.text = option.second;
+                                break;
+                            }
+                            case WT_Invalid:
+                            {
+                                optstate.first = -1;
+                                optstate.second = GetNextId(WT_Label);
+                                GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
+                                break;
+                            }
+                            default: break;
+                            }
+                        }
+
+                        auto& optstate = optstates[optidx];
+                        if (optstate.first != -1)
+                        {
+                            auto type = (WidgetType)(optstate.first >> 16);
+                            Widget(optstate.first, type, ToBottomRight, {});
+                            Move(FD_Horizontal);
+                        }
+                        Widget(optstate.second, WT_Label, ToBottomRight, {});
+                        Move(FD_Vertical);
+                        overlayctx.adhocLayout.top().nextpos.x = 0.f;
+                    }
                 }
 
-                auto col = map.map.vtol[vcol];
-                auto& tab = state.tabs[col];
-                auto& style = Context.GetStyle(tab.state.state);
+                if (overlayctx.deferedRenderer->size.y > 0.f && !io.isKeyPressed(Key_Escape))
+                {
+                    ImVec2 origin{ border.Min.x, padding.Max.y }, size{ overlayctx.deferedRenderer->size };
 
-                auto ismouseover = padding.Contains(ImGui::GetIO().MousePos);
-                tab.state.state = !ismouseover ? WS_Default :
-                    ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+                    if ((origin + size) > context.WindowSize())
+                        origin.y = origin.y - size.y - padding.GetHeight();
 
-                DrawBoxShadow(border.Min, border.Max, style, renderer);
-                DrawBackground(border.Min, border.Max, style, renderer);
-                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
+                    if (renderer.StartOverlay(id, origin, size, ToRGBA(255, 255, 255)))
+                    {
+                        overlayctx.deferedRenderer->Render(renderer, origin);
+                        overlayctx.ToggleDeferedRendering(false);
+                        overlayctx.deferEvents = false;
 
-                if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    result.event = WidgetEvent::Clicked;
-                else if (ismouseover && !tab.state.tooltip.empty() && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
-                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, renderer);
-                else tab.state._hoverDuration == 0;
+                        overlayctx.HandleEvents();
+                        renderer.EndOverlay();
+                    }
+                }
 
-                result.geometry = margin;
-                return result;
+                PopContext();
             }
         }
+        else context.deferedEvents.emplace_back(WT_DropDown, id, margin, border, padding, content);
     }
 
     static bool UpdateSubHeadersResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
@@ -1673,7 +1465,7 @@ namespace glimmer
     }
 
     static void HandleColumnResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridState::ColumnConfig& hdr,
-        ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col)
+        ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
 
@@ -1682,9 +1474,9 @@ namespace glimmer
         auto& evprop = gridstate.cols[level][col - 1];
 
         if (!evprop.mouseDown)
-            ImGui::SetMouseCursor(isMouseNearColDrag ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_Arrow);
+            Config.platform->SetMouseCursor(isMouseNearColDrag ? MouseCursor::Grab : MouseCursor::Arrow);
 
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        if (io.isLeftMouseDown())
         {
             if (!evprop.mouseDown)
             {
@@ -1692,7 +1484,7 @@ namespace glimmer
                 {
                     evprop.mouseDown = true;
                     evprop.lastPos = mousepos;
-                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    Config.platform->SetMouseCursor(MouseCursor::ResiveHorizontal);
                     gridstate.state = ItemGridCurrentState::ResizingColumns;
                     LOG("Drag start at %f for column #%d\n", mousepos.x, col);
                 }
@@ -1703,11 +1495,11 @@ namespace glimmer
                 evprop.modified += (mousepos.x - evprop.lastPos.x);
                 evprop.lastPos = mousepos;
                 UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, true);
-                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                Config.platform->SetMouseCursor(MouseCursor::ResiveHorizontal);
                 gridstate.state = ItemGridCurrentState::ResizingColumns;
             }
         }
-        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && evprop.mouseDown)
+        else if (!io.isLeftMouseDown() && evprop.mouseDown)
         {
             if (mousepos.x != -FLT_MAX && mousepos.y != -FLT_MAX)
             {
@@ -1719,19 +1511,19 @@ namespace glimmer
             }
 
             evprop.mouseDown = false;
-            ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+            Config.platform->SetMouseCursor(MouseCursor::Arrow);
             gridstate.state = ItemGridCurrentState::Default;
         }
     }
 
     static void HandleColumnReorder(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
-        ImVec2 mousepos, int level, int vcol)
+        ImVec2 mousepos, int level, int vcol, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ReorderingColumns) return;
 
         auto col = gridstate.colmap[level].vtol[vcol];
         auto& hdr = headers[level][col];
-        auto isMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        auto isMouseDown = io.isLeftMouseDown();
         ImRect moveTriggerRect{ hdr.content.Min + ImVec2{ 5.5f, 0.f }, hdr.content.Max - ImVec2{ 5.5f, 0.f } };
 
         if (isMouseDown && moveTriggerRect.Contains(mousepos) && !gridstate.drag.mouseDown)
@@ -1801,10 +1593,434 @@ namespace glimmer
         }
     }
 
-    static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content, ImVec2 sz)
+    static void HandleScrollBars(ScrollBarState& scroll, IRenderer& renderer, ImVec2 mousepos, const ImRect& content,
+        ImVec2 sz, const IODescriptor& io)
     {
-        auto hasHScroll = HandleHScroll(scroll, sz.x, content, mousepos, renderer, Config.scrollbarSz);
-        HandleVScroll(scroll, sz.y, content, mousepos, renderer, Config.scrollbarSz, hasHScroll);
+        auto hasHScroll = HandleHScroll(scroll, sz.x, content, mousepos, renderer, io, Config.scrollbarSz);
+        HandleVScroll(scroll, sz.y, content, mousepos, renderer, io, Config.scrollbarSz, hasHScroll);
+    }
+
+    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content, 
+        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.grid;
+            auto& headers = state.config.headers;
+            auto& gridstate = context.GridState(id);
+
+            auto mousepos = io.mousepos;
+            auto ismouseover = padding.Contains(mousepos);
+            state.state = !ismouseover ? WS_Default :
+                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            HandleScrollBars(gridstate.scroll, renderer, mousepos, content, gridstate.totalsz, io);
+
+            // Reset header calculations for next frame
+            for (auto level = 0; level < (int)headers.size(); ++level)
+            {
+                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                {
+                    auto& hdr = headers[level][col];
+                    hdr.content = ImRect{};
+                    hdr.textrect = ImRect{};
+                }
+            }
+
+            if (ismouseover && io.clicked())
+                result.event = WidgetEvent::Clicked;
+            else if (ismouseover && io.isLeftMouseDoubleClicked())
+                result.event = WidgetEvent::DoubleClicked;
+        }
+        else context.deferedEvents.emplace_back(WT_ItemGrid, id, padding, content);
+    }
+
+#pragma endregion
+
+#pragma region Widget Rendering
+
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
+    {
+        auto& context = GetContext();
+        assert((id & 0xffff) <= (int)context.states[WT_Label].size());
+
+        WidgetDrawResult result;
+        auto& state = context.GetState(id).state.label;
+        auto& style = context.GetStyle(state.state);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
+        HandleLabelEvent(id, margin, border, padding, content, text, renderer, io, result);
+        
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.button;
+        auto& style = context.GetStyle(state.state);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+        HandleButtonEvent(id, margin, border, padding, content, text, renderer, io, result);
+
+        result.geometry = margin;
+        return result;
+    }
+
+    static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        ImRect result;
+        ImVec2 text;
+        result.Min = result.Max = extent.Min;
+
+        if (specificStyle.showText)
+        {
+            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY,
+                specificStyle.fontsz, FT_Bold);
+
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
+            result.Max += text;
+            renderer.ResetFont();
+
+            auto extra = 2.f * (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+            result.Max.x += extra;
+            result.Max.y += extra;
+        }
+        else
+        {
+            result.Max.x += ((extent.GetHeight()) * 2.f); 
+            result.Max.y += extent.GetHeight();
+        }
+
+        return { result, text };
+    }
+
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        auto& toggle = context.ToggleState(id);
+
+        auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+        auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
+        auto movement = extent.GetWidth() - (2.f * (radius + extra));
+        auto moveAmount = toggle.animate ? (io.deltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
+        toggle.progress += std::fabsf(moveAmount / movement);
+
+        auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
+            : extent.Min + ImVec2{ radius + extra, extra + radius }
+        : ImVec2{ toggle.btnpos, extra + radius };
+        center.x = ImClamp(center.x + moveAmount, extent.Min.x + (extra * 0.5f), extent.Max.x - extra);
+        center.y = extent.Min.y + (extent.GetHeight() * 0.5f);
+        toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
+
+        auto rounded = extent.GetHeight() * 0.5f;
+        auto tcol = specificStyle.trackColor;
+        if (toggle.animate)
+        {
+            auto prevTCol = state.checked ? context.toggleButtonStyles[WSI_Default].top().trackColor :
+                context.toggleButtonStyles[WSI_Checked].top().trackColor;
+            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
+            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
+            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
+            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
+            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
+            tcol = ToRGBA(tr, tg, tb, ta);
+        }
+
+        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
+            specificStyle.trackBorderThickness);
+
+        if (specificStyle.showText && !toggle.animate)
+        {
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
+            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
+                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
+            renderer.ResetFont();
+        }
+
+        renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
+        HandleToggleButtonEvent(id, extent, center, renderer, io, result);
+
+        result.geometry = extent;
+        return result;
+    }
+
+    static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
+    {
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+    }
+
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.radioButtonStyles[log2((unsigned)state.state)].top();
+        auto& radio = context.RadioState(id);
+
+        auto radius = extent.GetWidth() * 0.5f;
+        auto center = extent.Min + ImVec2{ radius, radius };
+        renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
+        auto maxrad = radius * specificStyle.checkedRadius;
+        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
+        radius = radio.radius;
+
+        if (radius > 0.f)
+        {
+            renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
+        }
+
+        auto ratio = radio.animate ? (io.deltaTime / specificStyle.animate) : 0.f;
+        radio.progress += ratio;
+        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
+        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
+        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result);
+        
+        result.geometry = extent;
+        return result;
+    }
+
+    static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
+    {
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+    }
+
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& check = context.CheckboxState(id);
+        WidgetDrawResult result;
+
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        auto height = padding.GetHeight(), width = padding.GetWidth();
+
+        if (check.animate && check.progress < 1.f)
+            check.progress += (io.deltaTime / 0.25f);
+
+        switch (state.check)
+        {
+        case CheckState::Checked:
+        {
+            auto start = ImVec2{ padding.Min.x, padding.Min.y + (height * 0.5f) };
+            auto end = ImVec2{ padding.Min.x + (width * 0.333f), padding.Max.y };
+            auto tickw = padding.Max.x - end.x;
+            renderer.DrawLine(start, end, style.fgcolor, 2.f);
+            renderer.DrawLine(end, ImVec2{ padding.Max.x - ((1.f - check.progress) * tickw), padding.Min.y +
+                ((1.f - check.progress) * height) }, style.fgcolor, 2.f);
+            break;
+        }
+        case CheckState::Partial:
+            renderer.DrawLine(padding.Min + ImVec2{ 0.f, height * 0.5f }, padding.Max - 
+                ImVec2{ 0.f, height * 0.5f }, style.fgcolor, 2.f);
+            break;
+        default:
+            break;
+        }
+
+        HandleCheckboxEvent(id, extent, io, result);
+        
+        result.geometry = extent;
+        return result;
+    }
+
+    // TODO: capslock and insert state is global -> poll and find out...
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        auto& input = context.InputTextState(id);
+
+        if (state.state & WS_Focused)
+            renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
+
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        renderer.SetCurrentFont(style.font.font, style.font.size);
+
+        if (state.text.empty() && !(state.state & WS_Focused))
+        {
+            auto phstyle = style;
+            auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
+            fa = 150;
+            phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
+            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled,
+                phstyle, renderer, FontStyleOverflowMarquee);
+        }
+        else
+        {
+            if (state.selection.second != -1)
+            {
+                std::string_view text{ state.text.data(), state.text.size() };
+                auto selection = state.selection;
+                selection = { std::min(state.selection.first, state.selection.second),
+                    std::max(state.selection.first, state.selection.second) };
+                std::string_view parts[3] = { text.substr(0, selection.first),
+                    text.substr(selection.first, selection.second - selection.first + 1),
+                    text.substr(selection.second + 1) };
+                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y }, textsz;
+
+                if (!parts[0].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[0], style.font.font, style.font.size);
+                    renderer.DrawText(parts[0], startpos, style.fgcolor);
+                    startpos.x += textsz.x;
+                }
+
+                const auto& selstyle = context.GetStyle(WS_Selected);
+                textsz = renderer.GetTextSize(parts[1], style.font.font, style.font.size);
+                renderer.DrawRect(startpos, startpos + textsz, selstyle.bgcolor, true);
+                renderer.DrawText(parts[1], startpos, selstyle.fgcolor);
+                startpos.x += textsz.x;
+
+                if (!parts[2].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[2], style.font.font, style.font.size);
+                    renderer.DrawText(parts[2], startpos, style.fgcolor);
+                }
+            }
+            else
+            {
+                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y };
+                std::string_view text{ state.text.data(), state.text.size() };
+                renderer.DrawText(text, startpos, style.fgcolor);
+            }
+        }
+
+        HandleTextInputEvent(id, content, io, renderer, result);
+        renderer.ResetFont();
+
+        result.geometry = extent;
+        return result;
+    }
+
+    static void AlignVCenter(float height, int level, ItemGridState& state, const StyleDescriptor& style)
+    {
+        auto& headers = state.config.headers;
+
+        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+        {
+            auto& hdr = headers[level][col];
+            hdr.content.Max.y = height;
+
+            auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
+            if (vdiff > 0.f)
+                hdr.textrect.TranslateY(vdiff);
+        }
+    }
+
+    static std::pair<ImRect, ImRect> DropDownBounds(int32_t id, DropDownState& state, const ImRect& content, IRenderer& renderer)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto size = renderer.GetTextSize(state.text, style.font.font, style.font.size);
+        ImRect bounds = content;
+
+        if (bounds.GetWidth() < size.x + style.font.size)
+            bounds.Max.x = bounds.Min.x + size.x + style.font.size;
+
+        return { bounds, { content.Min, content.Min + size } };
+    }
+
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
+        if (!(state.opened && state.isComboBox))
+            DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+
+        auto arrowh = style.font.size * 0.33333f;
+        auto arroww = style.font.size * 0.25f;
+        renderer.DrawLine(ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh },
+            ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh)}, style.fgcolor, 2.f);
+        renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
+            ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
+        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
+
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.tab;
+        auto& map = context.TabStates(id);
+
+        if (state.horizontal)
+        {
+            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
+            {
+                if (map.map.vtol[vcol] == -1)
+                {
+                    map.map.vtol[vcol] = vcol;
+                    map.map.ltov[vcol] = vcol;
+                }
+
+                auto col = map.map.vtol[vcol];
+                auto& tab = state.tabs[col];
+                auto& style = context.GetStyle(tab.state.state);
+
+                auto ismouseover = padding.Contains(io.mousepos);
+                tab.state.state = !ismouseover ? WS_Default :
+                    io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+                DrawBoxShadow(border.Min, border.Max, style, renderer);
+                DrawBackground(border.Min, border.Max, style, renderer);
+                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
+
+                if (ismouseover && io.clicked())
+                    result.event = WidgetEvent::Clicked;
+                else if (ismouseover && !tab.state.tooltip.empty() && !io.isLeftMouseDown())
+                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, renderer);
+                else tab.state._hoverDuration == 0;
+
+                result.geometry = margin;
+                return result;
+            }
+        }
     }
 
     static ImRect DrawCells(ItemGridState& state, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int32_t row, int16_t col,
@@ -1813,13 +2029,14 @@ namespace glimmer
         auto& hdr = headers.back()[col];
         auto& model = state.cell(row, col, 0);
         auto itemcontent = hdr.content;
+        auto& context = GetContext();
         itemcontent.Min.y = miny;
 
         switch (model.wtype)
         {
         case WT_Label:
         {
-            auto& itemstyle = Context.GetStyle(model.state.label.state);
+            auto& itemstyle = context.GetStyle(model.state.label.state);
             if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
                 itemstyle.font.size, FT_Normal);
 
@@ -1859,25 +2076,15 @@ namespace glimmer
         return itemcontent;
     }
 
-    template <typename T>
-    int Find(T* start, T* end, T value)
-    {
-        for (auto it = start; it != end; ++it)
-            if (*it == value) return (int)(it - start);
-        return -1;
-    }
-
     WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
-        auto& state = Context.GetState(id).state.grid;
-        auto& style = Context.GetStyle(state.state);
-        auto& gridstate = Context.GridState(id);
-        auto mousepos = ImGui::GetIO().MousePos;
-        auto ismouseover = padding.Contains(mousepos);
-        state.state = !ismouseover ? WS_Default :
-            ImGui::IsMouseDown(ImGuiMouseButton_Left) ? WS_Pressed | WS_Hovered : WS_Hovered;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.grid;
+        auto& style = context.GetStyle(state.state);
+        auto& gridstate = context.GridState(id);
+        auto mousepos = io.mousepos;
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -2098,11 +2305,11 @@ namespace glimmer
                 {
                     auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
                     if (headers[level][prevcol].props & COL_Resizable)
-                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col);
+                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col, io);
                 }
 
                 if (hdr.props & COL_Moveable)
-                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol);
+                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol, io);
             }
 
             posy += maxh;
@@ -2132,7 +2339,7 @@ namespace glimmer
             //        {
             //        case WT_Label:
             //        {
-            //            auto& itemstyle = Context.GetStyle(data[col].state.label.state);
+            //            auto& itemstyle = context.GetStyle(data[col].state.label.state);
             //            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
             //                itemstyle.font.size, FT_Normal);
             //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.content.GetWidth();
@@ -2174,7 +2381,7 @@ namespace glimmer
             //        {
             //        case WT_Label:
             //        {
-            //            const auto& itemstyle = Context.GetStyle(data[col].state.label.state);
+            //            const auto& itemstyle = context.GetStyle(data[col].state.label.state);
             //            DrawText(textstart, textend, { textstart, textstart + cellGeometries[col] }, data[col].state.label.text,
             //                data[col].state.label.state& WS_Disabled, itemstyle, renderer);
             //            break;
@@ -2305,63 +2512,17 @@ namespace glimmer
 
         gridstate.totalsz.y = totalh;
         gridstate.totalsz.x = width;
-        HandleScrollBars(gridstate.scroll, renderer, mousepos, content, gridstate.totalsz);
-
-        // Reset header calculations for next frame
-        for (auto level = 0; level < (int)headers.size(); ++level)
-        {
-            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-            {
-                auto& hdr = headers[level][col];
-                hdr.content = ImRect{};
-                hdr.textrect = ImRect{};
-            }
-        }
-
-        if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            result.event = WidgetEvent::Clicked;
-        else if (ismouseover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-            result.event = WidgetEvent::DoubleClicked;
-        else if (ismouseover && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-            result.event = WidgetEvent::RightClicked;
+        HandleItemGridEvent(id, padding, content, io, renderer, result);
 
         result.geometry = margin;
         return result;
     }
 
+#pragma endregion
+
     WindowConfig& GetWindowConfig()
     {
         return Config;
-    }
-
-    void BeginFrame()
-    {
-        Context.InsideFrame = true;
-        Context.adhocLayout.push();
-    }
-
-    void EndFrame()
-    {
-        Context.InsideFrame = false;
-        Context.adhocLayout.clear();
-        Context.layoutItems.clear();
-
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            Context.pushedStyles[idx].clear();
-            Context.pushedStyles[idx].push();
-        }
-
-        for (auto idx = 0; idx < WT_TotalTypes; ++idx)
-        {
-            Context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-        }
-
-        Context.maxids[WT_SplitterScrollRegion] = 0;
-
-        assert(Context.currLayoutDepth == -1);
-        assert(Context.currSizingDepth == 0);
-        assert(Context.currSpanDepth == -1);
     }
 
     int32_t GetNextId(WidgetType type)
@@ -2373,28 +2534,30 @@ namespace glimmer
 
     int16_t GetNextCount(WidgetType type)
     {
-        auto id = Context.maxids[type]; 
-        if (type == WT_SplitterScrollRegion) Context.maxids[type]++;
+        auto& context = GetContext();
+        auto id = context.maxids[type]; 
+        if (type == WT_SplitterScrollRegion) context.maxids[type]++;
         return id;
     }
 
     static void AddExtent(LayoutItemDescriptor& wdesc, const NeighborWidgets& neighbors)
     {
-        auto sz = Context.MaximumExtent();
-        auto nextpos = Context.NextAdHocPos();
+        auto& context = GetContext();
+        auto sz = context.MaximumExtent();
+        auto nextpos = context.NextAdHocPos();
         wdesc.margin.Min = nextpos;
         wdesc.border.Min = wdesc.margin.Min;
         wdesc.padding.Min = wdesc.border.Min;
         wdesc.content.Min = wdesc.padding.Min;
 
-        if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
+        if (neighbors.right != -1) wdesc.margin.Max.x = context.GetGeometry(neighbors.right).Min.x;
         else wdesc.margin.Max.x = wdesc.margin.Min.x + (sz.x - nextpos.x);
 
         wdesc.border.Max.x = wdesc.margin.Max.x;
         wdesc.padding.Max.x = wdesc.border.Max.x;
         wdesc.content.Max.x = wdesc.padding.Max.x;
 
-        if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
+        if (neighbors.bottom != -1) wdesc.margin.Max.y = context.GetGeometry(neighbors.bottom).Min.y;
         else wdesc.margin.Max.y = wdesc.margin.Min.y + (sz.y - nextpos.y);
 
         wdesc.border.Max.y = wdesc.margin.Max.y;
@@ -2402,173 +2565,177 @@ namespace glimmer
         wdesc.content.Max.y = wdesc.padding.Max.y;
     }
 
-    static void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
-        float width = 0.f, float height = 0.f)
+    WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        auto totalsz = Context.MaximumAbsExtent();
-        auto nextpos = Context.NextAdHocPos();
-        if (width <= 0.f) width = totalsz.x - nextpos.x;
-        if (height <= 0.f) height = totalsz.y - nextpos.y;
-
-        wdesc.margin.Min = nextpos;
-        wdesc.border.Min = wdesc.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-        wdesc.padding.Min = wdesc.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-        wdesc.content.Min = wdesc.padding.Min + ImVec2{ style.padding.left, style.padding.top };
-
-        if (style.specified & StyleWidth)
-        {
-            auto w = ImClamp(style.dimension.x, style.mindim.x, style.maxdim.x);
-            wdesc.content.Max.x = wdesc.content.Min.x + w;
-            wdesc.padding.Max.x = wdesc.content.Max.x + style.padding.right;
-            wdesc.border.Max.x = wdesc.padding.Max.x + style.border.right.thickness;
-            wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
-        }
-        else
-        {
-            if (neighbors.right != -1) wdesc.margin.Max.x = Context.GetGeometry(neighbors.right).Min.x;
-            else wdesc.margin.Max.x = wdesc.margin.Min.x + width;
-
-            wdesc.border.Max.x = wdesc.margin.Max.x - style.margin.right;
-            wdesc.padding.Max.x = wdesc.border.Max.x - style.border.right.thickness;
-            wdesc.content.Max.x = wdesc.padding.Max.x - style.padding.right;
-        }
-
-        if (style.specified & StyleHeight)
-        {
-            auto h = ImClamp(style.dimension.y, style.mindim.x, style.maxdim.x);
-            wdesc.content.Max.y = wdesc.content.Min.y + h;
-            wdesc.padding.Max.y = wdesc.content.Max.y + style.padding.bottom;
-            wdesc.border.Max.y = wdesc.padding.Max.y + style.border.bottom.thickness;
-            wdesc.margin.Max.y = wdesc.border.Max.y + style.margin.bottom;
-        }
-        else
-        {
-            if (neighbors.bottom != -1) wdesc.margin.Max.y = Context.GetGeometry(neighbors.bottom).Min.y;
-            else wdesc.margin.Max.y = wdesc.margin.Min.y + height;
-
-            wdesc.border.Max.y = wdesc.margin.Max.y - style.margin.bottom;
-            wdesc.padding.Max.y = wdesc.border.Max.y - style.border.bottom.thickness;
-            wdesc.content.Max.y = wdesc.padding.Max.y - style.padding.bottom;
-        }
-    }
-
-    static WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert((id & 0xffff) <= (int)Context.states[type].size());
+        auto& context = GetContext();
+        assert((id & 0xffff) <= (int)context.states[type].size());
         WidgetDrawResult result;
 
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& platform = *Config.platform;
         LayoutItemDescriptor wdesc;
         wdesc.wtype = type;
         wdesc.id = id;
         wdesc.sizing = geometry;
 
         auto wid = (type << 16) | id;
-        auto maxxy = Context.MaximumAbsExtent();
+        auto maxxy = context.MaximumAbsExtent();
+        auto io = Config.platform->CurrentIO();
 
         switch (type)
         {
         case WT_Label: {
-            auto& state = Context.GetState(wid).state.label;
-            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
-            auto& style = Context.GetStyle(state.state);
+            auto& state = context.GetState(wid).state.label;
+            CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
+            auto& style = context.GetStyle(state.state);
 
-            if (Context.currLayoutDepth != -1)
+            if (!context.layouts.empty())
             {
-                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
                 
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
-                Context.AddItemGeometry(wid, wdesc.margin);
+                    context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                context.AddItemGeometry(wid, wdesc.margin);
                 auto flags = ToTextFlags(state.type);
-                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, flags);
+                result = LabelImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, io, flags);
             }
             break;
         }
         case WT_Button: {
-            auto& state = Context.GetState(wid).state.button;
-            CopyStyle(Context.GetStyle(WS_Default), Context.GetStyle(state.state));
-            auto& style = Context.GetStyle(state.state);
+            auto& state = context.GetState(wid).state.button;
+            CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
+            auto& style = context.GetStyle(state.state);
 
-            if (Context.currLayoutDepth != -1)
+            if (!context.layouts.empty())
             {
-                auto& layout = Context.layouts[Context.currLayoutDepth];
+                auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
                 AddItemToLayout(layout, wdesc);
             }
             else
             {
                 std::tie(wdesc.content, wdesc.padding, wdesc.border, wdesc.margin, wdesc.text) = GetBoxModelBounds(
-                    Context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
-                Context.AddItemGeometry(wid, wdesc.margin);
-                result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
+                    context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                context.AddItemGeometry(wid, wdesc.margin);
+                result = ButtonImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer, io);
             }
             break;
         }
         case WT_RadioButton: {
-            auto& state = Context.GetState(wid).state.radio;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.radio;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = RadioButtonBounds(state, wdesc.margin);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = RadioButtonImpl(wid, state, bounds, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = RadioButtonImpl(wid, state, bounds, renderer, io);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
             break;
         }
         case WT_ToggleButton: {
-            auto& state = Context.GetState(wid).state.toggle;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.toggle;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto [bounds, textsz] = ToggleButtonBounds(state, wdesc.content, renderer);
 
-            renderer.SetClipRect(bounds.Min, bounds.Max);
-            result = ToggleButtonImpl(wid, state, bounds, textsz, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(bounds.Min, bounds.Max);
+                result = ToggleButtonImpl(wid, state, bounds, textsz, renderer, io);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_Checkbox: {
-            auto& state = Context.GetState(wid).state.checkbox;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.checkbox;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, style.font.size, style.font.size);
             auto bounds = CheckboxBounds(state, wdesc.margin);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer);
-            Context.AddItemGeometry(wid, bounds);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = CheckboxImpl(wid, state, wdesc.margin, wdesc.padding, renderer, io);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_TextInput: {
-            auto& state = Context.GetState(wid).state.input;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.input;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, 0.f, style.font.size + 2.f);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = TextInputImpl(wid, state, wdesc.border, wdesc.content, renderer, io);
+                context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_DropDown: {
-            auto& state = Context.GetState(wid).state.dropdown;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.dropdown;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, 0.f, style.font.size);
             auto [bounds, textrect] = DropDownBounds(id, state, wdesc.content, renderer);
 
@@ -2580,40 +2747,78 @@ namespace glimmer
                 wdesc.margin.Max.x = wdesc.border.Max.x + style.margin.right;
             }
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, textrect, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = DropDownImpl(wid, state, wdesc.margin, wdesc.border, wdesc.padding, 
+                    wdesc.content, textrect, renderer, io);
+                context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_TabBar: {
-            auto& state = Context.GetState(wid).state.grid;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.grid;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors, 0.f, 0.f);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                // TODO: ...
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         case WT_ItemGrid: {
-            auto& state = Context.GetState(wid).state.grid;
-            auto& style = Context.GetStyle(state.state);
-            CopyStyle(Context.GetStyle(WS_Default), style);
+            auto& state = context.GetState(wid).state.grid;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(wdesc, style, neighbors);
 
-            renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
-            result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, wdesc.content, wdesc.text, renderer);
-            Context.AddItemGeometry(wid, wdesc.margin);
-            renderer.ResetClipRect();
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) wdesc.sizing |= ExpandH;
+                if (geometry & ExpandV) wdesc.sizing |= ExpandV;
+                AddItemToLayout(layout, wdesc);
+            }
+            else
+            {
+                renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
+                result = ItemGridImpl(wid, wdesc.margin, wdesc.border, wdesc.padding, 
+                    wdesc.content, wdesc.text, renderer, io);
+                context.AddItemGeometry(wid, wdesc.margin);
+                renderer.ResetClipRect();
+            }
+            
             break;
         }
         default: break;
         }
 
-        Context.currStyleStates = 0;
-        for (auto idx = 0; idx < WSI_Total; ++idx) Context.currStyle[idx] = StyleDescriptor{};
+        context.currStyleStates = 0;
+        for (auto idx = 0; idx < WSI_Total; ++idx) context.currStyle[idx] = StyleDescriptor{};
         return result;
     }
 
@@ -2664,8 +2869,9 @@ namespace glimmer
 
     void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
     {
-        const auto& style = Context.GetStyle(WS_Default);
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(WS_Default);
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         LayoutItemDescriptor wdesc;
         NeighborWidgets neighbors;
         if (dir == DIR_Vertical) neighbors.bottom = nextid;
@@ -2677,31 +2883,33 @@ namespace glimmer
         region.viewport = wdesc.content;
         region.enabled = { dir == DIR_Horizontal, dir == DIR_Vertical };
         renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
-        Context.PushContainer(parentid, id);
+        context.PushContainer(parentid, id);
     }
 
     static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
     {
-        auto id = Context.containerStack.top();
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& context = GetContext();
+        auto id = context.containerStack.top();
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
-        auto mousepos = ImGui::GetMousePos();
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
         if (region.viewport.Max.x < region.max.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
         if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
-        Context.PopContainer(id);
+        context.PopContainer(id);
 
-        auto& layout = Context.adhocLayout.top();
+        auto& layout = context.adhocLayout.top();
         layout.nextpos = region.viewport.Max;
         dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
     }
@@ -2713,16 +2921,17 @@ namespace glimmer
 
         LayoutItemDescriptor wdesc;
         AddExtent(wdesc, neighbors);
-        auto& el = Context.splitterStack.push();
+        auto& context = GetContext();
+        auto& el = context.splitterStack.push();
         el.dir = dir;
         el.extent = wdesc.margin;
         el.id = id;
 
-        auto& state = Context.SplitterState(id);
-        const auto& style = Context.GetStyle(WS_Default);
+        auto& state = context.SplitterState(id);
+        const auto& style = context.GetStyle(WS_Default);
         state.current = 0;
         
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.SetClipRect(wdesc.margin.Min, wdesc.margin.Max);
 
         auto idx = 0;
@@ -2750,7 +2959,7 @@ namespace glimmer
                 scroll.viewport = ImRect{ prev, regionEnd };
                 scroll.enabled = { el.dir == DIR_Horizontal, el.dir == DIR_Vertical };
                 state.scrollids[idx] = scid;
-                Context.AddItemGeometry(scid, scroll.viewport, true);
+                context.AddItemGeometry(scid, scroll.viewport, true);
             }
 
             state.spacing[idx].min = split.min;
@@ -2774,14 +2983,16 @@ namespace glimmer
 
     void NextSplitRegion()
     {
-        auto& el = Context.splitterStack.top();
-        auto& state = Context.SplitterState(el.id);
-        auto mousepos = ImGui::GetMousePos();
-        const auto& style = Context.GetStyle(WS_Default);
+        auto& context = GetContext();
+        auto& el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        const auto& style = context.GetStyle(WS_Default);
         const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
         auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
             ImVec2{ state.spacing[state.current].curr * width, height });
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
 
         assert(state.current < 8);
 
@@ -2790,7 +3001,7 @@ namespace glimmer
         auto scid = state.scrollids[state.current];
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
 
-        auto& layout = Context.adhocLayout.top();
+        auto& layout = context.adhocLayout.top();
         auto nextpos = layout.nextpos;
         auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } :
             ImVec2{ splittersz, el.extent.GetHeight() });
@@ -2799,11 +3010,36 @@ namespace glimmer
         renderer.SetClipRect(nextpos, nextpos + sz);
         DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
         DrawBackground(nextpos, nextpos + sz, style, renderer);
+        auto radius = std::max(splittersz - 2.f, 1.f);
+        if (el.dir == DIR_Vertical)
+        {
+            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
+            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
+            startpos.x += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        else
+        {
+            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
+            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
+            startpos.y += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
         renderer.ResetClipRect();
 
         if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
         {
-            auto isDrag = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical : 
+                MouseCursor::ResiveHorizontal);
+            auto isDrag = io.isLeftMouseDown();
             if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
             state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
             
@@ -2821,7 +3057,11 @@ namespace glimmer
             }
             else state.isdragged[state.current] = false;
         }
-        else state.states[state.current] = WS_Default;
+        else
+        {
+            state.states[state.current] = WS_Default;
+            Config.platform->SetMouseCursor(MouseCursor::Arrow);
+        }
 
         state.current++;
         assert(state.current < 8);
@@ -2843,24 +3083,26 @@ namespace glimmer
 
     void EndSplitRegion()
     {
-        auto el = Context.splitterStack.top();
-        auto& state = Context.SplitterState(el.id);
+        auto& context = GetContext();
+        auto el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
         
         auto scid = state.scrollids[state.current];
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
-        Context.splitterStack.pop();
-        Context.AddItemGeometry(el.id, el.extent);
+        context.splitterStack.pop();
+        context.AddItemGeometry(el.id, el.extent);
 
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.ResetClipRect();
     }
 
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        auto& region = Context.ScrollRegion(id);
-        const auto& style = Context.GetStyle(WS_Default);
+        auto& context = GetContext();
+        auto& region = context.ScrollRegion(id);
+        const auto& style = context.GetStyle(WS_Default);
 
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         LayoutItemDescriptor wdesc;
         AddExtent(wdesc, style, neighbors);
         DrawBorderRect(wdesc.border.Min, wdesc.border.Max, style.border, style.bgcolor, renderer);
@@ -2868,42 +3110,45 @@ namespace glimmer
         region.viewport = wdesc.content;
         region.enabled = { hscroll, vscroll };
         renderer.SetClipRect(wdesc.content.Min, wdesc.content.Max);
-        Context.containerStack.push(id);
+        context.containerStack.push(id);
     }
 
     void EndScrollableRegion()
     {
-        auto id = Context.containerStack.top();
-        auto& region = Context.ScrollRegion(id);
-        auto& renderer = Context.usingDeferred ? *Context.deferedRenderer : *Config.renderer;
+        auto& context = GetContext();
+        auto id = context.containerStack.top();
+        auto& region = context.ScrollRegion(id);
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
-        auto mousepos = ImGui::GetMousePos();
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
         if (region.viewport.Max.x < region.max.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer,
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
         if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer,
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
-        Context.containerStack.pop();
-        Context.AddItemGeometry(id, region.viewport);
+        context.containerStack.pop();
+        context.AddItemGeometry(id, region.viewport);
     }
 
     WidgetStateData& GetWidgetState(WidgetType type, int16_t id)
     {
+        auto& context = GetContext();
         int32_t wid = id;
         wid = wid | (type << 16);
-        Context.maxids[type]++;
-        if (Context.InsideFrame)
-            Context.tempids[type] = std::min(Context.tempids[type], Context.maxids[type]);
+        context.maxids[type]++;
+        if (context.InsideFrame)
+            context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
 
-        auto& state = Context.GetState(wid);
+        auto& state = context.GetState(wid);
         return state;
     }
 

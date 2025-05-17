@@ -2,9 +2,17 @@
 #include "im_font_manager.h"
 #include "renderer.h"
 #include <chrono>
+#include <list>
+
+#ifndef GLIMMER_MAX_OVERLAYS
+#define GLIMMER_MAX_OVERLAYS 32
+#endif
 
 namespace glimmer
 {
+    static std::list<WidgetContextData> WidgetContexts;
+    static WidgetContextData* CurrentContext = nullptr;
+
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
         auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -121,7 +129,7 @@ namespace glimmer
 
     void WidgetContextData::PopContainer(int32_t id)
     {
-        Context.containerStack.pop();
+        containerStack.pop();
 
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
@@ -151,16 +159,76 @@ namespace glimmer
             if (wtype == WT_SplitterScrollRegion)
             {
                 const auto& splitter = splitterStack.top();
-                auto& state = Context.SplitterState(splitter.id);
+                auto& state = SplitterState(splitter.id);
                 state.scrolldata[state.current].max = ImMax(state.scrolldata[state.current].max, geometry.Max);
             }
         }
 
-        if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
+        /*if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
         {
             spans[currSpanDepth] = ElementSpan{};
             --currSpanDepth;
+        }*/
+    }
+
+    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleTextInputEvent(int32_t id, const ImRect& content, const IODescriptor& io,
+        IRenderer& renderer, WidgetDrawResult& result);
+    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
+        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+
+    WidgetDrawResult WidgetContextData::HandleEvents()
+    {
+        auto io = Config.platform->CurrentIO();
+        auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
+        WidgetDrawResult result;
+
+        for (const auto& ev : deferedEvents)
+        {
+            switch (ev.type)
+            {
+            case WT_Label: 
+                HandleLabelEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
+                break;
+            case WT_Button:
+                HandleButtonEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
+                break;
+            case WT_Checkbox:
+                HandleCheckboxEvent(ev.id, ev.extent, io, result);
+                break;
+            case WT_RadioButton:
+                HandleRadioButtonEvent(ev.id, ev.extent, ev.maxrad, renderer, io, result);
+                break;
+            case WT_ToggleButton:
+                HandleToggleButtonEvent(ev.id, ev.extent, ev.center, renderer, io, result);
+                break;
+            case WT_TextInput:
+                HandleTextInputEvent(ev.id, ev.content, io, renderer, result);
+                break;
+            case WT_DropDown:
+                HandleDropDownEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, io, renderer, result);
+                break;
+            case WT_ItemGrid:
+                HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);
+                break;
+            default:
+                break;
+            }
         }
+
+        deferedEvents.clear();
+        return result;
     }
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
@@ -219,31 +287,17 @@ namespace glimmer
             return rect.Max;
         }
     }
+
+    ImVec2 WidgetContextData::WindowSize() const
+    {
+        auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
+        return ImVec2{ rect.GetWidth(), rect.GetHeight() };
+    }
     
     WidgetContextData::WidgetContextData()
     {
         std::memset(maxids, 0, WT_TotalTypes);
         std::memset(tempids, INT_MAX, WT_TotalTypes);
-        constexpr auto totalStyles = 16 * WSI_Total;
-
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            pushedStyles[idx].push();
-            radioButtonStyles[idx].push();
-            auto& toggle = toggleButtonStyles[idx].push();
-            toggle.fontsz *= Config.fontScaling;
-
-            if (idx != WSI_Checked)
-            {
-                toggle.trackColor = ToRGBA(200, 200, 200);
-                toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-            }
-            else
-            {
-                toggle.trackColor = ToRGBA(152, 251, 152);
-                toggle.indicatorTextColor = ToRGBA(0, 100, 0);
-            }
-        }
 
         gridStates.resize(8);
         tabStates.resize(16);
@@ -253,38 +307,13 @@ namespace glimmer
         inputTextStates.resize(32);
         splitterStates.resize(4);
         splitterScrollPaneParentIds.resize(32 * 8, -1);
+        dropDownOptions.resize(32);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
             maxids[idx] = 0;
             states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
         }
-
-        KeyMappings.resize(1024, { 0, 0 });
-        KeyMappings[ImGuiKey_0] = { '0', ')' }; KeyMappings[ImGuiKey_1] = { '1', '!' }; KeyMappings[ImGuiKey_2] = { '2', '@' };
-        KeyMappings[ImGuiKey_3] = { '3', '#' }; KeyMappings[ImGuiKey_4] = { '4', '$' }; KeyMappings[ImGuiKey_5] = { '5', '%' };
-        KeyMappings[ImGuiKey_6] = { '6', '^' }; KeyMappings[ImGuiKey_7] = { '7', '&' }; KeyMappings[ImGuiKey_8] = { '8', '*' };
-        KeyMappings[ImGuiKey_9] = { '9', '(' };
-
-        KeyMappings[ImGuiKey_A] = { 'A', 'a' }; KeyMappings[ImGuiKey_B] = { 'B', 'b' }; KeyMappings[ImGuiKey_C] = { 'C', 'c' };
-        KeyMappings[ImGuiKey_D] = { 'D', 'd' }; KeyMappings[ImGuiKey_E] = { 'E', 'e' }; KeyMappings[ImGuiKey_F] = { 'F', 'f' };
-        KeyMappings[ImGuiKey_G] = { 'G', 'g' }; KeyMappings[ImGuiKey_H] = { 'H', 'h' }; KeyMappings[ImGuiKey_I] = { 'I', 'i' };
-        KeyMappings[ImGuiKey_J] = { 'J', 'j' }; KeyMappings[ImGuiKey_K] = { 'K', 'k' }; KeyMappings[ImGuiKey_L] = { 'L', 'l' };
-        KeyMappings[ImGuiKey_M] = { 'M', 'm' }; KeyMappings[ImGuiKey_N] = { 'N', 'n' }; KeyMappings[ImGuiKey_O] = { 'O', 'o' };
-        KeyMappings[ImGuiKey_P] = { 'P', 'p' }; KeyMappings[ImGuiKey_Q] = { 'Q', 'q' }; KeyMappings[ImGuiKey_R] = { 'R', 'r' };
-        KeyMappings[ImGuiKey_S] = { 'S', 's' }; KeyMappings[ImGuiKey_T] = { 'T', 't' }; KeyMappings[ImGuiKey_U] = { 'U', 'u' };
-        KeyMappings[ImGuiKey_V] = { 'V', 'v' }; KeyMappings[ImGuiKey_W] = { 'W', 'w' }; KeyMappings[ImGuiKey_X] = { 'X', 'x' };
-        KeyMappings[ImGuiKey_Y] = { 'Y', 'y' }; KeyMappings[ImGuiKey_Z] = { 'Z', 'z' };
-
-        KeyMappings[ImGuiKey_Apostrophe] = { '\'', '"' }; KeyMappings[ImGuiKey_Backslash] = { '\\', '|' };
-        KeyMappings[ImGuiKey_Slash] = { '/', '?' }; KeyMappings[ImGuiKey_Comma] = { ',', '<' };
-        KeyMappings[ImGuiKey_Minus] = { '-', '_' }; KeyMappings[ImGuiKey_Period] = { '.', '>' };
-        KeyMappings[ImGuiKey_Semicolon] = { ';', ':' }; KeyMappings[ImGuiKey_Equal] = { '=', '+' };
-        KeyMappings[ImGuiKey_LeftBracket] = { '[', '{' }; KeyMappings[ImGuiKey_RightBracket] = { ']', '}' };
-        KeyMappings[ImGuiKey_Space] = { ' ', ' ' }; KeyMappings[ImGuiKey_Tab] = { '\t', '\t' };
-        KeyMappings[ImGuiKey_GraveAccent] = { '`', '~' };
-
-        // TODO: Add mappings for keypad buttons...
     }
     
     SplitterInternalState::SplitterInternalState()
@@ -296,4 +325,72 @@ namespace glimmer
             isdragged[idx] = false;
         }
     }
+
+    WidgetContextData& GetContext()
+    {
+        return *CurrentContext;
+    }
+
+    WidgetContextData& PushContext(int32_t id)
+    {
+        if (id < 0)
+        {
+            if (CurrentContext == nullptr)
+            {
+                constexpr auto totalStyles = 16 * WSI_Total;
+                CurrentContext = &(WidgetContexts.emplace_back());
+
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    CurrentContext->pushedStyles[idx].push();
+                    CurrentContext->radioButtonStyles[idx].push();
+                    auto& toggle = CurrentContext->toggleButtonStyles[idx].push();
+                    toggle.fontsz *= Config.fontScaling;
+
+                    if (idx != WSI_Checked)
+                    {
+                        toggle.trackColor = ToRGBA(200, 200, 200);
+                        toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                    }
+                    else
+                    {
+                        toggle.trackColor = ToRGBA(152, 251, 152);
+                        toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                    }
+                }
+            }
+        }
+        else
+        {
+            auto wtype = (id >> 16);
+            auto index = id & 0xffff;
+
+            if ((int)CurrentContext->nestedContexts[wtype].size() <= index)
+            {
+                auto& ctx = WidgetContexts.emplace_back();
+
+                ctx.parentContext = CurrentContext;
+
+                auto& children = CurrentContext->nestedContexts[wtype];
+                if (children.empty()) children.resize(32, nullptr);
+                children[index] = &ctx;
+            }
+
+            CurrentContext = CurrentContext->nestedContexts[wtype][index];
+        }
+
+        return *CurrentContext;
+    }
+
+    void PopContext()
+    {
+        CurrentContext = GetContext().parentContext;
+        assert(CurrentContext != nullptr);
+    }
+
+    DynamicStack<StyleDescriptor, int16_t> WidgetContextData::pushedStyles[WSI_Total];
+    StyleDescriptor WidgetContextData::currStyle[WSI_Total];
+    int32_t WidgetContextData::currStyleStates;
+    DynamicStack<ToggleButtonStyleDescriptor, int16_t> WidgetContextData::toggleButtonStyles[WSI_Total];
+    DynamicStack<RadioButtonStyleDescriptor, int16_t>  WidgetContextData::radioButtonStyles[WSI_Total];
 }

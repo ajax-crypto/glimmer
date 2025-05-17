@@ -80,23 +80,6 @@ namespace glimmer
         uint32_t color = IM_COL32_BLACK_TRANS;
     };
 
-    enum FontStyleFlag : int32_t
-    {
-        FontStyleNone = 0,
-        FontStyleNormal = 1,
-        FontStyleBold = 1 << 1,
-        FontStyleItalics = 1 << 2,
-        FontStyleLight = 1 << 3,
-        FontStyleStrikethrough = 1 << 4,
-        FontStyleUnderline = 1 << 5,
-        FontStyleOverflowEllipsis = 1 << 6,
-        FontStyleNoWrap = 1 << 7,
-        FontStyleOverflowMarquee = 1 << 8,
-        TextIsPlainText = 1 << 9,
-        TextIsRichText = 1 << 10,
-        TextIsSVG = 1 << 11
-    };
-
     struct FontStyle
     {
         void* font = nullptr; // Pointer to font object
