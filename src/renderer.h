@@ -39,6 +39,9 @@ namespace glimmer
         virtual void DrawTooltip(ImVec2 pos, std::string_view text) = 0;
         virtual float EllipsisWidth(void* fontptr, float sz);
 
+        virtual bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) { return true; }
+        virtual void EndOverlay() {}
+
         virtual void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) {}
         virtual void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) {}
 

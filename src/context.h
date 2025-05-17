@@ -187,6 +187,44 @@ namespace glimmer
         SplitterInternalState();
     };
 
+    struct EventDeferInfo
+    {
+        WidgetType type; 
+        int32_t id;
+
+        ImRect margin;
+        ImRect border;
+        ImRect padding;
+        ImRect content;
+        ImRect text;
+
+        ImRect extent;
+        ImVec2 center;
+        float maxrad;
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& m, const ImRect& b, const ImRect& p, 
+            const ImRect& c, const ImRect& t)
+            : type{type_}, id{id_}, margin{m}, border{b}, padding{p}, content{c}, text{t} {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& m, const ImRect& b, const ImRect& p,
+            const ImRect& c)
+            : type{ type_ }, id{ id_ }, margin{ m }, border{ b }, padding{ p }, content{ c } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, float m)
+            : type{ type_ }, id{ id_ }, extent{ e }, maxrad{ m } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, ImVec2 c, const ImRect& e)
+            : type{ type_ }, id{ id_ }, extent{ e }, center{ c } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e)
+            : type{ type_ }, id{ id_ }, extent{ e } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& p, const ImRect& c)
+            : type{ type_ }, id{ id_ }, padding{ p }, content{ c } {}
+    };
+
+    // Captures widget states, is stored as a linked-list, each context representing
+    // a window or overlay, this enables serialized Id's for nested overlays as well
     struct WidgetContextData
     {
         // This is quasi-persistent
@@ -201,16 +239,19 @@ namespace glimmer
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
 
-        DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
-        StyleDescriptor currStyle[WSI_Total];
-        int32_t currStyleStates = 0;
+        std::vector<WidgetContextData*> nestedContexts[WT_TotalTypes];
+        WidgetContextData* parentContext = nullptr;
+
+        // Styling data is static as it is persisted across contexts
+        static DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
+        static StyleDescriptor currStyle[WSI_Total];
+        static int32_t currStyleStates;
+        // Per widget specific style objects
+        static DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
+        static DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
-
-        // Per widget specific style objects
-        DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
-        DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
 
         // Layout related members
         Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
@@ -244,6 +285,8 @@ namespace glimmer
         // Whether we are in a frame being rendered + current renderer
         bool InsideFrame = false;
         bool usingDeferred = false;
+        bool deferEvents = false;
+        Vector<EventDeferInfo, int16_t> deferedEvents;
         IRenderer* deferedRenderer = nullptr;
 
         WidgetStateData& GetState(int32_t id)
@@ -308,6 +351,7 @@ namespace glimmer
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
+        WidgetDrawResult HandleEvents();
 
         const ImRect& GetGeometry(int32_t id) const;
         float MaximumExtent(Direction dir) const;
@@ -319,5 +363,7 @@ namespace glimmer
         WidgetContextData();
     };
 
-    inline WidgetContextData Context{};
+    WidgetContextData& GetContext();
+    WidgetContextData& PushContext(int32_t id);
+    void PopContext();
 }

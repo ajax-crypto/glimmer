@@ -5,8 +5,6 @@ namespace glimmer
 {
     WindowConfig& GetWindowConfig();
 
-    void BeginFrame();
-    void EndFrame();
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 

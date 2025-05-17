@@ -220,7 +220,11 @@ namespace glimmer
         void _default_init(Sz from, Sz to)
         {
             if constexpr (std::is_default_constructible_v<T> && !std::is_scalar_v<T>)
-                std::fill(_data + from, _data + to, T{});
+                while (from != to)
+                {
+                    new (_data + from) T{};
+                    ++from;
+                }
             else if constexpr (std::is_arithmetic_v<T>)
                 std::fill(_data + from, _data + to, T{ 0 });
         }
@@ -252,11 +256,15 @@ namespace glimmer
 
         static_assert(capacity > 0, "capacity has to be a +ve value");
 
-        FixedSizeStack()
+        FixedSizeStack(bool init = true)
         {
             _data = (T*)std::malloc(sizeof(T) * capacity);
-            if constexpr (std::is_default_constructible_v<T>)
-                std::fill(_data, _data + capacity, T{});
+
+            if (init)
+            {
+                if constexpr (std::is_default_constructible_v<T>)
+                    std::fill(_data, _data + capacity, T{});
+            }
         }
 
         ~FixedSizeStack()

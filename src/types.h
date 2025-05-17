@@ -324,6 +324,7 @@ namespace glimmer
 
         WidgetStateData(WidgetType type);
         WidgetStateData(const WidgetStateData& src);
+        WidgetStateData& operator=(const WidgetStateData& src);
         ~WidgetStateData();
     };
 

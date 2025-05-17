@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include <cstdio>
+#include <charconv>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -103,6 +104,9 @@ namespace glimmer
         void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f);
         void DrawTooltip(ImVec2 pos, std::string_view text);
         [[nodiscard]] float EllipsisWidth(void* fontptr, float sz) override;
+
+        bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override;
+        void EndOverlay() override;
 
         void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) override;
         void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) override;
@@ -441,6 +445,32 @@ namespace glimmer
     float ImGuiRenderer::EllipsisWidth(void* fontptr, float sz)
     {
         return ((ImFont*)fontptr)->EllipsisWidth;
+    }
+
+    bool ImGuiRenderer::StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color)
+    {
+        char buffer[32];
+        std::memset(buffer, 0, 32);
+        std::to_chars(buffer, buffer + 31, id);
+
+        ImGui::SetNextWindowPos(pos);
+        ImGui::SetNextWindowSize(size);
+
+        auto res = ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+        if (res)
+        {
+            auto dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(pos, pos + size, color);
+            SetClipRect(pos, pos + size, false);
+        }
+        return res;
+    }
+
+    void ImGuiRenderer::EndOverlay()
+    {
+        ResetClipRect();
+        ImGui::End();
     }
 
     void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
