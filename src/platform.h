@@ -73,6 +73,15 @@ struct ImRect
 };
 #endif
 
+inline bool operator==(const ImRect& lhs, const ImRect& rhs)
+{
+    return lhs.Min == rhs.Min && lhs.Max == rhs.Max;
+}
+
+inline bool operator!=(const ImRect& lhs, const ImRect& rhs)
+{
+    return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
+}
 #include <string_view>
 #include <vector>
 
@@ -177,13 +186,16 @@ namespace glimmer
     struct IODescriptor
     {
         ImVec2 mousepos;
-        ButtonStatus mouseButtonStatus[(int)MouseButton::Total];
+        ButtonStatus mouseButtonStatus[(int)MouseButton::Total] 
+            = { ButtonStatus::Default, ButtonStatus::Default, ButtonStatus::Default };
         float mouseWheel = 0.f;
         float deltaTime = 0.f; // in seconds
 
         int32_t modifiers = 0;
         Key key[GLIMMER_NKEY_ROLLOVER_MAX + 1];
         ButtonStatus keyStatus[GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1];
+
+        IODescriptor();
 
         bool isLeftMouseDown() const
         {

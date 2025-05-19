@@ -1186,11 +1186,10 @@ namespace glimmer
 
 #pragma region Style stack
 
-    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
-        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
+    template <typename StackT>
+    static int32_t PushStyle(std::string_view* css, StackT* stack)
     {
-        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
-        auto& context = GetContext();
+        int32_t res = 0;
 
         // When pushing style, the default style behaves slightly differently then rest
         // The default style inherits from parent in the stack if present, parse the CSS and gets pushed
@@ -1199,19 +1198,69 @@ namespace glimmer
         {
             if (!css[style].empty())
             {
-                auto& pushed = context.pushedStyles[style].push();
-
-                if (context.pushedStyles[style].size() >= 2)
+                if (style == WSI_Default)
                 {
-                    pushed = context.pushedStyles[WSI_Default].next(1);
+                    auto parent = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
+                    auto& pushed = stack[style].push(parent);
                     pushed.bgcolor = IM_COL32_BLACK_TRANS;
+                    pushed.From(css[style]);
                 }
-                else if (style != WSI_Default)
-                    pushed = context.pushedStyles[WSI_Default].top();
+                else
+                {
+                    auto pushed = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
+                    pushed.From(css[style]);
+                    stack[style].push(pushed);
+                }
 
-                pushed.From(css[style]);
+                res |= (1 << style);
             }
         }
+
+        return res;
+    }
+
+    template <typename StackT>
+    static void PushStyle(WidgetState state, std::string_view css, StackT* stack)
+    {
+        auto idx = log2((unsigned)state);
+
+        if (idx == WSI_Default)
+            if (!stack[idx].empty())
+                stack[idx].push(stack[idx].top()).From(css);
+            else
+                stack[idx].push().From(css);
+        else
+        {
+            const auto& defstyle = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
+            auto& style = stack[idx].push(defstyle);
+            style.From(css);
+            style.specified |= defstyle.specified;
+        }
+    }
+
+    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
+        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
+    {
+        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, "", "", "", disblcss };
+        auto& context = GetContext();
+        
+        if (!context.layouts.empty())
+        {
+            auto& layout = context.layouts.top();
+            auto state = PushStyle(css, layout.styles);
+
+            // Enqueue multiple layout ops, to capture indexes of each widget state specific style stack
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
+                if (state & (1 << idx))
+                {
+                    auto sz = (int64_t)(layout.styles[idx].size() - 1);
+                    layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+                }
+            }
+        }
+       
+        PushStyle(css, context.pushedStyles);
     }
 
     void PushStyle(WidgetState state, std::string_view css)
@@ -1219,26 +1268,47 @@ namespace glimmer
         auto idx = log2((unsigned)state);
         auto& context = GetContext();
 
-        if (idx == WSI_Default)  context.pushedStyles[idx].push().From(css);
-        else
+        if (!context.layouts.empty())
         {
-            const auto& defstyle = context.pushedStyles[WSI_Default].top();
-            auto& style = context.pushedStyles[idx].push(defstyle);
-            style.From(css);
-            style.specified |= defstyle.specified;
+            auto& layout = context.layouts.top();
+            PushStyle(state, css, layout.styles);
+
+            if (!css.empty())
+            {
+                auto sz = (int64_t)(layout.styles[idx].size() - 1);
+                layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+            }
         }
+        
+        PushStyle(state, css, context.pushedStyles);
     }
 
     void SetNextStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
         std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
     {
-        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, disblcss };
+        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, "", "", "", disblcss };
         auto& context = GetContext();
 
         for (auto style = 0; style < WSI_Total; ++style)
         {
             if (!css[style].empty())
             {
+                if (!context.layouts.empty())
+                {
+                    auto& layout = context.layouts.top();
+                    auto state = PushStyle(css, layout.styles);
+
+                    // Enqueue multiple layout ops, to capture indexes of each widget state specific style
+                    for (auto idx = 0; idx < WSI_Total; ++idx)
+                    {
+                        if (state & (1 << idx))
+                        {
+                            auto sz = (int64_t)(layout.styles[idx].size() - 1);
+                            layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::SetStyle);
+                        }
+                    }
+                }
+                
                 context.currStyleStates |= (1 << style);
 
                 if (style != WSI_Default)
@@ -1261,16 +1331,20 @@ namespace glimmer
     void PopStyle(int depth, int32_t state)
     {
         auto& context = GetContext();
+
+        if (!context.layouts.empty())
+        {
+            auto& layout = context.layouts.top();
+            auto dd = (int64_t)depth;
+            layout.itemIndexes.emplace_back((dd << 32) | state, LayoutOps::PopStyle);
+        }
+        
         for (auto style = 0; style < WSI_Total; ++style)
         {
             if ((1 << style) & state)
             {
                 auto limit = depth;
-                while (!context.pushedStyles[style].empty() && limit > 0)
-                {
-                    context.pushedStyles[style].pop();
-                    limit--;
-                }
+                context.pushedStyles[style].pop(limit);
             }
         }
     }
@@ -1438,7 +1512,7 @@ namespace glimmer
             }*/
         }
 
-        specified = prop;
+        specified |= prop;
         return *this;
     }
 

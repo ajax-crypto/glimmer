@@ -85,7 +85,12 @@ namespace glimmer
 
         IODescriptor CurrentIO()
         {
-            return desc;
+            auto& context = GetContext();
+            IODescriptor result;
+
+            if (!context.activePopUpRegion.Contains(desc.mousepos)) result = desc;
+
+            return result;
         }
 
         void SetMouseCursor(MouseCursor cursor)
@@ -100,19 +105,23 @@ namespace glimmer
             context.adhocLayout.push();
 
             auto& io = ImGui::GetIO();
+            auto rollover = 0;
+            auto escape = false, clicked = false;
 
             desc.deltaTime = io.DeltaTime;
             desc.mousepos = io.MousePos;
             desc.mouseWheel = io.MouseWheel;
             desc.modifiers = io.KeyMods;
-            desc.mouseButtonStatus[ImGuiMouseButton_Left] =
-                ImGui::IsMouseDown(ImGuiMouseButton_Left) ? ButtonStatus::Pressed :
-                ImGui::IsMouseReleased(ImGuiMouseButton_Left) ? ButtonStatus::Released :
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) ? ButtonStatus::DoubleClicked :
-                ButtonStatus::Default;
 
-            auto offset = ImGuiKey_NamedKey_BEGIN;
-            auto rollover = 0;
+            for (auto idx = 0; idx < ImGuiMouseButton_COUNT; ++idx)
+            {
+                desc.mouseButtonStatus[idx] =
+                    ImGui::IsMouseDown(idx) ? ButtonStatus::Pressed :
+                    ImGui::IsMouseReleased(idx) ? ButtonStatus::Released :
+                    ImGui::IsMouseDoubleClicked(idx) ? ButtonStatus::DoubleClicked :
+                    ButtonStatus::Default;
+                clicked = clicked || ImGui::IsMouseDown(idx);
+            }
 
             for (int key = Key_Tab; key != Key_Total; ++key)
             {
@@ -122,6 +131,7 @@ namespace glimmer
                     if (rollover < GLIMMER_NKEY_ROLLOVER_MAX)
                         desc.key[rollover++] = (Key)key;
                     desc.keyStatus[key] = ButtonStatus::Pressed;
+                    escape = imkey == ImGuiKey_Escape;
                 }
                 else if (ImGui::IsKeyReleased((ImGuiKey)imkey))
                     desc.keyStatus[key] = ButtonStatus::Released;
@@ -129,7 +139,13 @@ namespace glimmer
                     desc.keyStatus[key] = ButtonStatus::Default;
             }
 
-            desc.key[rollover] = Key_Invalid;
+            while (rollover <= GLIMMER_NKEY_ROLLOVER_MAX)
+                desc.key[rollover++] = Key_Invalid;
+
+            if (clicked || escape)
+            {
+                ResetActivePopUps(desc.mousepos, escape);
+            }
         }
 
         void ExitFrame()
@@ -144,6 +160,13 @@ namespace glimmer
             context.adhocLayout.clear();
             context.layoutItems.clear();
 
+            for (auto lidx = 0; lidx < context.layouts.size(); ++lidx)
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    context.layouts[lidx].styles[idx].clear();
+                    context.layouts[lidx].itemIndexes.clear();
+                }
+
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
                 context.pushedStyles[idx].clear();
@@ -156,6 +179,7 @@ namespace glimmer
             }
 
             context.maxids[WT_SplitterScrollRegion] = 0;
+            context.maxids[WT_Layout] = 0;
             assert(context.layouts.empty());
         }
 
@@ -218,6 +242,7 @@ namespace glimmer
         bool PollEvents(bool (*runner)(void*), void* data)
         {
             auto close = false;
+            AddBaseStyleFontPtrs();
 
 #ifdef __EMSCRIPTEN__
             // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -306,4 +331,11 @@ namespace glimmer
         return nullptr;
     }
 #endif
+
+    IODescriptor::IODescriptor()
+    {
+        for (auto k = 0; k <= GLIMMER_NKEY_ROLLOVER_MAX; ++k) key[k] = Key_Invalid;
+        for (auto ks = 0; ks < (GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1); ++ks)
+            keyStatus[ks] = ButtonStatus::Default;
+    }
 }

@@ -43,8 +43,8 @@ namespace glimmer
 
     enum WidgetStateIndex
     {
-        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked, WSI_Disabled,
-        WSI_PartiallyChecked, WSI_Selected,
+        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
+        WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
         WSI_Total
     };
 
@@ -182,10 +182,65 @@ namespace glimmer
         int32_t states[8]; // ith splitter's state
         int32_t scrollids[8]; // id of ith scroll data
         ScrollableRegion scrolldata[8]; // ith scroll region data
+        ImRect viewport[8]; // ith non-scroll region geometry
         bool isdragged[8]; // ith drag state
 
         SplitterInternalState();
     };
+
+    struct LayoutItemDescriptor
+    {
+        WidgetType wtype = WidgetType::WT_Invalid;
+        int32_t id = -1;
+        ImRect margin, border, padding, content, text;
+        ImVec2 relative;
+        int32_t sizing = 0;
+        int16_t row = 0, col = 0;
+        int16_t from = -1, to = -1;
+        bool isComputed = false;
+    };
+
+    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget };
+
+    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, 16>;
+
+    struct LayoutDescriptor
+    {
+        Layout type = Layout::Invalid;
+        int32_t id = 0;
+        int32_t fill = FD_None;
+        int32_t alignment = TextAlignLeading;
+        int16_t from = -1, to = -1, itemidx = -1;
+        int16_t currow = -1, currcol = -1;
+        ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
+        ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
+        ImVec2 spacing{ 0.f, 0.f };
+        ImVec2 maxdim{ 0.f, 0.f };
+        ImVec2 cumulative{ 0.f, 0.f };
+        ImVec2 rows[32];
+        ImVec2 cols[32];
+        OverflowMode hofmode = OverflowMode::Scroll;
+        OverflowMode vofmode = OverflowMode::Scroll;
+        ScrollableRegion scroll;
+        bool popSizingOnEnd = false;
+
+        Vector<LayoutDescriptor, int16_t, 16> children{ false };
+        Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
+        StyleStackT styles[WSI_Total];
+
+        LayoutDescriptor() {}
+    };
+
+    ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
+
+    // Determine extent of layout/splitter/other containers
+    void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
+        float width = 0.f, float height = 0.f);
+
+    void AddFontPtr(FontStyle& font);
+    void AddBaseStyleFontPtrs();
+
+    void ResetActivePopUps(ImVec2 mousepos, bool escape);
 
     struct EventDeferInfo
     {
@@ -243,7 +298,7 @@ namespace glimmer
         WidgetContextData* parentContext = nullptr;
 
         // Styling data is static as it is persisted across contexts
-        static DynamicStack<StyleDescriptor, int16_t> pushedStyles[WSI_Total];
+        static StyleStackT pushedStyles[WSI_Total];
         static StyleDescriptor currStyle[WSI_Total];
         static int32_t currStyleStates;
         // Per widget specific style objects
@@ -288,6 +343,10 @@ namespace glimmer
         bool deferEvents = false;
         Vector<EventDeferInfo, int16_t> deferedEvents;
         IRenderer* deferedRenderer = nullptr;
+
+        ImVec2 popupOrigin;
+        int32_t popupTarget = -1;
+        ImRect activePopUpRegion;
 
         WidgetStateData& GetState(int32_t id)
         {
@@ -351,7 +410,7 @@ namespace glimmer
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
-        WidgetDrawResult HandleEvents();
+        WidgetDrawResult HandleEvents(ImVec2 origin);
 
         const ImRect& GetGeometry(int32_t id) const;
         float MaximumExtent(Direction dir) const;

@@ -191,7 +191,6 @@
     <ClCompile Include="..\src\layout.cpp" />
     <ClCompile Include="..\src\libs\inc\imgui\misc\freetype\imgui_freetype.cpp" />
     <ClCompile Include="..\src\libs\src\imgui.cpp" />
-    <ClCompile Include="..\src\libs\src\imgui_demo.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_draw.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_impl_glfw.cpp" />
     <ClCompile Include="..\src\libs\src\imgui_impl_opengl3.cpp" />

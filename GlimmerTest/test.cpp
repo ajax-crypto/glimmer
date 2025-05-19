@@ -154,64 +154,66 @@ int main(int argc, char** argv)
 
         config.platform->PollEvents([](void* data) {
             int32_t* widgets = (int32_t*)data;
-            glimmer::PushStyle("border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
+            glimmer::PushStyle("background-color: rgb(200, 200, 200); border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
 
             using namespace glimmer;
 
-            PushStyle("background-color: rgb(200, 200, 200)");
             Label(widgets[UPPER], ExpandH);
-
             Move(FD_Vertical);
 
             StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
-                SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
+                SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f, .scrollable = false } }, ExpandH);
 
-            PushStyle("background-color: rgb(175, 175, 175)");
-            StartSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
-                SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
-            Label(widgets[LEFT], ExpandAll);
-            NextSplitRegion();
-            Label(widgets[LEFT2], ExpandV);
-            EndSplitRegion();
+            {
+                PushStyle("background-color: rgb(175, 175, 175)");
+                StartSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
+                    SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
+                {
+                    Label(widgets[LEFT], ExpandAll);
+                    NextSplitRegion();
+                    Label(widgets[LEFT2], ExpandV);
+                }
+                EndSplitRegion();
 
-            NextSplitRegion();
+                NextSplitRegion();
 
-            //Move(FD_Horizontal);
-            BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignHCenter | TextAlignBottom, false, { 5.f, 5.f },
-                NeighborWidgets{ .top = widgets[UPPER] });
+                //Move(FD_Horizontal);
+                BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignHCenter | TextAlignBottom, false, { 5.f, 5.f },
+                    NeighborWidgets{ .top = widgets[UPPER] });
 
-            PushStyle("background-color: rgb(150, 150, 150)");
-            Label(widgets[BOTTOM]);
-            Move(FD_Horizontal);
+                {
+                    Label(widgets[BOTTOM]);
+                    Move(FD_Horizontal);
 
-            PushStyle("padding: 0px; margin: 0px;");
-            ToggleButton(widgets[TOGGLE], ToRight);
+                    ToggleButton(widgets[TOGGLE], ToRight);
 
-            Move(FD_Horizontal);
-            RadioButton(widgets[RADIO], ToRight);
+                    Move(FD_Horizontal);
+                    RadioButton(widgets[RADIO], ToRight);
 
-            Move(FD_Horizontal);
-            PushStyle("border: 1px solid black; width: 200px;");
-            PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
-            TextInput(widgets[INPUT], ToRight);
-            PopStyle(1, WS_Selected);
+                    Move(FD_Horizontal);
+                    PushStyle("border: 1px solid black; width: 200px; background-color: rgb(240, 240, 240)");
+                    PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
+                    TextInput(widgets[INPUT], ToRight);
+                    PopStyle(1, WS_Selected);
+                    PopStyle(1, WS_Default);
 
-            Move(FD_Horizontal);
-            DropDown(widgets[DROPDOWN], ToRight);
-            PopStyle(2);
+                    Move(FD_Horizontal);
+                    DropDown(widgets[DROPDOWN], ToRight);
 
-            PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
-            PushStyle(WS_Checked, "background-color: blue; color: white;");
-            Move(FD_Horizontal);
-            Checkbox(widgets[CHECKBOX], ToRight);
-            PopStyle(1, WS_Default);
-            PopStyle(1, WS_Checked);
+                    PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
+                    PushStyle(WS_Checked, "background-color: blue; color: white;");
+                    Move(FD_Horizontal);
+                    Checkbox(widgets[CHECKBOX], ToRight);
+                    PopStyle(1, WS_Default);
+                    PopStyle(1, WS_Checked);
+                }
 
-            EndLayout();
+                EndLayout();
 
-            Move(widgets[LEFT], widgets[UPPER], true, true);
-            PushStyle("background-color: white; padding: 5px;");
-            ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
+                Move(widgets[LEFT], widgets[UPPER], true, true);
+                PushStyle("background-color: white; padding: 5px;");
+                ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
+            }
 
             EndSplitRegion();
             PopStyle(5);

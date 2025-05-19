@@ -90,11 +90,43 @@ namespace glimmer
         return layout.nextpos + offset;
     }
 
+    void AddFontPtr(FontStyle& font)
+    {
+        if (font.font == nullptr)
+        {
+            auto isbold = font.flags & FontStyleBold;
+            auto isitalics = font.flags & FontStyleItalics;
+            auto islight = font.flags & FontStyleLight;
+            auto ft = isbold && isitalics ? FT_BoldItalics : isbold ? FT_Bold : isitalics ? FT_Italics : islight ? FT_Light : FT_Normal;
+            font.font = GetFont(font.family, font.size, ft);
+        }
+    }
+
+    void AddBaseStyleFontPtrs()
+    {
+        auto& context = *WidgetContexts.begin();
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+            AddFontPtr(context.pushedStyles[idx].top().font);
+    }
+
+    void ResetActivePopUps(ImVec2 mousepos, bool escape)
+    {
+        for (auto it = WidgetContexts.rbegin(); it != WidgetContexts.rend(); ++it)
+        {
+            if (it->parentContext && it->parentContext->activePopUpRegion != ImRect{} &&
+                (!it->parentContext->activePopUpRegion.Contains(mousepos) || escape))
+            {
+                it->parentContext->activePopUpRegion = ImRect{};
+            }
+        }
+    }
+
     StyleDescriptor& WidgetContextData::GetStyle(int32_t state)
     {
         auto style = log2((unsigned)state);
         auto& res = (state & currStyleStates) ? currStyle[style] : pushedStyles[style].top();
-        if (res.font.font == nullptr) res.font.font = GetFont(res.font.family, res.font.size, FT_Normal);
+        AddFontPtr(res.font);
         return res;
     }
 
@@ -188,38 +220,59 @@ namespace glimmer
     void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
         const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
 
-    WidgetDrawResult WidgetContextData::HandleEvents()
+    WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin)
     {
         auto io = Config.platform->CurrentIO();
         auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
         WidgetDrawResult result;
 
-        for (const auto& ev : deferedEvents)
+        for (auto ev : deferedEvents)
         {
             switch (ev.type)
             {
             case WT_Label: 
+                ev.margin.Translate(origin);
+                ev.border.Translate(origin); 
+                ev.padding.Translate(origin); 
+                ev.content.Translate(origin); 
+                ev.text.Translate(origin);
                 HandleLabelEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
                 break;
             case WT_Button:
+                ev.margin.Translate(origin);
+                ev.border.Translate(origin);
+                ev.padding.Translate(origin);
+                ev.content.Translate(origin);
+                ev.text.Translate(origin);
                 HandleButtonEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
                 break;
             case WT_Checkbox:
+                ev.extent.Translate(origin);
                 HandleCheckboxEvent(ev.id, ev.extent, io, result);
                 break;
             case WT_RadioButton:
+                ev.extent.Translate(origin);
                 HandleRadioButtonEvent(ev.id, ev.extent, ev.maxrad, renderer, io, result);
                 break;
             case WT_ToggleButton:
+                ev.extent.Translate(origin);
+                ev.center += origin;
                 HandleToggleButtonEvent(ev.id, ev.extent, ev.center, renderer, io, result);
                 break;
             case WT_TextInput:
+                ev.content.Translate(origin);
                 HandleTextInputEvent(ev.id, ev.content, io, renderer, result);
                 break;
             case WT_DropDown:
+                ev.margin.Translate(origin);
+                ev.border.Translate(origin);
+                ev.padding.Translate(origin);
+                ev.content.Translate(origin);
                 HandleDropDownEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, io, renderer, result);
                 break;
             case WT_ItemGrid:
+                ev.padding.Translate(origin);
+                ev.content.Translate(origin);
                 HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);
                 break;
             default:
@@ -331,6 +384,32 @@ namespace glimmer
         return *CurrentContext;
     }
 
+    static void InitContextStyles(WidgetContextData* context, bool addFont)
+    {
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            auto& style = context->pushedStyles[idx].push();
+            style.font.size *= Config.fontScaling;
+
+            context->radioButtonStyles[idx].push();
+            auto& toggle = context->toggleButtonStyles[idx].push();
+            toggle.fontsz *= Config.fontScaling;
+
+            if (addFont) AddFontPtr(style.font);
+
+            if (idx != WSI_Checked)
+            {
+                toggle.trackColor = ToRGBA(200, 200, 200);
+                toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+            }
+            else
+            {
+                toggle.trackColor = ToRGBA(152, 251, 152);
+                toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+            }
+        }
+    }
+
     WidgetContextData& PushContext(int32_t id)
     {
         if (id < 0)
@@ -339,25 +418,7 @@ namespace glimmer
             {
                 constexpr auto totalStyles = 16 * WSI_Total;
                 CurrentContext = &(WidgetContexts.emplace_back());
-
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                {
-                    CurrentContext->pushedStyles[idx].push();
-                    CurrentContext->radioButtonStyles[idx].push();
-                    auto& toggle = CurrentContext->toggleButtonStyles[idx].push();
-                    toggle.fontsz *= Config.fontScaling;
-
-                    if (idx != WSI_Checked)
-                    {
-                        toggle.trackColor = ToRGBA(200, 200, 200);
-                        toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-                    }
-                    else
-                    {
-                        toggle.trackColor = ToRGBA(152, 251, 152);
-                        toggle.indicatorTextColor = ToRGBA(0, 100, 0);
-                    }
-                }
+                InitContextStyles(CurrentContext, false);
             }
         }
         else
@@ -368,8 +429,8 @@ namespace glimmer
             if ((int)CurrentContext->nestedContexts[wtype].size() <= index)
             {
                 auto& ctx = WidgetContexts.emplace_back();
-
                 ctx.parentContext = CurrentContext;
+                InitContextStyles(&ctx, true);
 
                 auto& children = CurrentContext->nestedContexts[wtype];
                 if (children.empty()) children.resize(32, nullptr);
@@ -388,7 +449,7 @@ namespace glimmer
         assert(CurrentContext != nullptr);
     }
 
-    DynamicStack<StyleDescriptor, int16_t> WidgetContextData::pushedStyles[WSI_Total];
+    StyleStackT WidgetContextData::pushedStyles[WSI_Total];
     StyleDescriptor WidgetContextData::currStyle[WSI_Total];
     int32_t WidgetContextData::currStyleStates;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t> WidgetContextData::toggleButtonStyles[WSI_Total];

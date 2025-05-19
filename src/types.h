@@ -108,15 +108,15 @@ namespace glimmer
 
     enum WidgetState : int32_t
     {
-        WS_Default = 0,
+        WS_Default = 1,
         WS_Focused = 1 << 1,
         WS_Hovered = 1 << 2,
         WS_Pressed = 1 << 3,
         WS_Checked = 1 << 4,
-        WS_Disabled = 1 << 5,
-        WS_PartialCheck = 1 << 6,
-        WS_Selected = 1 << 7,
-        WS_Dragged = 1 << 8,
+        WS_PartialCheck = 1 << 5,
+        WS_Selected = 1 << 6,
+        WS_Dragged = 1 << 7,
+        WS_Disabled = 1 << 8
     };
 
     inline void ValidateState(int state)
@@ -380,40 +380,6 @@ namespace glimmer
         TextIsPlainText = 1 << 9,
         TextIsRichText = 1 << 10,
         TextIsSVG = 1 << 11
-    };
-
-    struct LayoutItemDescriptor
-    {
-        WidgetType wtype = WidgetType::WT_Invalid;
-        int32_t id = -1;
-        ImRect margin, border, padding, content, text;
-        ImVec2 relative;
-        int32_t sizing = 0;
-        int16_t row = 0, col = 0;
-        int16_t from = -1, to = -1;
-        bool isComputed = false;
-    };
-
-    struct LayoutDescriptor
-    {
-        Layout type = Layout::Invalid;
-        int32_t fill = FD_None;
-        int32_t alignment = TextAlignLeading;
-        int16_t from = -1, to = -1, itemidx = -1;
-        int16_t currow = -1, currcol = -1;
-        ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
-        ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
-        ImVec2 spacing{ 0.f, 0.f };
-        ImVec2 maxdim{ 0.f, 0.f };
-        ImVec2 cumulative{ 0.f, 0.f };
-        ImVec2 rows[32];
-        ImVec2 cols[32];
-        OverflowMode hofmode = OverflowMode::Scroll;
-        OverflowMode vofmode = OverflowMode::Scroll;
-        ScrollableRegion scroll;
-        bool popSizingOnEnd = false;
-
-        Vector<LayoutDescriptor, int16_t, 16> children{ false };
     };
 
     struct Sizing

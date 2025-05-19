@@ -19,10 +19,6 @@ namespace glimmer
     void Move(ImVec2 amount, int32_t direction); // Combination of WidgetGeometry
     void Move(ImVec2 pos);
 
-    // Determine extent of layout/splitter/other containers
-    void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
-        float width = 0.f, float height = 0.f);
-
     // Structured Layout inside container
     ImRect BeginLayout(Layout layout, int32_t fill, int32_t alignment, bool wrap = false,
         ImVec2 spacing = { 0.f, 0.f }, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -32,6 +28,4 @@ namespace glimmer
     void PushSizing(float width, float height, bool relativew = false, bool relativeh = false);
     void PopSizing(int depth = -1);
     WidgetDrawResult EndLayout(int depth = 1);
-
-    ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
 }

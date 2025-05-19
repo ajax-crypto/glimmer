@@ -26,6 +26,9 @@ namespace glimmer
     void NextSplitRegion();
     void EndSplitRegion();
 
+    bool StartPopUp(int32_t id, ImVec2 origin);
+    WidgetDrawResult EndPopUp();
+
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{});
     void EndScrollableRegion();

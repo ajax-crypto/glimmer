@@ -116,7 +116,7 @@ namespace glimmer
 
         template <typename IntegralT>
         explicit Vector(IntegralT initialsz)
-            : _capacity{ (Sz)initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+            : _capacity{ (Sz)initialsz }, _data{ (T*)std::malloc(sizeof(T) * (Sz)initialsz) }
         {
             _default_init(0, _capacity);
         }
