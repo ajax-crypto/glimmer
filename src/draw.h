@@ -7,6 +7,7 @@ namespace glimmer
 {
     struct StyleDescriptor;
     struct FourSidedBorder;
+    struct ColorGradient;
 
     IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
     RectBreakup ComputeRectBreakups(ImRect rect, float amount);
@@ -14,6 +15,7 @@ namespace glimmer
     void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const FourSidedBorder& border, uint32_t bgcolor, IRenderer& renderer);
     void DrawBoxShadow(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer);
     void DrawBackground(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer);
+    void DrawBackground(ImVec2 startpos, ImVec2 endpos, uint32_t bgcolor, const ColorGradient& gradient, const FourSidedBorder& border, IRenderer& renderer);
 
     void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled,
         const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags = std::nullopt);

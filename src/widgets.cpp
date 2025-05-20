@@ -32,6 +32,8 @@ namespace glimmer
         case WT_RadioButton: new (&state.radio) RadioButtonState{}; break;
         case WT_ToggleButton: new (&state.toggle) ToggleButtonState{}; break;
         case WT_Checkbox: new (&state.checkbox) CheckboxState{}; break;
+        case WT_Spinner: new (&state.spinner) SpinnerState{}; break;
+        case WT_Slider: new (&state.slider) SliderState{}; break;
         case WT_TextInput: new (&state.input) TextInputState{}; break;
         case WT_DropDown: new (&state.dropdown) DropDownState{}; break;
         case WT_SplitterScrollRegion: [[fallthrough]];
@@ -52,6 +54,8 @@ namespace glimmer
         case WT_RadioButton: state.radio = src.state.radio; break;
         case WT_ToggleButton: state.toggle = src.state.toggle; break;
         case WT_Checkbox: state.checkbox = src.state.checkbox; break;
+        case WT_Spinner: state.spinner = src.state.spinner; break;
+        case WT_Slider: state.slider = src.state.slider; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
         case WT_SplitterScrollRegion: [[fallthrough]];
@@ -72,6 +76,8 @@ namespace glimmer
         case WT_RadioButton: state.radio = src.state.radio; break;
         case WT_ToggleButton: state.toggle = src.state.toggle; break;
         case WT_Checkbox: state.checkbox = src.state.checkbox; break;
+        case WT_Spinner: state.spinner = src.state.spinner; break;
+        case WT_Slider: state.slider = src.state.slider; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
         case WT_SplitterScrollRegion: [[fallthrough]];
@@ -1825,6 +1831,110 @@ namespace glimmer
         return result;
     }
 
+    ImRect SliderBounds(int32_t id, const ImRect& extent)
+    {
+        ImRect result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.slider;
+        const auto& style = context.GetStyle(state.state);
+        auto slidersz = std::max(Config.sliderSize, style.font.size);
+
+        result.Min = extent.Min;
+        state.dir == DIR_Horizontal ? result.Max = result.Min + ImVec2{ extent.GetWidth(), slidersz } :
+            result.Max = result.Min + ImVec2{ slidersz, extent.GetHeight() };
+
+        return result;
+    }
+
+    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.slider;
+            const auto& style = context.GetStyle(state.state);
+            const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
+            auto center = thumb.Min + ImVec2{ thumb.GetWidth(), thumb.GetWidth() };
+            auto width = extent.GetWidth(), height = extent.GetHeight();
+            auto horizontal = width > height;
+            auto radius = thumb.GetWidth();
+
+            if (extent.Contains(io.mousepos))
+            {
+                auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
+                auto inthumb = thumb.Contains(io.mousepos);
+                state.state |= WS_Hovered;
+
+                if (io.clicked() && !inthumb)
+                {
+                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
+                    auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                    auto relative = where / space;
+                    state.data = relative * (state.max - state.min);
+                    state.state &= ~WS_Dragged;
+                }
+                else if (io.isLeftMouseDown() && ((state.state & WS_Dragged) || inthumb))
+                {
+                    // If the drag is starting for first time, consider the center of thumb
+                    // otherwise, follow mouse position
+                    auto where = (state.state & WS_Dragged) ? (horizontal ? io.mousepos.x : io.mousepos.y) :
+                        (horizontal ? center.x : center.y);
+                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
+                    where = horizontal ? where - extent.Min.x - offset : where - extent.Min.y - offset;
+                    auto relative = where / space;
+                    state.data = relative * (state.max - state.min);
+                    state.state |= WS_Dragged;
+                }
+                else
+                    state.state &= ~WS_Dragged;
+            }
+            else
+            {
+                state.state &= ~WS_Hovered;
+                state.state &= ~WS_Dragged;
+            }  
+        }
+        else context.deferedEvents.emplace_back(WT_Slider, id, extent, thumb);
+    }
+
+    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
+
+        auto bgcolor = state.TrackColor ? state.TrackColor(state.data) : style.bgcolor;
+        DrawBackground(extent.Min, extent.Max, bgcolor, style.gradient, style.border, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, bgcolor, renderer);
+
+        auto width = extent.GetWidth(), height = extent.GetHeight();
+        auto horizontal = state.dir == DIR_Horizontal;
+        auto radius = ((horizontal ? height : width) * 0.5f) - specificStyle.thumbOffset - specificStyle.trackBorderThickness;
+        auto relative = state.data / (state.max - state.min);
+        auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
+        ImVec2 center{ radius, radius };
+        horizontal ? center.x += (width - (2.f * offset)) * relative : center.y += (height - (2.f * offset)) * relative;
+        center += extent.Min + ImVec2{ offset - radius, offset - radius };
+
+        if (style.border.isRounded())
+            if ((style.border.cornerRadius[TopLeftCorner] >= radius) && (style.border.cornerRadius[TopRightCorner] >= radius) &&
+                (style.border.cornerRadius[BottomRightCorner] >= radius) && (style.border.cornerRadius[BottomLeftCorner] >= radius))
+                renderer.DrawCircle(center, radius, specificStyle.thumbColor, true);
+            else
+                renderer.DrawRoundedRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true,
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner], style.border.cornerRadius[BottomRightCorner],
+                    style.border.cornerRadius[BottomLeftCorner]);
+        else
+            renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true);
+
+        ImRect thumb{ center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius } };
+        HandleSliderEvent(id, extent, thumb,  io, result);
+        result.geometry = extent;
+        return result;
+    }
+
     // TODO: capslock and insert state is global -> poll and find out...
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
         IRenderer& renderer, const IODescriptor& io)
@@ -2043,7 +2153,7 @@ namespace glimmer
                 model.state.label.state & WS_Disabled, itemstyle, renderer);
             break;
         }
-        case WT_Custom:
+        /*case WT_Custom:
         {
             renderer.SetClipRect(itemcontent.Min, itemcontent.Max);
             auto sz = model.state.CustomWidget(itemcontent.Min, itemcontent.Max);
@@ -2051,7 +2161,7 @@ namespace glimmer
 
             itemcontent.Max.y = itemcontent.Min.y + style.padding.v() + sz.y;
             break;
-        }
+        }*/
         default:
             break;
         }
@@ -2707,6 +2817,44 @@ namespace glimmer
             
             break;
         }
+        case WT_Slider: {
+            auto& state = context.GetState(wid).state.slider;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
+            AddExtent(layoutItem, style, neighbors, state.dir == DIR_Horizontal ? 0.f : style.font.size, 
+                state.dir == DIR_Vertical ? 0.f : style.font.size);
+            auto bounds = SliderBounds(wid, layoutItem.margin);
+
+            if (bounds.GetArea() != layoutItem.margin.GetArea())
+            {
+                layoutItem.margin = bounds;
+                layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+
+                layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+                layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+            }
+
+            layoutItem.content = layoutItem.padding;
+
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                AddItemToLayout(layout, layoutItem);
+            }
+            else
+            {
+                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                result = SliderImpl(wid, state, layoutItem.border, renderer, io);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+
+            break;
+        }
         case WT_TextInput: {
             auto& state = context.GetState(wid).state.input;
             auto& style = context.GetStyle(state.state);
@@ -2846,6 +2994,16 @@ namespace glimmer
     WidgetDrawResult Checkbox(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_Checkbox, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Slider, geometry, neighbors);
     }
 
     WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

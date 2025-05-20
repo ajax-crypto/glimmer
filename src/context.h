@@ -304,6 +304,8 @@ namespace glimmer
         // Per widget specific style objects
         static DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
         static DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
+        static DynamicStack<SliderStyleDescriptor, int16_t>  sliderStyles[WSI_Total];
+        static DynamicStack<SpinnerStyleDescriptor, int16_t>  spinnerStyles[WSI_Total];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };

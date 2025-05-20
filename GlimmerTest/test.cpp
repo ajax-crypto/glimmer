@@ -39,7 +39,7 @@ int main(int argc, char** argv)
         names.Monospace.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         //names.Proportional.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         glimmer::FontDescriptor desc;
-        desc.flags = glimmer::FLT_Monospace;
+        desc.flags = glimmer::FLT_Proportional;
         //desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
@@ -48,10 +48,10 @@ int main(int argc, char** argv)
         glimmer::LoadDefaultFonts(&desc);
 
         glimmer::GetWindowConfig().renderer = glimmer::CreateImGuiRenderer();
-        glimmer::GetWindowConfig().defaultFontSz = 32.f;
+        glimmer::GetWindowConfig().defaultFontSz = 24.f;
 
         enum Labels { UPPER, LEFT, LEFT2, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, 
-            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, TOTAL };
+            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, TOTAL };
         int32_t widgets[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
@@ -103,6 +103,11 @@ int main(int argc, char** argv)
         model.placeholder = "This will be removed!";
         model.text.reserve(256);
         widgets[INPUT] = tid;
+
+        tid = glimmer::GetNextId(glimmer::WT_Slider);
+        auto& slider = glimmer::GetWidgetState(tid).state.slider;
+        slider.max = 100.f;
+        widgets[SLIDER] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_DropDown);
         auto& dd = glimmer::GetWidgetState(tid).state.dropdown;
@@ -200,11 +205,12 @@ int main(int argc, char** argv)
                     Move(FD_Horizontal);
                     DropDown(widgets[DROPDOWN], ToRight);
 
-                    PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
+                    //PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
                     PushStyle(WS_Checked, "background-color: blue; color: white;");
                     Move(FD_Horizontal);
-                    Checkbox(widgets[CHECKBOX], ToRight);
-                    PopStyle(1, WS_Default);
+                    //Checkbox(widgets[CHECKBOX], ToRight);
+                    Slider(widgets[SLIDER], ToRight);
+                    //PopStyle(1, WS_Default);
                     PopStyle(1, WS_Checked);
                 }
 

@@ -198,19 +198,24 @@ namespace glimmer
 
     void DrawBackground(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer)
     {
-        if (style.gradient.totalStops != 0)
-            (style.gradient.dir == ImGuiDir_Down || style.gradient.dir == ImGuiDir_Left) ?
-            DrawLinearGradient(startpos, endpos, style.gradient.angleDegrees, style.gradient.dir,
-                std::begin(style.gradient.colorStops), std::begin(style.gradient.colorStops) + style.gradient.totalStops, style.border.isRounded(), renderer) :
-            DrawLinearGradient(startpos, endpos, style.gradient.angleDegrees, style.gradient.dir,
-                std::rbegin(style.gradient.colorStops), std::rbegin(style.gradient.colorStops) + style.gradient.totalStops, style.border.isRounded(), renderer);
-        else if (IsColorVisible(style.bgcolor))
-            if (!style.border.isRounded())
-                renderer.DrawRect(startpos, endpos, style.bgcolor, true);
+        DrawBackground(startpos, endpos, style.bgcolor, style.gradient, style.border, renderer);
+    }
+
+    void DrawBackground(ImVec2 startpos, ImVec2 endpos, uint32_t bgcolor, const ColorGradient& gradient, const FourSidedBorder& border, IRenderer& renderer)
+    {
+        if (gradient.totalStops != 0)
+            (gradient.dir == ImGuiDir_Down || gradient.dir == ImGuiDir_Left) ?
+            DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
+                std::begin(gradient.colorStops), std::begin(gradient.colorStops) + gradient.totalStops, border.isRounded(), renderer) :
+            DrawLinearGradient(startpos, endpos, gradient.angleDegrees, gradient.dir,
+                std::rbegin(gradient.colorStops), std::rbegin(gradient.colorStops) + gradient.totalStops, border.isRounded(), renderer);
+        else if (IsColorVisible(bgcolor))
+            if (!border.isRounded())
+                renderer.DrawRect(startpos, endpos, bgcolor, true);
             else
-                renderer.DrawRoundedRect(startpos, endpos, style.bgcolor, true,
-                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner],
-                    style.border.cornerRadius[BottomRightCorner], style.border.cornerRadius[BottomLeftCorner]);
+                renderer.DrawRoundedRect(startpos, endpos, bgcolor, true,
+                    border.cornerRadius[TopLeftCorner], border.cornerRadius[TopRightCorner],
+                    border.cornerRadius[BottomRightCorner], border.cornerRadius[BottomLeftCorner]);
     }
 
     void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled, 

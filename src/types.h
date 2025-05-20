@@ -73,6 +73,7 @@ namespace glimmer
         float scrollbarSz = 15.f;
         float scrollAppearAnimationDuration = 0.3f;
         float splitterSize = 5.f;
+        float sliderSize = 20.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
@@ -97,12 +98,11 @@ namespace glimmer
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
         WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
-        WT_Slider,
+        WT_Slider, WT_Spinner,
         WT_TextInput,
         WT_DropDown,
         WT_TabBar,
         WT_ItemGrid,
-        WT_Custom,
         WT_TotalTypes
     };
 
@@ -157,6 +157,18 @@ namespace glimmer
     struct CheckboxState : public CommonWidgetData
     {
         CheckState check = CheckState::Unchecked;
+    };
+
+    struct SpinnerState : public CommonWidgetData
+    {
+        float data = 0.f;
+        float min = 0.f, max = FLT_MAX, delta = 1.f;
+    };
+
+    struct SliderState : public SpinnerState
+    {
+        uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
+        Direction dir = DIR_Horizontal;
     };
 
     struct ScrollBarState
@@ -311,6 +323,8 @@ namespace glimmer
             ToggleButtonState toggle;
             RadioButtonState radio;
             CheckboxState checkbox;
+            SpinnerState spinner;
+            SliderState slider;
             TextInputState input;
             DropDownState dropdown;
             TabBarState tab;

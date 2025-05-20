@@ -84,7 +84,7 @@ namespace glimmer
     {
         void* font = nullptr; // Pointer to font object
         std::string_view family = IM_RICHTEXT_DEFAULT_FONTFAMILY;
-        float size = 24.f;
+        float size = 16.f;
         int32_t flags = TextIsPlainText;
     };
 
@@ -223,6 +223,29 @@ namespace glimmer
         bool showText = true; // Show ON/OFF text inside button
         void* fontptr = nullptr;
         float fontsz = 12.f;
+
+        static ToggleButtonStyleDescriptor ParseFrom(std::string_view css);
+    };
+
+    struct SliderStyleDescriptor
+    {
+        uint32_t trackColor;
+        uint32_t thumbColor;
+        int32_t trackGradient = -1;
+        float trackBorderThickness = 1.f;
+        float thumbOffset = 2.f;
+        float thumbExpand = 0.f;
+
+        static SliderStyleDescriptor ParseFrom(std::string_view css);
+    };
+
+    struct SpinnerStyleDescriptor
+    {
+        uint32_t upcolor, downcolor;
+        bool upDownButtonFill = true;
+        bool upDownArrows = true;
+
+        static SpinnerStyleDescriptor ParseFrom(std::string_view css);
     };
 
     struct RadioButtonStyleDescriptor
@@ -232,6 +255,8 @@ namespace glimmer
         float outlineThickness = 2.f;
         float checkedRadius = 0.6f; // relative to total
         float animate = 0.3f;
+
+        static RadioButtonStyleDescriptor ParseFrom(std::string_view css);
     };
 
     union CommonWidgetStyleDescriptor

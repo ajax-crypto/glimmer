@@ -213,6 +213,8 @@ namespace glimmer
         WidgetDrawResult& result);
     void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
         WidgetDrawResult& result);
+    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, 
+        WidgetDrawResult& result);
     void HandleTextInputEvent(int32_t id, const ImRect& content, const IODescriptor& io,
         IRenderer& renderer, WidgetDrawResult& result);
     void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -258,6 +260,11 @@ namespace glimmer
                 ev.extent.Translate(origin);
                 ev.center += origin;
                 HandleToggleButtonEvent(ev.id, ev.extent, ev.center, renderer, io, result);
+                break;
+            case WT_Slider:
+                ev.content.Translate(origin);
+                ev.padding.Translate(origin);
+                HandleSliderEvent(ev.id, ev.padding, ev.content, io, result);
                 break;
             case WT_TextInput:
                 ev.content.Translate(origin);
@@ -357,6 +364,7 @@ namespace glimmer
         toggleStates.resize(32);
         radioStates.resize(32);
         checkboxStates.resize(32);
+        checkboxStates.resize(32);
         inputTextStates.resize(32);
         splitterStates.resize(4);
         splitterScrollPaneParentIds.resize(32 * 8, -1);
@@ -392,20 +400,26 @@ namespace glimmer
             style.font.size *= Config.fontScaling;
 
             context->radioButtonStyles[idx].push();
+            auto& slider = context->sliderStyles[idx].push();
+            context->spinnerStyles[idx].push();
             auto& toggle = context->toggleButtonStyles[idx].push();
             toggle.fontsz *= Config.fontScaling;
 
             if (addFont) AddFontPtr(style.font);
 
-            if (idx != WSI_Checked)
+            switch (idx)
             {
+            case WSI_Hovered:
+                slider.thumbColor = ToRGBA(255, 255, 255);
+            case WSI_Checked:
                 toggle.trackColor = ToRGBA(200, 200, 200);
                 toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-            }
-            else
-            {
+                break;
+            default:
                 toggle.trackColor = ToRGBA(152, 251, 152);
                 toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                slider.thumbColor = ToRGBA(240, 240, 240);
+                break;
             }
         }
     }
@@ -454,4 +468,6 @@ namespace glimmer
     int32_t WidgetContextData::currStyleStates;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t>  WidgetContextData::radioButtonStyles[WSI_Total];
+    DynamicStack<SliderStyleDescriptor, int16_t> WidgetContextData::sliderStyles[WSI_Total];
+    DynamicStack<SpinnerStyleDescriptor, int16_t> WidgetContextData::spinnerStyles[WSI_Total];
 }
