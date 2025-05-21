@@ -5,12 +5,12 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
-#include <lunasvg.h>
+#include <libs/inc/lunasvg/lunasvg.h>
 #include <style.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image/stb_image.h>
-#include "imgui_impl_opengl3_loader.h"
+#include <libs/inc/stb_image/stb_image.h>
+#include "libs/inc/imgui/imgui_impl_opengl3_loader.h"
 #undef min
 #undef max
 #undef DrawText
@@ -450,7 +450,7 @@ namespace glimmer
     bool ImGuiRenderer::StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color)
     {
         char buffer[32];
-        std::memset(buffer, 0, 32);
+        memset(buffer, 0, 32);
         std::to_chars(buffer, buffer + 31, id);
 
         ImGui::SetNextWindowPos(pos);
@@ -506,7 +506,7 @@ namespace glimmer
                 }
             }
             else
-                std::memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
+                memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
 
             if (csz > 0)
             {

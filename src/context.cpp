@@ -1,11 +1,14 @@
 #include "context.h"
 #include "im_font_manager.h"
 #include "renderer.h"
-#include <chrono>
 #include <list>
 
 #ifndef GLIMMER_MAX_OVERLAYS
 #define GLIMMER_MAX_OVERLAYS 32
+#endif
+
+#ifndef GLIMMER_GLOBAL_ANIMATION_FRAMETIME
+#define GLIMMER_GLOBAL_ANIMATION_FRAMETIME 18
 #endif
 
 namespace glimmer
@@ -15,14 +18,13 @@ namespace glimmer
 
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
-        auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock().now().time_since_epoch()).count();
-        if (timestamp == 0) timestamp = currts;
+        timestamp += Config.platform->desc.deltaTime;
 
-        if (currts - timestamp >= 33)
+        if (timestamp >= GLIMMER_GLOBAL_ANIMATION_FRAMETIME)
         {
             offset += amount;
             if (offset >= max) offset = reset;
+            timestamp = 0.f;
         }
     }
      
@@ -221,6 +223,8 @@ namespace glimmer
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
     void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
         const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
+        WidgetDrawResult& result);
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin)
     {
@@ -260,6 +264,11 @@ namespace glimmer
                 ev.extent.Translate(origin);
                 ev.center += origin;
                 HandleToggleButtonEvent(ev.id, ev.extent, ev.center, renderer, io, result);
+                break;
+            case WT_Spinner:
+                ev.extent.Translate(origin);
+                ev.center += origin;
+                HandleSpinnerEvent(ev.id, ev.extent, ev.incbtn, ev.decbtn, io, result);
                 break;
             case WT_Slider:
                 ev.content.Translate(origin);
@@ -356,18 +365,17 @@ namespace glimmer
     
     WidgetContextData::WidgetContextData()
     {
-        std::memset(maxids, 0, WT_TotalTypes);
-        std::memset(tempids, INT_MAX, WT_TotalTypes);
+        memset(maxids, 0, WT_TotalTypes);
+        memset(tempids, INT_MAX, WT_TotalTypes);
 
         gridStates.resize(8);
         tabStates.resize(16);
         toggleStates.resize(32);
         radioStates.resize(32);
         checkboxStates.resize(32);
-        checkboxStates.resize(32);
         inputTextStates.resize(32);
         splitterStates.resize(4);
-        splitterScrollPaneParentIds.resize(32 * 8, -1);
+        splitterScrollPaneParentIds.resize(32 * GLIMMER_MAX_SPLITTER_REGIONS, -1);
         dropDownOptions.resize(32);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
@@ -379,7 +387,7 @@ namespace glimmer
     
     SplitterInternalState::SplitterInternalState()
     {
-        for (auto idx = 0; idx < 8; ++idx)
+        for (auto idx = 0; idx < GLIMMER_MAX_SPLITTER_REGIONS; ++idx)
         {
             states[idx] = WS_Default;
             scrollids[idx] = -1;
@@ -401,7 +409,7 @@ namespace glimmer
 
             context->radioButtonStyles[idx].push();
             auto& slider = context->sliderStyles[idx].push();
-            context->spinnerStyles[idx].push();
+            auto& spinner = context->spinnerStyles[idx].push();
             auto& toggle = context->toggleButtonStyles[idx].push();
             toggle.fontsz *= Config.fontScaling;
 
@@ -411,6 +419,7 @@ namespace glimmer
             {
             case WSI_Hovered:
                 slider.thumbColor = ToRGBA(255, 255, 255);
+                spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
             case WSI_Checked:
                 toggle.trackColor = ToRGBA(200, 200, 200);
                 toggle.indicatorTextColor = ToRGBA(100, 100, 100);
@@ -419,6 +428,7 @@ namespace glimmer
                 toggle.trackColor = ToRGBA(152, 251, 152);
                 toggle.indicatorTextColor = ToRGBA(0, 100, 0);
                 slider.thumbColor = ToRGBA(240, 240, 240);
+                spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
                 break;
             }
         }

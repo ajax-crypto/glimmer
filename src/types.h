@@ -130,7 +130,7 @@ namespace glimmer
     {
         int32_t state = WS_Default;
         std::string_view tooltip = "";
-        long long _hoverDuration = 0; // for tooltip
+        float _hoverDuration = 0; // for tooltip, in seconds
         bool floating = false;
     };
 
@@ -159,14 +159,21 @@ namespace glimmer
         CheckState check = CheckState::Unchecked;
     };
 
+    enum class SpinnerButtonPlacement { VerticalLeft, VerticalRight, EitherSide };
+
     struct SpinnerState : public CommonWidgetData
     {
         float data = 0.f;
-        float min = 0.f, max = FLT_MAX, delta = 1.f;
+        float min = 0.f, max = (float)INT_MAX, delta = 1.f;
+        SpinnerButtonPlacement placement = SpinnerButtonPlacement::VerticalRight;
+        int precision = 3;
+        bool isInteger = true;
     };
 
-    struct SliderState : public SpinnerState
+    struct SliderState : public CommonWidgetData
     {
+        float data = 0.f;
+        float min = 0.f, max = FLT_MAX, delta = 1.f;
         uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
         Direction dir = DIR_Horizontal;
     };

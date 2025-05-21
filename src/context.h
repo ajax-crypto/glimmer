@@ -5,6 +5,10 @@
 
 #include <bit>
 
+#ifndef GLIMMER_MAX_SPLITTER_REGIONS
+#define GLIMMER_MAX_SPLITTER_REGIONS 8
+#endif
+
 namespace glimmer
 {
     // =============================================================================================
@@ -19,7 +23,7 @@ namespace glimmer
         int32_t types = 0;
         ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
         float offset = 0.f;
-        long long timestamp = 0;
+        float timestamp = 0;
 
         void moveByPixel(float amount, float max, float reset);
     };
@@ -178,12 +182,12 @@ namespace glimmer
         };
 
         int current = 0;
-        SplitRange spacing[8]; // spacing from (i-1)th to ith splitter
-        int32_t states[8]; // ith splitter's state
-        int32_t scrollids[8]; // id of ith scroll data
-        ScrollableRegion scrolldata[8]; // ith scroll region data
-        ImRect viewport[8]; // ith non-scroll region geometry
-        bool isdragged[8]; // ith drag state
+        SplitRange spacing[GLIMMER_MAX_SPLITTER_REGIONS]; // spacing from (i-1)th to ith splitter
+        int32_t states[GLIMMER_MAX_SPLITTER_REGIONS]; // ith splitter's state
+        int32_t scrollids[GLIMMER_MAX_SPLITTER_REGIONS]; // id of ith scroll data
+        ScrollableRegion scrolldata[GLIMMER_MAX_SPLITTER_REGIONS]; // ith scroll region data
+        ImRect viewport[GLIMMER_MAX_SPLITTER_REGIONS]; // ith non-scroll region geometry
+        bool isdragged[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
 
         SplitterInternalState();
     };
@@ -254,6 +258,7 @@ namespace glimmer
         ImRect text;
 
         ImRect extent;
+        ImRect decbtn, incbtn;
         ImVec2 center;
         float maxrad;
 
@@ -276,6 +281,9 @@ namespace glimmer
 
         EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& p, const ImRect& c)
             : type{ type_ }, id{ id_ }, padding{ p }, content{ c } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, const ImRect& inc, const ImRect& dec)
+            : type{ type_ }, id{ id_ }, extent{ e }, incbtn{ inc }, decbtn{ dec } {}
     };
 
     // Captures widget states, is stored as a linked-list, each context representing

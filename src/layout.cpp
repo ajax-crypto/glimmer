@@ -14,7 +14,7 @@
 
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
 #define CLAY_IMPLEMENTATION
-#include "clay/clay.h"
+#include "libs/inc/clay/clay.h"
 
 Clay_Arena LayoutArena;
 void* LayoutMemory = nullptr;
@@ -30,6 +30,7 @@ namespace glimmer
     WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
@@ -795,6 +796,14 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = CheckboxImpl(item.id, state, item.margin, item.padding, renderer, io);
+            break;
+        }
+        case WT_Spinner: {
+            auto& state = context.GetState(item.id).state.spinner;
+            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            UpdateGeometry(item, bbox, style);
+            context.AddItemGeometry(item.id, bbox);
+            result = SpinnerImpl(item.id, state, item.padding, io, renderer);
             break;
         }
         case glimmer::WT_Slider: {

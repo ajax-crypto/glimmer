@@ -1,9 +1,9 @@
 #pragma once
 
 #include <type_traits>
-#include <algorithm>
 #include <span>
 #include <optional>
+#include <stdint.h>
 
 #ifdef _DEBUG
 #include <cstdio>
@@ -50,6 +50,12 @@ namespace glimmer
     T clamp(T val, T min, T max)
     {
         return val > max ? max : val < min ? min : val;
+    }
+
+    template <typename ItrT, typename T>
+    void Fill(ItrT start, ItrT end, T&& el)
+    {
+        while (start != end) { *start = el; ++start; }
     }
 
     template <typename T, typename Sz, Sz blocksz = 128>
@@ -124,7 +130,7 @@ namespace glimmer
         explicit Vector(Sz initialsz, const T& el)
             : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
         {
-            std::fill(_data, _data + _capacity, el);
+            Fill(_data, _data + _capacity, el);
         }
 
         void resize(Sz count, bool initialize = true)
@@ -136,7 +142,7 @@ namespace glimmer
             else if (_capacity < count)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
-                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
+                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
             }
 
@@ -153,17 +159,17 @@ namespace glimmer
             else if (_capacity < count)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
-                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
+                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
             }
 
-            std::fill(_data + _size, _data + count, el);
+            Fill(_data + _size, _data + count, el);
             _size = _capacity = count;
         }
 
         void fill(const T& el)
         {
-            std::fill(_data + _size, _data + _capacity, el);
+            Fill(_data + _size, _data + _capacity, el);
             _size = _capacity;
         }
 
@@ -174,7 +180,7 @@ namespace glimmer
             if (_capacity < targetsz)
             {
                 auto ptr = (T*)std::realloc(_data, sizeof(T) * targetsz);
-                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _size);
+                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
                 _capacity = targetsz;
             }
@@ -195,7 +201,7 @@ namespace glimmer
         void push_back(const T& el) { _reallocate(true); _data[_size] = el; _size++; }
         void pop_back() { if constexpr (std::is_default_constructible_v<T>) _data[_size - 1] = T{}; --_size; }
         void clear() { _default_init(0, _size); _size = 0; }
-        void reset(const T& el) { std::fill(_data, _data + _size, el); }
+        void reset(const T& el) { Fill(_data, _data + _size, el); }
         void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); _capacity = _size; }
 
         Iterator begin() { return _data; }
@@ -226,7 +232,7 @@ namespace glimmer
                     ++from;
                 }
             else if constexpr (std::is_arithmetic_v<T>)
-                std::fill(_data + from, _data + to, T{ 0 });
+                Fill(_data + from, _data + to, T{ 0 });
         }
 
         void _reallocate(bool initialize)
@@ -236,7 +242,7 @@ namespace glimmer
 
             if (ptr != nullptr)
             {
-                if (ptr != _data) std::memmove(ptr, _data, sizeof(T) * _capacity);
+                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _capacity);
                 _data = ptr;
                 if (initialize) _default_init(_capacity, _capacity + blocksz);
                 _capacity += blocksz;
@@ -263,7 +269,7 @@ namespace glimmer
             if (init)
             {
                 if constexpr (std::is_default_constructible_v<T>)
-                    std::fill(_data, _data + capacity, T{});
+                    Fill(_data, _data + capacity, T{});
             }
         }
 

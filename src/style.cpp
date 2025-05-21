@@ -315,8 +315,8 @@ namespace glimmer
         else if (NamedColor != nullptr)
         {
             static char buffer[32] = { 0 };
-            std::memset(buffer, 0, 32);
-            std::memcpy(buffer, stylePropVal.data(), std::min((int)stylePropVal.size(), 31));
+            memset(buffer, 0, 32);
+            memcpy(buffer, stylePropVal.data(), std::min((int)stylePropVal.size(), 31));
             return NamedColor(buffer, userData);
         }
         else
@@ -426,7 +426,7 @@ namespace glimmer
         std::size_t operator()(std::string_view key) const
         {
             thread_local static char buffer[maxsz] = { 0 };
-            std::memset(buffer, 0, maxsz);
+            memset(buffer, 0, maxsz);
             auto limit = std::min((int)key.size(), maxsz - 1);
 
             for (auto idx = 0; idx < limit; ++idx)

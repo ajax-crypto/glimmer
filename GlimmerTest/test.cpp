@@ -51,7 +51,7 @@ int main(int argc, char** argv)
         glimmer::GetWindowConfig().defaultFontSz = 24.f;
 
         enum Labels { UPPER, LEFT, LEFT2, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, 
-            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, TOTAL };
+            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, SPINNER, TOTAL };
         int32_t widgets[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
@@ -97,6 +97,10 @@ int main(int argc, char** argv)
         tid = glimmer::GetNextId(glimmer::WT_Checkbox);
         glimmer::GetWidgetState(tid);
         widgets[CHECKBOX] = tid;
+
+        tid = glimmer::GetNextId(glimmer::WT_Spinner);
+        glimmer::GetWidgetState(tid).state.spinner.max = 100;
+        widgets[SPINNER] = tid;
 
         tid = glimmer::GetNextId(glimmer::WT_TextInput);
         auto& model = glimmer::GetWidgetState(tid).state.input;
@@ -193,7 +197,8 @@ int main(int argc, char** argv)
                     ToggleButton(widgets[TOGGLE], ToRight);
 
                     Move(FD_Horizontal);
-                    RadioButton(widgets[RADIO], ToRight);
+                    //RadioButton(widgets[RADIO], ToRight);
+                    Spinner(widgets[SPINNER], ToRight);
 
                     Move(FD_Horizontal);
                     PushStyle("border: 1px solid black; width: 200px; background-color: rgb(240, 240, 240)");

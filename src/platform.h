@@ -13,8 +13,8 @@
 #endif
 
 #if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
-#include "imgui.h"
-#include "imgui_internal.h"
+#include "libs/inc/imgui/imgui.h"
+#include "libs/inc/imgui/imgui_internal.h"
 
 #define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
 #define GLIMMER_KEY_ENUM_END ImGuiKey_NamedKey_END
@@ -82,6 +82,12 @@ inline bool operator!=(const ImRect& lhs, const ImRect& rhs)
 {
     return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
 }
+
+inline bool operator>(ImVec2 lhs, ImVec2 rhs)
+{
+    return lhs.x > rhs.x || lhs.y > rhs.y;
+}
+
 #include <string_view>
 #include <vector>
 
@@ -247,6 +253,7 @@ namespace glimmer
         virtual bool PollEvents(bool (*runner)(void*), void* data) = 0;
 
         int64_t frameCount = 0;
+        IODescriptor desc;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });

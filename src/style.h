@@ -241,8 +241,9 @@ namespace glimmer
 
     struct SpinnerStyleDescriptor
     {
-        uint32_t upcolor, downcolor;
-        bool upDownButtonFill = true;
+        uint32_t upColor, downColor;
+        uint32_t upbtnColor, downbtnColor;
+        float btnBorderThickness = 2.f;
         bool upDownArrows = true;
 
         static SpinnerStyleDescriptor ParseFrom(std::string_view css);

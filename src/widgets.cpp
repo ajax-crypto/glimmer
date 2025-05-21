@@ -1,16 +1,17 @@
 #include "widgets.h"
 
-
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-#include "imgui.h"
+#include "libs/inc/imgui/imgui.h"
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
-#include "blend2d.h"
+#include "libs/inc/blend2d/blend2d.h"
 #endif
 
 #include <cstring>
-#include <chrono>
 #include <cassert>
+#include <cmath>
+#include <cctype>
+#include <charconv>
 #include "style.h"
 #include "draw.h"
 #include "context.h"
@@ -19,6 +20,7 @@
 
 namespace glimmer
 {
+    // This is required, as for some widgets, double clicking leads to a editor, and hence a text input widget
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content,
         IRenderer& renderer, const IODescriptor& io);
 
@@ -109,16 +111,6 @@ namespace glimmer
         return (point < (max + tolerance)) && (point > (min - tolerance));
     }
 
-    static bool operator!=(const ImRect& lhs, const ImRect& rhs)
-    {
-        return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
-    }
-
-    static bool operator>(ImVec2 lhs, ImVec2 rhs)
-    {
-        return lhs.x > rhs.x || lhs.y > rhs.y;
-    }
-
     static ImVec2 GetTextSize(TextType type, std::string_view text, const FontStyle& font, float width, IRenderer& renderer)
     {
         switch (type)
@@ -129,6 +121,316 @@ namespace glimmer
         default: break;
         }
     }
+
+    void ShowTooltip(float& hoverDuration, const ImRect& margin, ImVec2 pos, std::string_view tooltip, const IODescriptor& io, IRenderer& renderer)
+    {
+        hoverDuration += io.deltaTime;
+        
+        if (hoverDuration >= Config.tooltipDelay)
+        {
+            auto font = GetFont(Config.tooltipFontFamily, Config.tooltipFontSz, FT_Normal);
+            auto textsz = renderer.GetTextSize(tooltip, font, Config.tooltipFontSz);
+            auto offsetx = std::max(0.f, margin.GetWidth() - textsz.x) * 0.5f;
+            auto tooltippos = pos + ImVec2{ offsetx, -(textsz.y + 2.f) };
+            renderer.DrawTooltip(tooltippos, tooltip);
+        }
+    }
+
+    template <typename StringT>
+    static void CopyToClipboard(StringT& string, int start, int end)
+    {
+        static char buffer[256] = { 0 };
+        auto dest = 0;
+        auto sz = end - start + 2;
+        IPlatform& platform = *Config.platform;
+
+        if (sz > 254)
+        {
+            char* hbuffer = (char*)std::malloc(sz);
+            for (auto idx = start; idx <= end; ++idx, ++dest)
+                hbuffer[dest] = string[idx];
+            hbuffer[dest] = 0;
+            platform.SetClipboardText(hbuffer);
+            std::free(hbuffer);
+        }
+        else
+        {
+            memset(buffer, 0, 256);
+            for (auto idx = start; idx <= end; ++idx, ++dest)
+                buffer[dest] = string[idx];
+            buffer[dest] = 0;
+            platform.SetClipboardText(buffer);
+        }
+    }
+
+    static void AddExtent(LayoutItemDescriptor& layoutItem, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto sz = context.MaximumExtent();
+        auto nextpos = context.NextAdHocPos();
+        layoutItem.margin.Min = nextpos;
+        layoutItem.border.Min = layoutItem.margin.Min;
+        layoutItem.padding.Min = layoutItem.border.Min;
+        layoutItem.content.Min = layoutItem.padding.Min;
+
+        if (neighbors.right != -1) layoutItem.margin.Max.x = context.GetGeometry(neighbors.right).Min.x;
+        else layoutItem.margin.Max.x = layoutItem.margin.Min.x + (sz.x - nextpos.x);
+
+        layoutItem.border.Max.x = layoutItem.margin.Max.x;
+        layoutItem.padding.Max.x = layoutItem.border.Max.x;
+        layoutItem.content.Max.x = layoutItem.padding.Max.x;
+
+        if (neighbors.bottom != -1) layoutItem.margin.Max.y = context.GetGeometry(neighbors.bottom).Min.y;
+        else layoutItem.margin.Max.y = layoutItem.margin.Min.y + (sz.y - nextpos.y);
+
+        layoutItem.border.Max.y = layoutItem.margin.Max.y;
+        layoutItem.padding.Max.y = layoutItem.border.Max.y;
+        layoutItem.content.Max.y = layoutItem.padding.Max.y;
+    }
+
+#pragma region Scrollbars
+
+    static bool HandleHScroll(ScrollBarState& scroll, float width, const ImRect& viewport,
+        ImVec2 mousepos, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true)
+    {
+        auto hasHScroll = false;
+        float gripExtent = 0.f;
+        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
+        const float vwidth = viewport.GetWidth();
+        const float posrange = width - vwidth;
+
+        if (width > vwidth)
+        {
+            auto hasOpacity = scroll.opacity > 0.f;
+            auto hasMouseInteraction = (viewport.Contains(mousepos) && (mousepos.y <= viewport.Max.y) && mousepos.y >= (viewport.Max.y - (1.5f * btnsz)))
+                || scroll.mouseDownOnHGrip;
+
+            if (hasMouseInteraction || hasOpacity)
+            {
+                if (hasMouseInteraction && scroll.opacity < 255.f)
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
+                else if (!hasMouseInteraction && scroll.opacity > 0.f)
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
+
+                auto lrsz = showButtons ? btnsz : 0.f;
+                ImRect left{ { viewport.Min.x, viewport.Max.y - lrsz }, { viewport.Min.x + lrsz, viewport.Max.y } };
+                ImRect right{ { viewport.Max.x - lrsz, viewport.Max.y }, viewport.Max };
+                ImRect path{ { left.Max.x, left.Min.y }, { right.Min.x, right.Max.y } };
+
+                auto pathsz = path.GetWidth();
+                auto sizeOfGrip = (vwidth / width) * pathsz;
+                auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.x;
+                ImRect grip{ { left.Max.x + spos, viewport.Max.y - btnsz },
+                    { left.Max.x + spos + sizeOfGrip, viewport.Max.y } };
+
+                if (showButtons)
+                {
+                    renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                    renderer.DrawTriangle({ left.Min.x + (btnsz * 0.25f), left.Min.y + (0.5f * btnsz) },
+                        { left.Max.x - (0.125f * btnsz), left.Min.y + (0.125f * btnsz) },
+                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+
+                    renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                    renderer.DrawTriangle({ right.Min.x + (btnsz * 0.25f), right.Min.y + (0.125f * btnsz) },
+                        { right.Max.x - (0.125f * btnsz), right.Min.y + (0.5f * btnsz) },
+                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+                }
+
+                if (grip.Contains(mousepos))
+                {
+                    if (io.isLeftMouseDown())
+                    {
+                        if (!scroll.mouseDownOnHGrip)
+                        {
+                            scroll.mouseDownOnHGrip = true;
+                            scroll.lastMousePos.y = mousepos.y;
+                        }
+
+                        auto step = mousepos.x - scroll.lastMousePos.x;
+                        step = (posrange / (pathsz - sizeOfGrip)) * step;
+                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.x = mousepos.x;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                }
+                else
+                {
+                    if (scroll.mouseDownOnHGrip)
+                    {
+                        auto step = mousepos.x - scroll.lastMousePos.x;
+                        step = (posrange / (pathsz - sizeOfGrip)) * step;
+                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.x = mousepos.x;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+
+                    if (left.Contains(mousepos) && io.isLeftMouseDown())
+                        scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
+                    else if (right.Contains(mousepos) && io.isLeftMouseDown())
+                        scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
+                }
+
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnHGrip)
+                {
+                    scroll.mouseDownOnHGrip = false;
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                }
+            }
+
+            hasHScroll = true;
+        }
+
+        return hasHScroll;
+    }
+
+    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos,
+        IRenderer& renderer, const IODescriptor& io, float btnsz, bool hasHScroll = false)
+    {
+        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
+        const auto vheight = viewport.GetHeight();
+        const float posrange = height - vheight;
+
+        if (height > vheight)
+        {
+            auto hasOpacity = scroll.opacity > 0.f;
+            auto hasMouseInteraction = (viewport.Contains(mousepos) && (mousepos.x <= viewport.Max.x) && mousepos.x >= (viewport.Max.x - (1.5f * btnsz)) &&
+                (!hasHScroll || mousepos.y < (viewport.Max.y - btnsz))) || scroll.mouseDownOnVGrip;
+
+            if (hasMouseInteraction || hasOpacity)
+            {
+                if (hasMouseInteraction && scroll.opacity < 255.f)
+                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
+                else if (!hasMouseInteraction && scroll.opacity > 0.f)
+                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
+
+                auto extrah = hasHScroll ? btnsz : 0.f;
+                ImRect top{ { viewport.Max.x - btnsz, viewport.Min.y }, { viewport.Max.x, viewport.Min.y + btnsz } };
+                ImRect bottom{ { viewport.Max.x - btnsz, viewport.Max.y - btnsz - extrah }, viewport.Max };
+                ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
+
+                auto pathsz = path.GetHeight();
+                auto sizeOfGrip = (vheight / height) * pathsz;
+                auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.y;
+                ImRect grip{ { viewport.Max.x - btnsz, top.Max.y + spos },
+                    { viewport.Max.x, sizeOfGrip + top.Max.y + spos } };
+
+                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
+                    { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
+                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+
+                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
+                    { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
+                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+
+                if (grip.Contains(mousepos))
+                {
+                    if (io.isLeftMouseDown())
+                    {
+                        if (!scroll.mouseDownOnVGrip)
+                        {
+                            scroll.mouseDownOnVGrip = true;
+                            scroll.lastMousePos.y = mousepos.y;
+                        }
+
+                        auto step = mousepos.y - scroll.lastMousePos.y;
+                        step = (posrange / (pathsz - sizeOfGrip)) * step;
+                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.y = mousepos.y;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                }
+                else
+                {
+                    if (scroll.mouseDownOnVGrip)
+                    {
+                        auto step = mousepos.y - scroll.lastMousePos.y;
+                        step = (posrange / (pathsz - sizeOfGrip)) * step;
+                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        scroll.lastMousePos.y = mousepos.y;
+                    }
+                    else
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+
+                    if (top.Contains(mousepos) && io.isLeftMouseDown())
+                        scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
+                    else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
+                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
+                }
+
+                if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
+                {
+                    scroll.mouseDownOnVGrip = false;
+                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                }
+            }
+
+            if (viewport.Contains(mousepos))
+            {
+                auto rotation = io.mouseWheel;
+                scroll.pos.y = ImClamp(rotation + scroll.pos.y, 0.f, posrange);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& region = context.ScrollRegion(id);
+        const auto& style = context.GetStyle(WS_Default);
+
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        LayoutItemDescriptor layoutItem;
+        AddExtent(layoutItem, style, neighbors);
+        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
+
+        region.viewport = layoutItem.content;
+        region.enabled = { hscroll, vscroll };
+        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
+        context.containerStack.push(id);
+    }
+
+    void EndScrollableRegion()
+    {
+        auto& context = GetContext();
+        auto id = context.containerStack.top();
+        auto& region = context.ScrollRegion(id);
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        renderer.ResetClipRect();
+
+        auto hasHScroll = false;
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        {
+            hasHScroll = true;
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
+                Config.scrollbarSz);
+        }
+
+        if (region.viewport.Max.y < region.max.y && region.enabled.second)
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
+                Config.scrollbarSz, hasHScroll);
+
+        context.containerStack.pop();
+        context.AddItemGeometry(id, region.viewport);
+    }
+
+#pragma endregion
+
+#pragma region Button & Lables
 
     /* Here is the box model that is followed here:
 
@@ -153,7 +455,7 @@ namespace glimmer
     */
 
     static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
-        std::string_view text, IRenderer& renderer, int32_t geometry, TextType type, 
+        std::string_view text, IRenderer& renderer, int32_t geometry, TextType type,
         const NeighborWidgets& neighbors, float width, float height)
     {
         ImRect content, padding, border, margin;
@@ -441,49 +743,670 @@ namespace glimmer
         return std::make_tuple(content, padding, border, margin, ImRect{ textpos, textpos + textsz });
     }
 
-    void ShowTooltip(long long& hoverDuration, const ImRect& margin, ImVec2 pos, std::string_view tooltip, IRenderer& renderer)
+    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto currts = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock().now().time_since_epoch()).count();
-        if (hoverDuration == 0) hoverDuration = currts;
-        else if ((int32_t)(currts - hoverDuration) >= Config.tooltipDelay)
+        auto& context = GetContext();
+        if (!context.deferEvents)
         {
-            auto font = GetFont(Config.tooltipFontFamily, Config.tooltipFontSz, FT_Normal);
-            auto textsz = renderer.GetTextSize(tooltip, font, Config.tooltipFontSz);
-            auto offsetx = std::max(0.f, margin.GetWidth() - textsz.x) * 0.5f;
-            auto tooltippos = pos + ImVec2{ offsetx, -(textsz.y + 2.f) };
-            renderer.DrawTooltip(tooltippos, tooltip);
+            auto& state = context.GetState(id).state.label;
+            auto ismouseover = padding.Contains(io.mousepos);
+            if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, io, renderer);
+            else state._hoverDuration == 0;
         }
+        else context.deferedEvents.emplace_back(WT_Label, id, margin, border, padding, content, text);
     }
 
-    template <typename StringT>
-    static void CopyToClipboard(StringT& string, int start, int end)
+    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        static char buffer[256] = { 0 };
-        auto dest = 0;
-        auto sz = end - start + 2;
-        IPlatform& platform = *Config.platform;
-
-        if (sz > 254)
+        auto& context = GetContext();
+        if (!context.deferEvents)
         {
-            char* hbuffer = (char*)std::malloc(sz);
-            for (auto idx = start; idx <= end; ++idx, ++dest)
-                hbuffer[dest] = string[idx];
-            hbuffer[dest] = 0;
-            platform.SetClipboardText(hbuffer);
-            std::free(hbuffer);
+            auto& state = context.GetState(id).state.button;
+            auto ismouseover = padding.Contains(io.mousepos);
+            state.state = !ismouseover ? WS_Default :
+                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            if (ismouseover && io.clicked())
+                result.event = WidgetEvent::Clicked;
+            else if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, io, renderer);
+            else state._hoverDuration == 0;
+        }
+        else context.deferedEvents.emplace_back(WT_Button, id, margin, border, padding, content, text);
+    }
+
+    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
+    {
+        auto& context = GetContext();
+        assert((id & 0xffff) <= (int)context.states[WT_Label].size());
+
+        WidgetDrawResult result;
+        auto& state = context.GetState(id).state.label;
+        auto& style = context.GetStyle(state.state);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
+        HandleLabelEvent(id, margin, border, padding, content, text, renderer, io, result);
+        
+        result.geometry = margin;
+        return result;
+    }
+
+    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.button;
+        auto& style = context.GetStyle(state.state);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+        HandleButtonEvent(id, margin, border, padding, content, text, renderer, io, result);
+
+        result.geometry = margin;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Toggle Button
+
+    static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        ImRect result;
+        ImVec2 text;
+        result.Min = result.Max = extent.Min;
+
+        if (specificStyle.showText)
+        {
+            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY,
+                specificStyle.fontsz, FT_Bold);
+
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
+            result.Max += text;
+            renderer.ResetFont();
+
+            auto extra = 2.f * (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+            result.Max.x += extra;
+            result.Max.y += extra;
         }
         else
         {
-            std::memset(buffer, 0, 256);
-            for (auto idx = start; idx <= end; ++idx, ++dest)
-                buffer[dest] = string[idx];
-            buffer[dest] = 0;
-            platform.SetClipboardText(buffer);
+            result.Max.x += ((extent.GetHeight()) * 2.f); 
+            result.Max.y += extent.GetHeight();
         }
+
+        return { result, text };
     }
 
-#pragma region Event Handling
+    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        if (!context.deferEvents)
+        {
+            auto& toggle = context.ToggleState(id);
+            auto& state = context.GetState(id).state.toggle;
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+
+            if (mouseover && io.clicked())
+            {
+                result.event = WidgetEvent::Clicked;
+                state.checked = !state.checked;
+                toggle.animate = true;
+                toggle.progress = 0.f;
+            }
+
+            toggle.btnpos = toggle.animate ? center.x : -1.f;
+            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
+                mouseover ? WS_Hovered : WS_Default;
+            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        }
+        else context.deferedEvents.emplace_back(WT_ToggleButton, id, center, extent);
+    }
+
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
+        auto& toggle = context.ToggleState(id);
+
+        auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
+        auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
+        auto movement = extent.GetWidth() - (2.f * (radius + extra));
+        auto moveAmount = toggle.animate ? (io.deltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
+        toggle.progress += std::fabsf(moveAmount / movement);
+
+        auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
+            : extent.Min + ImVec2{ radius + extra, extra + radius }
+        : ImVec2{ toggle.btnpos, extra + radius };
+        center.x = ImClamp(center.x + moveAmount, extent.Min.x + (extra * 0.5f), extent.Max.x - extra);
+        center.y = extent.Min.y + (extent.GetHeight() * 0.5f);
+        toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
+
+        auto rounded = extent.GetHeight() * 0.5f;
+        auto tcol = specificStyle.trackColor;
+        if (toggle.animate)
+        {
+            auto prevTCol = state.checked ? context.toggleButtonStyles[WSI_Default].top().trackColor :
+                context.toggleButtonStyles[WSI_Checked].top().trackColor;
+            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
+            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
+            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
+            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
+            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
+            tcol = ToRGBA(tr, tg, tb, ta);
+        }
+
+        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
+        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
+            specificStyle.trackBorderThickness);
+
+        if (specificStyle.showText && !toggle.animate)
+        {
+            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
+            auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
+            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
+                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
+            renderer.ResetFont();
+        }
+
+        renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
+        HandleToggleButtonEvent(id, extent, center, renderer, io, result);
+
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Radio Button
+
+    static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
+    {
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+    }
+
+    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        if (!context.deferEvents)
+        {
+            auto& radio = context.RadioState(id);
+            auto& state = context.GetState(id).state.radio;
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+
+            if (mouseover && io.clicked())
+            {
+                result.event = WidgetEvent::Clicked;
+                state.checked = !state.checked;
+                radio.animate = true;
+                radio.progress = 0.f;
+                radio.radius = state.checked ? 0.f : maxrad;
+            }
+
+            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
+                mouseover ? WS_Hovered : WS_Default;
+            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+        }
+        else context.deferedEvents.emplace_back(WT_RadioButton, id, extent, maxrad);
+    }
+
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& specificStyle = context.radioButtonStyles[log2((unsigned)state.state)].top();
+        auto& radio = context.RadioState(id);
+
+        auto radius = (extent.GetWidth() - 2.f) * 0.5f;
+        auto center = extent.Min + ImVec2{ radius + 1.f, radius + 1.f };
+        renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
+        auto maxrad = radius * specificStyle.checkedRadius;
+        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
+        radius = radio.radius;
+
+        if (radius > 0.f) renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
+
+        auto ratio = radio.animate ? (io.deltaTime / specificStyle.animate) : 0.f;
+        radio.progress += ratio;
+        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
+        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
+        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result);
+        
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Checkbox
+
+    static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
+    {
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+    }
+
+    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
+        {
+            auto& check = context.CheckboxState(id);
+            auto& state = context.GetState(id).state.checkbox;
+
+            auto mousepos = io.mousepos;
+            auto mouseover = extent.Contains(mousepos);
+            auto isclicked = mouseover && io.isLeftMouseDown();
+            state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
+                mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
+
+            if (mouseover && io.clicked())
+            {
+                state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
+                state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
+                result.event = WidgetEvent::Clicked;
+                check.animate = state.check != CheckState::Unchecked;
+                check.progress = 0.f;
+            }
+        }
+        else context.deferedEvents.emplace_back(WT_Checkbox, id, extent);
+    }
+
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto& check = context.CheckboxState(id);
+        WidgetDrawResult result;
+
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        auto height = padding.GetHeight(), width = padding.GetWidth();
+
+        if (check.animate && check.progress < 1.f)
+            check.progress += (io.deltaTime / 0.25f);
+
+        switch (state.check)
+        {
+        case CheckState::Checked:
+        {
+            auto start = ImVec2{ padding.Min.x, padding.Min.y + (height * 0.5f) };
+            auto end = ImVec2{ padding.Min.x + (width * 0.333f), padding.Max.y };
+            auto tickw = padding.Max.x - end.x;
+            renderer.DrawLine(start, end, style.fgcolor, 2.f);
+            renderer.DrawLine(end, ImVec2{ padding.Max.x - ((1.f - check.progress) * tickw), padding.Min.y +
+                ((1.f - check.progress) * height) }, style.fgcolor, 2.f);
+            break;
+        }
+        case CheckState::Partial:
+            renderer.DrawLine(padding.Min + ImVec2{ 0.f, height * 0.5f }, padding.Max - 
+                ImVec2{ 0.f, height * 0.5f }, style.fgcolor, 2.f);
+            break;
+        default:
+            break;
+        }
+
+        HandleCheckboxEvent(id, extent, io, result);
+        
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Spinner
+
+    static ImRect SpinnerBounds(int32_t id, const SpinnerState& state, IRenderer& renderer, const ImRect& extent)
+    {
+        auto digits = (int)(std::ceilf(std::log10f(state.max) + 1.f)) + (!state.isInteger ? state.precision + 1 : 0);
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+
+        static char buffer[32] = { 0 };
+        assert(digits < 31);
+        memset(buffer, '0', digits);
+        buffer[digits] = 0;
+
+        std::string_view text{ buffer, (size_t)digits };
+        auto txtsz = renderer.GetTextSize(text, style.font.font, style.font.size);
+        ImRect result;
+        result.Min = extent.Min;
+
+        switch (state.placement)
+        {
+        case SpinnerButtonPlacement::EitherSide:
+            result.Max.x = result.Min.x + txtsz.x + (2.f * style.font.size) + style.padding.v();
+            result.Max.y = result.Min.y + txtsz.y;
+            break;
+        case SpinnerButtonPlacement::VerticalLeft:
+        case SpinnerButtonPlacement::VerticalRight:
+            result.Max.x = result.Min.x + txtsz.x + style.font.size + style.padding.v();
+            result.Max.y = result.Min.y + txtsz.y;
+            break;
+        default:
+            break;
+        }
+
+        result.Max.x += style.padding.h();
+        result.Max.y += style.padding.v();
+        if (style.specified & StyleWidth) result.Max.x = result.Min.x + style.dimension.x;
+        if (style.specified & StyleHeight) result.Max.y = result.Min.y + style.dimension.y;
+        return result;
+    }
+
+    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io, 
+        WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.spinner;
+
+            if (incbtn.Contains(io.mousepos))
+            {
+                if (io.isLeftMouseDown() || io.clicked())
+                {
+                    state.data = std::min(state.data + state.delta, state.max);
+                    result.event = WidgetEvent::Edited;
+                }
+            }
+            else if (decbtn.Contains(io.mousepos))
+            {
+                if (io.isLeftMouseDown() || io.clicked())
+                {
+                    state.data = std::max(state.data - state.delta, state.min);
+                    result.event = WidgetEvent::Edited;
+                }
+            }
+        }
+        else
+            context.deferedEvents.emplace_back(WT_Spinner, id, extent, incbtn, decbtn);
+    }
+
+    uint32_t DarkenColor(uint32_t rgba)
+    {
+        auto [r, g, b, a] = DecomposeColor(rgba);
+        r = r / 2; g = g / 2; b = b / 2;
+        return ToRGBA(r, g, b, a);
+    }
+
+    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const ImRect& extent, const IODescriptor& io, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        ImRect incbtn, decbtn;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        const auto& specificStyle = context.spinnerStyles[log2((unsigned)state.state)].top();
+        static char buffer[32] = { 0 };
+
+        ImRect border{ extent.Min - ImVec2{ style.border.left.thickness, style.border.top.thickness }, 
+            extent.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness } };
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        renderer.SetCurrentFont(style.font.font, style.font.size);
+
+        auto end = state.isInteger ? std::to_chars(buffer, buffer + 32, (int)state.data).ptr :
+            std::to_chars(buffer, buffer + 32, state.data, std::chars_format::general, state.precision).ptr;
+        std::string_view text{ buffer, end };
+        auto txtsz = renderer.GetTextSize(text, style.font.font, style.font.size);
+
+        auto drawbutton = [&style, &renderer, &specificStyle, &state](const ImRect& rect, bool inc) {
+            auto color = inc ? specificStyle.upbtnColor : specificStyle.downbtnColor;
+            auto darker = DarkenColor(color);
+
+            switch (state.placement)
+            {
+            case SpinnerButtonPlacement::EitherSide:
+                if (inc)
+                    if (style.border.cornerRadius[TopRightCorner] != 0.f ||
+                        style.border.cornerRadius[BottomRightCorner] != 0.f)
+                        renderer.DrawRoundedRect(rect.Min, rect.Max,
+                            color, true, 0.f, style.border.cornerRadius[TopRightCorner],
+                            style.border.cornerRadius[BottomRightCorner], 0.f);
+                    else renderer.DrawRect(rect.Min, rect.Max, color, true);
+                else
+                    if (style.border.cornerRadius[TopLeftCorner] != 0.f ||
+                        style.border.cornerRadius[BottomLeftCorner] != 0.f)
+                        renderer.DrawRoundedRect(rect.Min, rect.Max,
+                            color, true, style.border.cornerRadius[TopLeftCorner], 0.f, 0.f,
+                            style.border.cornerRadius[BottomLeftCorner]);
+                    else renderer.DrawRect(rect.Min, rect.Max, color, true);
+                renderer.DrawLine(inc ? rect.Min : ImVec2{ rect.Max.x, rect.Min.y }, inc ? ImVec2{ rect.Min.x, rect.Max.y } : rect.Max, 
+                    darker, specificStyle.btnBorderThickness);
+                break;
+            case SpinnerButtonPlacement::VerticalRight:
+                if (inc)
+                    if (style.border.cornerRadius[TopRightCorner] != 0.f)
+                        renderer.DrawRoundedRect(rect.Min, rect.Max,
+                            color, true, 0.f, style.border.cornerRadius[TopRightCorner], 0.f, 0.f);
+                    else renderer.DrawRect(rect.Min, rect.Max, color, true);
+                else
+                    if (style.border.cornerRadius[BottomRightCorner] != 0.f)
+                        renderer.DrawRoundedRect(rect.Min, rect.Max, color, true, 0.f, 0.f,
+                            style.border.cornerRadius[BottomRightCorner], 0.f);
+                    else renderer.DrawRect(rect.Min, rect.Max, color, true);
+                break;
+            case SpinnerButtonPlacement::VerticalLeft: break; // TODO ...
+            default: break;
+            }
+
+            if (!specificStyle.upDownArrows)
+            {
+                if (inc)
+                {
+                    auto halfw = rect.GetWidth() * 0.5f, halfh = rect.GetHeight() * 0.5f;
+                    renderer.DrawLine(ImVec2{ rect.Min.x + halfw - 1.f, rect.Min.y + 2.f },
+                        ImVec2{ rect.Min.x + halfw - 1.f, rect.Max.y - 2.f }, darker, 2.f);
+                    renderer.DrawLine(ImVec2{ rect.Min.x + 2.f, rect.Min.y + halfh - 1.f },
+                        ImVec2{ rect.Max.x - 2.f, rect.Min.y + halfh - 1.f }, darker, 2.f);
+                }
+                else
+                {
+                    auto halfh = rect.GetHeight() * 0.5f;
+                    renderer.DrawLine(ImVec2{ rect.Min.x + 2.f, rect.Min.y + halfh - 1.f },
+                        ImVec2{ rect.Max.x - 2.f, rect.Min.y + halfh - 1.f }, darker, 2.f);
+                }
+            }
+            else
+            {
+
+            }
+
+            return darker;
+        };
+
+        switch (state.placement)
+        {
+        case SpinnerButtonPlacement::EitherSide:
+        {
+            ImVec2 btnsz{ style.font.size + style.padding.v(), style.font.size + style.padding.v() };
+            decbtn = ImRect{ extent.Min, extent.Min + btnsz };
+            drawbutton(decbtn, false);
+
+            auto availw = extent.GetWidth() - (2.f * btnsz.x) - style.padding.h();
+            auto txtstart = decbtn.Max + ImVec2{ availw * 0.5f, -decbtn.GetHeight() } + ImVec2{ style.padding.left, style.padding.top };
+            renderer.DrawText(text, txtstart, style.fgcolor);
+
+            incbtn = ImRect{ extent.Max, extent.Max - btnsz };
+            drawbutton(incbtn, true);
+            break;
+        }
+        case SpinnerButtonPlacement::VerticalLeft:
+            // TODO: left aligned up/down button...
+            break;
+        case SpinnerButtonPlacement::VerticalRight:
+        {
+            ImVec2 btnsz{ style.font.size + style.padding.v(), (style.font.size + style.padding.v()) * 0.5f };
+
+            auto availw = extent.GetWidth() - btnsz.x - style.padding.h() - txtsz.x;
+            auto txtstart = ImVec2{ extent.Min.x + (availw * 0.5f), extent.Min.y } + ImVec2{ style.padding.left, style.padding.top };
+            renderer.DrawText(text, txtstart, style.fgcolor);
+
+            auto btnstart = ImVec2{ extent.Max.x - btnsz.x, extent.Min.y };
+            incbtn = ImRect{ btnstart, btnstart + btnsz };
+            drawbutton(incbtn, true);
+
+            decbtn = ImRect{ ImVec2{ incbtn.Min.x, incbtn.Max.y }, extent.Max };
+            auto darker = drawbutton(decbtn, false);
+            renderer.DrawLine(incbtn.Min, ImVec2{ incbtn.Min.x, decbtn.Max.y }, darker, specificStyle.btnBorderThickness);
+            renderer.DrawLine(ImVec2{ incbtn.Min.x, decbtn.Min.y }, ImVec2{ incbtn.Max.x, decbtn.Min.y }, darker, specificStyle.btnBorderThickness);
+            break;
+        }
+        default:
+            break;
+        }
+
+        renderer.ResetFont();
+        HandleSpinnerEvent(id, extent, incbtn, decbtn, io, result);
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Slider Widget
+
+    ImRect SliderBounds(int32_t id, const ImRect& extent)
+    {
+        ImRect result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.slider;
+        const auto& style = context.GetStyle(state.state);
+        auto slidersz = std::max(Config.sliderSize, style.font.size);
+        auto width = (style.specified & StyleWidth) ? style.dimension.x : 
+            (state.dir == DIR_Horizontal ? extent.GetWidth() : slidersz);
+        auto height = (style.specified & StyleHeight) ? style.dimension.y :
+            (state.dir == DIR_Horizontal ? slidersz : extent.GetHeight());
+
+        result.Min = extent.Min;
+        result.Max = result.Min + ImVec2{ width, height };
+
+        return result;
+    }
+
+    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.slider;
+            const auto& style = context.GetStyle(state.state);
+            const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
+            auto center = thumb.Min + ImVec2{ thumb.GetWidth(), thumb.GetWidth() };
+            auto width = extent.GetWidth(), height = extent.GetHeight();
+            auto horizontal = width > height;
+            auto radius = thumb.GetWidth();
+
+            if (extent.Contains(io.mousepos))
+            {
+                auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
+                auto inthumb = thumb.Contains(io.mousepos);
+                state.state |= WS_Hovered;
+
+                if (io.clicked() && !inthumb)
+                {
+                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
+                    auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                    auto relative = where / space;
+                    state.data = relative * (state.max - state.min);
+                    state.state &= ~WS_Dragged;
+                }
+                else if (io.isLeftMouseDown() && ((state.state & WS_Dragged) || inthumb))
+                {
+                    // If the drag is starting for first time, consider the center of thumb
+                    // otherwise, follow mouse position
+                    auto where = (state.state & WS_Dragged) ? (horizontal ? io.mousepos.x : io.mousepos.y) :
+                        (horizontal ? center.x : center.y);
+                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
+                    where = horizontal ? where - extent.Min.x - offset : where - extent.Min.y - offset;
+                    auto relative = where / space;
+                    state.data = relative * (state.max - state.min);
+                    state.state |= WS_Dragged;
+                }
+                else
+                    state.state &= ~WS_Dragged;
+            }
+            else
+            {
+                state.state &= ~WS_Hovered;
+                state.state &= ~WS_Dragged;
+            }  
+        }
+        else context.deferedEvents.emplace_back(WT_Slider, id, extent, thumb);
+    }
+
+    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
+
+        auto bgcolor = state.TrackColor ? state.TrackColor(state.data) : style.bgcolor;
+        DrawBackground(extent.Min, extent.Max, bgcolor, style.gradient, style.border, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, bgcolor, renderer);
+
+        auto width = extent.GetWidth(), height = extent.GetHeight();
+        auto horizontal = state.dir == DIR_Horizontal;
+        auto radius = ((horizontal ? height : width) * 0.5f) - specificStyle.thumbOffset - specificStyle.trackBorderThickness;
+        auto relative = state.data / (state.max - state.min);
+        auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
+        ImVec2 center{ radius, radius };
+        horizontal ? center.x += (width - (2.f * offset)) * relative : center.y += (height - (2.f * offset)) * relative;
+        center += extent.Min + ImVec2{ offset - radius, offset - radius };
+
+        if (style.border.isRounded())
+            if ((style.border.cornerRadius[TopLeftCorner] >= radius) && (style.border.cornerRadius[TopRightCorner] >= radius) &&
+                (style.border.cornerRadius[BottomRightCorner] >= radius) && (style.border.cornerRadius[BottomLeftCorner] >= radius))
+                renderer.DrawCircle(center, radius, specificStyle.thumbColor, true);
+            else
+                renderer.DrawRoundedRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true,
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner], style.border.cornerRadius[BottomRightCorner],
+                    style.border.cornerRadius[BottomLeftCorner]);
+        else
+            renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true);
+
+        ImRect thumb{ center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius } };
+        HandleSliderEvent(id, extent, thumb,  io, result);
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region TextInput
 
     static void UpdatePosition(const TextInputState& state, int index, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
     {
@@ -527,7 +1450,7 @@ namespace glimmer
         op.type = TextOpType::Deletion;
         op.range = std::make_pair(from, selectionsz);
         op.caretpos = input.caretpos;
-        std::memcpy(op.opmem, state.text.data() + to, selectionsz);
+        memcpy(op.opmem, state.text.data() + to, selectionsz);
         op.opmem[selectionsz] = 0;
 
         for (auto idx = 0; from < textsz; ++from, ++to, ++idx)
@@ -546,317 +1469,6 @@ namespace glimmer
         input.caretpos = std::min(state.selection.first, state.selection.second);
         state.selection.first = state.selection.second = -1;
         input.selectionStart = -1.f;
-    }
-
-    static bool HandleHScroll(ScrollBarState& scroll, float width, const ImRect& viewport,
-        ImVec2 mousepos, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true)
-    {
-        auto hasHScroll = false;
-        float gripExtent = 0.f;
-        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
-        const float vwidth = viewport.GetWidth();
-        const float posrange = width - vwidth;
-
-        if (width > vwidth)
-        {
-            auto hasOpacity = scroll.opacity > 0.f;
-            auto hasMouseInteraction = (viewport.Contains(mousepos) && (mousepos.y <= viewport.Max.y) && mousepos.y >= (viewport.Max.y - (1.5f * btnsz)))
-                || scroll.mouseDownOnHGrip;
-
-            if (hasMouseInteraction || hasOpacity)
-            {
-                if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
-                else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
-
-                auto lrsz = showButtons ? btnsz : 0.f;
-                ImRect left{ { viewport.Min.x, viewport.Max.y - lrsz }, { viewport.Min.x + lrsz, viewport.Max.y } };
-                ImRect right{ { viewport.Max.x - lrsz, viewport.Max.y }, viewport.Max };
-                ImRect path{ { left.Max.x, left.Min.y }, { right.Min.x, right.Max.y } };
-
-                auto pathsz = path.GetWidth();
-                auto sizeOfGrip = (vwidth / width) * pathsz;
-                auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.x;
-                ImRect grip{ { left.Max.x + spos, viewport.Max.y - btnsz },
-                    { left.Max.x + spos + sizeOfGrip, viewport.Max.y } };
-
-                if (showButtons)
-                {
-                    renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
-                    renderer.DrawTriangle({ left.Min.x + (btnsz * 0.25f), left.Min.y + (0.5f * btnsz) },
-                        { left.Max.x - (0.125f * btnsz), left.Min.y + (0.125f * btnsz) },
-                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
-
-                    renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
-                    renderer.DrawTriangle({ right.Min.x + (btnsz * 0.25f), right.Min.y + (0.125f * btnsz) },
-                        { right.Max.x - (0.125f * btnsz), right.Min.y + (0.5f * btnsz) },
-                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
-                }
-
-                if (grip.Contains(mousepos))
-                {
-                    if (io.isLeftMouseDown())
-                    {
-                        if (!scroll.mouseDownOnHGrip)
-                        {
-                            scroll.mouseDownOnHGrip = true;
-                            scroll.lastMousePos.y = mousepos.y;
-                        }
-
-                        auto step = mousepos.x - scroll.lastMousePos.x;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.x = mousepos.x;
-                    }
-                    else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
-                }
-                else
-                {
-                    if (scroll.mouseDownOnHGrip)
-                    {
-                        auto step = mousepos.x - scroll.lastMousePos.x;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.x = mousepos.x;
-                    }
-                    else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
-
-                    if (left.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
-                    else if (right.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
-                }
-
-                if (!io.isLeftMouseDown() && scroll.mouseDownOnHGrip)
-                {
-                    scroll.mouseDownOnHGrip = false;
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                }
-            }
-
-            hasHScroll = true;
-        }
-
-        return hasHScroll;
-    }
-
-    static bool HandleVScroll(ScrollBarState& scroll, float height, const ImRect& viewport, ImVec2 mousepos,
-        IRenderer& renderer, const IODescriptor& io, float btnsz, bool hasHScroll = false)
-    {
-        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
-        const auto vheight = viewport.GetHeight();
-        const float posrange = height - vheight;
-
-        if (height > vheight)
-        {
-            auto hasOpacity = scroll.opacity > 0.f;
-            auto hasMouseInteraction = (viewport.Contains(mousepos) && (mousepos.x <= viewport.Max.x) && mousepos.x >= (viewport.Max.x - (1.5f * btnsz)) &&
-                (!hasHScroll || mousepos.y < (viewport.Max.y - btnsz))) || scroll.mouseDownOnVGrip;
-
-            if (hasMouseInteraction || hasOpacity)
-            {
-                if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
-                else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
-
-                auto extrah = hasHScroll ? btnsz : 0.f;
-                ImRect top{ { viewport.Max.x - btnsz, viewport.Min.y }, { viewport.Max.x, viewport.Min.y + btnsz } };
-                ImRect bottom{ { viewport.Max.x - btnsz, viewport.Max.y - btnsz - extrah }, viewport.Max };
-                ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
-
-                auto pathsz = path.GetHeight();
-                auto sizeOfGrip = (vheight / height) * pathsz;
-                auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.y;
-                ImRect grip{ { viewport.Max.x - btnsz, top.Max.y + spos },
-                    { viewport.Max.x, sizeOfGrip + top.Max.y + spos } };
-
-                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
-                renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
-                    { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
-                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
-
-                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
-                renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
-                    { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
-                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
-
-                if (grip.Contains(mousepos))
-                {
-                    if (io.isLeftMouseDown())
-                    {
-                        if (!scroll.mouseDownOnVGrip)
-                        {
-                            scroll.mouseDownOnVGrip = true;
-                            scroll.lastMousePos.y = mousepos.y;
-                        }
-
-                        auto step = mousepos.y - scroll.lastMousePos.y;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.y = mousepos.y;
-                    }
-                    else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
-                }
-                else
-                {
-                    if (scroll.mouseDownOnVGrip)
-                    {
-                        auto step = mousepos.y - scroll.lastMousePos.y;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.y = mousepos.y;
-                    }
-                    else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
-
-                    if (top.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
-                    else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
-                }
-
-                if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
-                {
-                    scroll.mouseDownOnVGrip = false;
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                }
-            }
-
-            if (viewport.Contains(mousepos))
-            {
-                auto rotation = io.mouseWheel;
-                scroll.pos.y = ImClamp(rotation + scroll.pos.y, 0.f, posrange);
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-        if (!context.deferEvents)
-        {
-            auto& state = context.GetState(id).state.label;
-            auto ismouseover = padding.Contains(io.mousepos);
-            if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
-                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-            else state._hoverDuration == 0;
-        }
-        else context.deferedEvents.emplace_back(WT_Label, id, margin, border, padding, content, text);
-    }
-
-    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-        if (!context.deferEvents)
-        {
-            auto& state = context.GetState(id).state.button;
-            auto ismouseover = padding.Contains(io.mousepos);
-            state.state = !ismouseover ? WS_Default :
-                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
-            if (ismouseover && io.clicked())
-                result.event = WidgetEvent::Clicked;
-            else if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
-                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
-            else state._hoverDuration == 0;
-        }
-        else context.deferedEvents.emplace_back(WT_Button, id, margin, border, padding, content, text);
-    }
-
-    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io, 
-        WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-        if (!context.deferEvents)
-        {
-            auto& radio = context.RadioState(id);
-            auto& state = context.GetState(id).state.radio;
-            auto mousepos = io.mousepos;
-            auto mouseover = extent.Contains(mousepos);
-
-            if (mouseover && io.clicked())
-            {
-                result.event = WidgetEvent::Clicked;
-                state.checked = !state.checked;
-                radio.animate = true;
-                radio.progress = 0.f;
-                radio.radius = state.checked ? 0.f : maxrad;
-            }
-
-            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
-                mouseover ? WS_Hovered : WS_Default;
-            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
-        }
-        else context.deferedEvents.emplace_back(WT_RadioButton, id, extent, maxrad);
-    }
-
-    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
-        WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-        if (!context.deferEvents)
-        {
-            auto& toggle = context.ToggleState(id);
-            auto& state = context.GetState(id).state.toggle;
-            auto mousepos = io.mousepos;
-            auto mouseover = extent.Contains(mousepos);
-
-            if (mouseover && io.clicked())
-            {
-                result.event = WidgetEvent::Clicked;
-                state.checked = !state.checked;
-                toggle.animate = true;
-                toggle.progress = 0.f;
-            }
-
-            toggle.btnpos = toggle.animate ? center.x : -1.f;
-            state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
-                mouseover ? WS_Hovered : WS_Default;
-            state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
-        }
-        else context.deferedEvents.emplace_back(WT_ToggleButton, id, center, extent);
-    }
-
-    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
-        WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-
-        if (!context.deferEvents)
-        {
-            auto& check = context.CheckboxState(id);
-            auto& state = context.GetState(id).state.checkbox;
-
-            auto mousepos = io.mousepos;
-            auto mouseover = extent.Contains(mousepos);
-            auto isclicked = mouseover && io.isLeftMouseDown();
-            state.state = isclicked ? state.state | WS_Hovered | WS_Pressed :
-                mouseover ? state.state & ~WS_Pressed : state.state & ~WS_Hovered;
-
-            if (mouseover && io.clicked())
-            {
-                state.check = state.check == CheckState::Unchecked ? CheckState::Checked : CheckState::Unchecked;
-                state.state = state.check == CheckState::Unchecked ? state.state & ~WS_Checked : state.state | WS_Checked;
-                result.event = WidgetEvent::Clicked;
-                check.animate = state.check != CheckState::Unchecked;
-                check.progress = 0.f;
-            }
-        }
-        else context.deferedEvents.emplace_back(WT_Checkbox, id, extent);
     }
 
     void HandleTextInputEvent(int32_t id, const ImRect& content, const IODescriptor& io,
@@ -1158,7 +1770,7 @@ namespace glimmer
                                     auto& op = input.ops.push();
                                     op.type = TextOpType::Addition;
                                     op.range = std::make_pair(input.caretpos, std::min(length, 127));
-                                    std::memcpy(op.opmem, content.data(), std::min(length, 127));
+                                    memcpy(op.opmem, content.data(), std::min(length, 127));
                                     op.opmem[length] = 0;
 
                                     input.caretpos += length;
@@ -1266,7 +1878,7 @@ namespace glimmer
                 if (context.deferedRenderer->size.y > 0.f && !io.isKeyPressed(Key_Escape))
                 {
                     char buffer[32];
-                    std::memset(buffer, 0, 32);
+                    memset(buffer, 0, 32);
                     ImVec2 origin{ content.Min.x, content.Max.y }, size{ content.GetWidth(), context.deferedRenderer->size.y };
 
                     if ((origin + size) > context.WindowSize())
@@ -1295,7 +1907,104 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_TextInput, id, content);
     }
 
-    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, 
+    // TODO: capslock and insert state is global -> poll and find out...
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(state.state);
+        auto& input = context.InputTextState(id);
+
+        if (state.state & WS_Focused)
+            renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
+
+        DrawBackground(extent.Min, extent.Max, style, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
+        renderer.SetCurrentFont(style.font.font, style.font.size);
+
+        if (state.text.empty() && !(state.state & WS_Focused))
+        {
+            auto phstyle = style;
+            auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
+            fa = 150;
+            phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
+            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled,
+                phstyle, renderer, FontStyleOverflowMarquee);
+        }
+        else
+        {
+            if (state.selection.second != -1)
+            {
+                std::string_view text{ state.text.data(), state.text.size() };
+                auto selection = state.selection;
+                selection = { std::min(state.selection.first, state.selection.second),
+                    std::max(state.selection.first, state.selection.second) };
+                std::string_view parts[3] = { text.substr(0, selection.first),
+                    text.substr(selection.first, selection.second - selection.first + 1),
+                    text.substr(selection.second + 1) };
+                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y }, textsz;
+
+                if (!parts[0].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[0], style.font.font, style.font.size);
+                    renderer.DrawText(parts[0], startpos, style.fgcolor);
+                    startpos.x += textsz.x;
+                }
+
+                const auto& selstyle = context.GetStyle(WS_Selected);
+                textsz = renderer.GetTextSize(parts[1], style.font.font, style.font.size);
+                renderer.DrawRect(startpos, startpos + textsz, selstyle.bgcolor, true);
+                renderer.DrawText(parts[1], startpos, selstyle.fgcolor);
+                startpos.x += textsz.x;
+
+                if (!parts[2].empty())
+                {
+                    textsz = renderer.GetTextSize(parts[2], style.font.font, style.font.size);
+                    renderer.DrawText(parts[2], startpos, style.fgcolor);
+                }
+            }
+            else
+            {
+                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y };
+                std::string_view text{ state.text.data(), state.text.size() };
+                renderer.DrawText(text, startpos, style.fgcolor);
+            }
+        }
+
+        if ((state.state & WS_Focused) && input.caretVisible)
+        {
+            auto isCaretAtEnd = input.caretpos == (int)state.text.size();
+            auto offset = isCaretAtEnd && (input.scroll.pos.x == 0.f) ? 1.f : 0.f;
+            auto cursorxpos = (!input.pixelpos.empty() ? input.pixelpos[input.caretpos - 1] - input.scroll.pos.x : 0.f) + offset;
+            renderer.DrawLine(content.Min + ImVec2{ cursorxpos, 1.f }, content.Min + ImVec2{ cursorxpos, content.GetHeight() - 1.f }, style.fgcolor, 2.f);
+        }
+
+        HandleTextInputEvent(id, content, io, renderer, result);
+        renderer.ResetFont();
+
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region DropDown
+
+    static std::pair<ImRect, ImRect> DropDownBounds(int32_t id, DropDownState& state, const ImRect& content, IRenderer& renderer)
+    {
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+        auto size = renderer.GetTextSize(state.text, style.font.font, style.font.size);
+        ImRect bounds = content;
+
+        if (bounds.GetWidth() < size.x + style.font.size)
+            bounds.Max.x = bounds.Min.x + size.x + style.font.size;
+
+        return { bounds, { content.Min, content.Min + size } };
+    }
+
+    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
     {
         auto& context = GetContext();
@@ -1328,7 +2037,7 @@ namespace glimmer
                 }
             }
             else if (ismouseover && !state.tooltip.empty() && !io.isLeftMouseDown())
-                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, renderer);
+                ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, io, renderer);
             else state._hoverDuration == 0;
 
             if (state.opened)
@@ -1406,6 +2115,113 @@ namespace glimmer
             else context.activePopUpRegion = ImRect{};
         }
         else context.deferedEvents.emplace_back(WT_DropDown, id, margin, border, padding, content);
+    }
+
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& style = context.GetStyle(state.state);
+
+        LOG("Margin: (%f, %f, %f, %f) | Padding: (%f, %f, %f, %f)\n",
+            style.margin.left, style.margin.top, style.margin.right, style.margin.bottom,
+            style.padding.left, style.padding.top, style.padding.right, style.padding.bottom);
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
+        if (!(state.opened && state.isComboBox))
+            DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+
+        auto arrowh = style.font.size * 0.33333f;
+        auto arroww = style.font.size * 0.25f;
+        renderer.DrawLine(ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh },
+            ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh)}, style.fgcolor, 2.f);
+        renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
+            ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
+        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
+
+        result.geometry = margin;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region TabBar
+
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.tab;
+        auto& map = context.TabStates(id);
+
+        if (state.horizontal)
+        {
+            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
+            {
+                if (map.map.vtol[vcol] == -1)
+                {
+                    map.map.vtol[vcol] = vcol;
+                    map.map.ltov[vcol] = vcol;
+                }
+
+                auto col = map.map.vtol[vcol];
+                auto& tab = state.tabs[col];
+                auto& style = context.GetStyle(tab.state.state);
+
+                auto ismouseover = padding.Contains(io.mousepos);
+                tab.state.state = !ismouseover ? WS_Default :
+                    io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+                DrawBoxShadow(border.Min, border.Max, style, renderer);
+                DrawBackground(border.Min, border.Max, style, renderer);
+                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
+
+                if (ismouseover && io.clicked())
+                    result.event = WidgetEvent::Clicked;
+                else if (ismouseover && !tab.state.tooltip.empty() && !io.isLeftMouseDown())
+                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, io, renderer);
+                else tab.state._hoverDuration == 0;
+
+                result.geometry = margin;
+                return result;
+            }
+        }
+    }
+
+#pragma endregion
+
+#pragma region ItemGrid
+
+    void ItemGridState::setColumnResizable(int16_t col, bool resizable)
+    {
+        setColumnProps(col, COL_Resizable, resizable);
+    }
+
+    void ItemGridState::setColumnProps(int16_t col, ColumnProperty prop, bool set)
+    {
+        if (col >= 0)
+        {
+            auto lastLevel = (int)config.headers.size() - 1;
+            set ? config.headers[lastLevel][col].props |= prop : config.headers[lastLevel][col].props &= ~prop;
+            while (lastLevel > 0)
+            {
+                auto parent = config.headers[lastLevel][col].parent;
+                lastLevel--;
+                set ? config.headers[lastLevel][parent].props |= prop : config.headers[lastLevel][parent].props &= ~prop;
+            }
+        }
+        else
+        {
+            for (auto level = 0; level < (int)config.headers.size(); ++level)
+                for (auto lcol = 0; lcol < (int)config.headers[level].size(); ++lcol)
+                    set ? config.headers[level][lcol].props |= prop : config.headers[level][lcol].props &= ~prop;
+        }
     }
 
     static bool UpdateSubHeadersResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
@@ -1580,7 +2396,7 @@ namespace glimmer
         HandleVScroll(scroll, sz.y, content, mousepos, renderer, io, Config.scrollbarSz, hasHScroll);
     }
 
-    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content, 
+    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
         const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
     {
         auto& context = GetContext();
@@ -1616,405 +2432,6 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_ItemGrid, id, padding, content);
     }
 
-#pragma endregion
-
-#pragma region Widget Rendering
-
-    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
-    {
-        auto& context = GetContext();
-        assert((id & 0xffff) <= (int)context.states[WT_Label].size());
-
-        WidgetDrawResult result;
-        auto& state = context.GetState(id).state.label;
-        auto& style = context.GetStyle(state.state);
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
-        HandleLabelEvent(id, margin, border, padding, content, text, renderer, io, result);
-        
-        result.geometry = margin;
-        return result;
-    }
-
-    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.button;
-        auto& style = context.GetStyle(state.state);
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
-        HandleButtonEvent(id, margin, border, padding, content, text, renderer, io, result);
-
-        result.geometry = margin;
-        return result;
-    }
-
-    static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
-    {
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
-        ImRect result;
-        ImVec2 text;
-        result.Min = result.Max = extent.Min;
-
-        if (specificStyle.showText)
-        {
-            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY,
-                specificStyle.fontsz, FT_Bold);
-
-            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
-            result.Max += text;
-            renderer.ResetFont();
-
-            auto extra = 2.f * (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
-            result.Max.x += extra;
-            result.Max.y += extra;
-        }
-        else
-        {
-            result.Max.x += ((extent.GetHeight()) * 2.f); 
-            result.Max.y += extent.GetHeight();
-        }
-
-        return { result, text };
-    }
-
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, 
-        IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-        auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
-        auto& toggle = context.ToggleState(id);
-
-        auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
-        auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
-        auto movement = extent.GetWidth() - (2.f * (radius + extra));
-        auto moveAmount = toggle.animate ? (io.deltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
-        toggle.progress += std::fabsf(moveAmount / movement);
-
-        auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
-            : extent.Min + ImVec2{ radius + extra, extra + radius }
-        : ImVec2{ toggle.btnpos, extra + radius };
-        center.x = ImClamp(center.x + moveAmount, extent.Min.x + (extra * 0.5f), extent.Max.x - extra);
-        center.y = extent.Min.y + (extent.GetHeight() * 0.5f);
-        toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
-
-        auto rounded = extent.GetHeight() * 0.5f;
-        auto tcol = specificStyle.trackColor;
-        if (toggle.animate)
-        {
-            auto prevTCol = state.checked ? context.toggleButtonStyles[WSI_Default].top().trackColor :
-                context.toggleButtonStyles[WSI_Checked].top().trackColor;
-            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
-            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
-            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
-            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
-            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
-            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
-            tcol = ToRGBA(tr, tg, tb, ta);
-        }
-
-        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
-        renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
-            specificStyle.trackBorderThickness);
-
-        if (specificStyle.showText && !toggle.animate)
-        {
-            renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
-            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
-                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
-            renderer.ResetFont();
-        }
-
-        renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
-        HandleToggleButtonEvent(id, extent, center, renderer, io, result);
-
-        result.geometry = extent;
-        return result;
-    }
-
-    static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
-    {
-        auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
-        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
-    }
-
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, 
-        IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-        auto& specificStyle = context.radioButtonStyles[log2((unsigned)state.state)].top();
-        auto& radio = context.RadioState(id);
-
-        auto radius = (extent.GetWidth() - 2.f) * 0.5f;
-        auto center = extent.Min + ImVec2{ radius + 1.f, radius + 1.f };
-        renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
-        auto maxrad = radius * specificStyle.checkedRadius;
-        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
-        radius = radio.radius;
-
-        if (radius > 0.f) renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
-
-        auto ratio = radio.animate ? (io.deltaTime / specificStyle.animate) : 0.f;
-        radio.progress += ratio;
-        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
-        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
-        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result);
-        
-        result.geometry = extent;
-        return result;
-    }
-
-    static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
-    {
-        auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
-        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
-    }
-
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, 
-        IRenderer& renderer, const IODescriptor& io)
-    {
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-        auto& check = context.CheckboxState(id);
-        WidgetDrawResult result;
-
-        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
-        DrawBackground(extent.Min, extent.Max, style, renderer);
-        auto height = padding.GetHeight(), width = padding.GetWidth();
-
-        if (check.animate && check.progress < 1.f)
-            check.progress += (io.deltaTime / 0.25f);
-
-        switch (state.check)
-        {
-        case CheckState::Checked:
-        {
-            auto start = ImVec2{ padding.Min.x, padding.Min.y + (height * 0.5f) };
-            auto end = ImVec2{ padding.Min.x + (width * 0.333f), padding.Max.y };
-            auto tickw = padding.Max.x - end.x;
-            renderer.DrawLine(start, end, style.fgcolor, 2.f);
-            renderer.DrawLine(end, ImVec2{ padding.Max.x - ((1.f - check.progress) * tickw), padding.Min.y +
-                ((1.f - check.progress) * height) }, style.fgcolor, 2.f);
-            break;
-        }
-        case CheckState::Partial:
-            renderer.DrawLine(padding.Min + ImVec2{ 0.f, height * 0.5f }, padding.Max - 
-                ImVec2{ 0.f, height * 0.5f }, style.fgcolor, 2.f);
-            break;
-        default:
-            break;
-        }
-
-        HandleCheckboxEvent(id, extent, io, result);
-        
-        result.geometry = extent;
-        return result;
-    }
-
-    ImRect SliderBounds(int32_t id, const ImRect& extent)
-    {
-        ImRect result;
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.slider;
-        const auto& style = context.GetStyle(state.state);
-        auto slidersz = std::max(Config.sliderSize, style.font.size);
-
-        result.Min = extent.Min;
-        state.dir == DIR_Horizontal ? result.Max = result.Min + ImVec2{ extent.GetWidth(), slidersz } :
-            result.Max = result.Min + ImVec2{ slidersz, extent.GetHeight() };
-
-        return result;
-    }
-
-    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-        
-        if (!context.deferEvents)
-        {
-            auto& state = context.GetState(id).state.slider;
-            const auto& style = context.GetStyle(state.state);
-            const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
-            auto center = thumb.Min + ImVec2{ thumb.GetWidth(), thumb.GetWidth() };
-            auto width = extent.GetWidth(), height = extent.GetHeight();
-            auto horizontal = width > height;
-            auto radius = thumb.GetWidth();
-
-            if (extent.Contains(io.mousepos))
-            {
-                auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
-                auto inthumb = thumb.Contains(io.mousepos);
-                state.state |= WS_Hovered;
-
-                if (io.clicked() && !inthumb)
-                {
-                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
-                    auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
-                    auto relative = where / space;
-                    state.data = relative * (state.max - state.min);
-                    state.state &= ~WS_Dragged;
-                }
-                else if (io.isLeftMouseDown() && ((state.state & WS_Dragged) || inthumb))
-                {
-                    // If the drag is starting for first time, consider the center of thumb
-                    // otherwise, follow mouse position
-                    auto where = (state.state & WS_Dragged) ? (horizontal ? io.mousepos.x : io.mousepos.y) :
-                        (horizontal ? center.x : center.y);
-                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
-                    where = horizontal ? where - extent.Min.x - offset : where - extent.Min.y - offset;
-                    auto relative = where / space;
-                    state.data = relative * (state.max - state.min);
-                    state.state |= WS_Dragged;
-                }
-                else
-                    state.state &= ~WS_Dragged;
-            }
-            else
-            {
-                state.state &= ~WS_Hovered;
-                state.state &= ~WS_Dragged;
-            }  
-        }
-        else context.deferedEvents.emplace_back(WT_Slider, id, extent, thumb);
-    }
-
-    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
-        const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
-
-        auto bgcolor = state.TrackColor ? state.TrackColor(state.data) : style.bgcolor;
-        DrawBackground(extent.Min, extent.Max, bgcolor, style.gradient, style.border, renderer);
-        DrawBorderRect(extent.Min, extent.Max, style.border, bgcolor, renderer);
-
-        auto width = extent.GetWidth(), height = extent.GetHeight();
-        auto horizontal = state.dir == DIR_Horizontal;
-        auto radius = ((horizontal ? height : width) * 0.5f) - specificStyle.thumbOffset - specificStyle.trackBorderThickness;
-        auto relative = state.data / (state.max - state.min);
-        auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
-        ImVec2 center{ radius, radius };
-        horizontal ? center.x += (width - (2.f * offset)) * relative : center.y += (height - (2.f * offset)) * relative;
-        center += extent.Min + ImVec2{ offset - radius, offset - radius };
-
-        if (style.border.isRounded())
-            if ((style.border.cornerRadius[TopLeftCorner] >= radius) && (style.border.cornerRadius[TopRightCorner] >= radius) &&
-                (style.border.cornerRadius[BottomRightCorner] >= radius) && (style.border.cornerRadius[BottomLeftCorner] >= radius))
-                renderer.DrawCircle(center, radius, specificStyle.thumbColor, true);
-            else
-                renderer.DrawRoundedRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true,
-                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner], style.border.cornerRadius[BottomRightCorner],
-                    style.border.cornerRadius[BottomLeftCorner]);
-        else
-            renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true);
-
-        ImRect thumb{ center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius } };
-        HandleSliderEvent(id, extent, thumb,  io, result);
-        result.geometry = extent;
-        return result;
-    }
-
-    // TODO: capslock and insert state is global -> poll and find out...
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
-        IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
-        auto& input = context.InputTextState(id);
-
-        if (state.state & WS_Focused)
-            renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
-
-        DrawBackground(extent.Min, extent.Max, style, renderer);
-        DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
-        renderer.SetCurrentFont(style.font.font, style.font.size);
-
-        if (state.text.empty() && !(state.state & WS_Focused))
-        {
-            auto phstyle = style;
-            auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
-            fa = 150;
-            phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
-            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled,
-                phstyle, renderer, FontStyleOverflowMarquee);
-        }
-        else
-        {
-            if (state.selection.second != -1)
-            {
-                std::string_view text{ state.text.data(), state.text.size() };
-                auto selection = state.selection;
-                selection = { std::min(state.selection.first, state.selection.second),
-                    std::max(state.selection.first, state.selection.second) };
-                std::string_view parts[3] = { text.substr(0, selection.first),
-                    text.substr(selection.first, selection.second - selection.first + 1),
-                    text.substr(selection.second + 1) };
-                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y }, textsz;
-
-                if (!parts[0].empty())
-                {
-                    textsz = renderer.GetTextSize(parts[0], style.font.font, style.font.size);
-                    renderer.DrawText(parts[0], startpos, style.fgcolor);
-                    startpos.x += textsz.x;
-                }
-
-                const auto& selstyle = context.GetStyle(WS_Selected);
-                textsz = renderer.GetTextSize(parts[1], style.font.font, style.font.size);
-                renderer.DrawRect(startpos, startpos + textsz, selstyle.bgcolor, true);
-                renderer.DrawText(parts[1], startpos, selstyle.fgcolor);
-                startpos.x += textsz.x;
-
-                if (!parts[2].empty())
-                {
-                    textsz = renderer.GetTextSize(parts[2], style.font.font, style.font.size);
-                    renderer.DrawText(parts[2], startpos, style.fgcolor);
-                }
-            }
-            else
-            {
-                ImVec2 startpos{ content.Min.x - input.scroll.pos.x, content.Min.y };
-                std::string_view text{ state.text.data(), state.text.size() };
-                renderer.DrawText(text, startpos, style.fgcolor);
-            }
-        }
-
-        if ((state.state & WS_Focused) && input.caretVisible)
-        {
-            auto isCaretAtEnd = input.caretpos == (int)state.text.size();
-            auto offset = isCaretAtEnd && (input.scroll.pos.x == 0.f) ? 1.f : 0.f;
-            auto cursorxpos = (!input.pixelpos.empty() ? input.pixelpos[input.caretpos - 1] - input.scroll.pos.x : 0.f) + offset;
-            renderer.DrawLine(content.Min + ImVec2{ cursorxpos, 1.f }, content.Min + ImVec2{ cursorxpos, content.GetHeight() - 1.f }, style.fgcolor, 2.f);
-        }
-
-        HandleTextInputEvent(id, content, io, renderer, result);
-        renderer.ResetFont();
-
-        result.geometry = extent;
-        return result;
-    }
-
     static void AlignVCenter(float height, int level, ItemGridState& state, const StyleDescriptor& style)
     {
         auto& headers = state.config.headers;
@@ -2027,92 +2444,6 @@ namespace glimmer
             auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
             if (vdiff > 0.f)
                 hdr.textrect.TranslateY(vdiff);
-        }
-    }
-
-    static std::pair<ImRect, ImRect> DropDownBounds(int32_t id, DropDownState& state, const ImRect& content, IRenderer& renderer)
-    {
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-        auto size = renderer.GetTextSize(state.text, style.font.font, style.font.size);
-        ImRect bounds = content;
-
-        if (bounds.GetWidth() < size.x + style.font.size)
-            bounds.Max.x = bounds.Min.x + size.x + style.font.size;
-
-        return { bounds, { content.Min, content.Min + size } };
-    }
-
-    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-
-        LOG("Margin: (%f, %f, %f, %f) | Padding: (%f, %f, %f, %f)\n",
-            style.margin.left, style.margin.top, style.margin.right, style.margin.bottom,
-            style.padding.left, style.padding.top, style.padding.right, style.padding.bottom);
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-
-        if (!(state.opened && state.isComboBox))
-            DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
-
-        auto arrowh = style.font.size * 0.33333f;
-        auto arroww = style.font.size * 0.25f;
-        renderer.DrawLine(ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh },
-            ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh)}, style.fgcolor, 2.f);
-        renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
-            ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
-        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
-
-        result.geometry = margin;
-        return result;
-    }
-
-    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.tab;
-        auto& map = context.TabStates(id);
-
-        if (state.horizontal)
-        {
-            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
-            {
-                if (map.map.vtol[vcol] == -1)
-                {
-                    map.map.vtol[vcol] = vcol;
-                    map.map.ltov[vcol] = vcol;
-                }
-
-                auto col = map.map.vtol[vcol];
-                auto& tab = state.tabs[col];
-                auto& style = context.GetStyle(tab.state.state);
-
-                auto ismouseover = padding.Contains(io.mousepos);
-                tab.state.state = !ismouseover ? WS_Default :
-                    io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-                DrawBoxShadow(border.Min, border.Max, style, renderer);
-                DrawBackground(border.Min, border.Max, style, renderer);
-                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
-
-                if (ismouseover && io.clicked())
-                    result.event = WidgetEvent::Clicked;
-                else if (ismouseover && !tab.state.tooltip.empty() && !io.isLeftMouseDown())
-                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, renderer);
-                else tab.state._hoverDuration == 0;
-
-                result.geometry = margin;
-                return result;
-            }
         }
     }
 
@@ -2218,7 +2549,7 @@ namespace glimmer
                         style.font.size, FT_Normal);
 
                     static char buffer[256];
-                    std::memset(buffer, ' ', 255);
+                    memset(buffer, ' ', 255);
                     buffer[255] = 0;
 
                     auto colwidth = hdr.props & COL_WidthAbsolute ? (float)hdr.width :
@@ -2613,6 +2944,300 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Splitter
+
+    void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
+    {
+        auto& context = GetContext();
+        const auto& style = context.GetStyle(WS_Default);
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        LayoutItemDescriptor layoutItem;
+        NeighborWidgets neighbors;
+        if (dir == DIR_Vertical) neighbors.bottom = nextid;
+        else neighbors.right = nextid;
+
+        AddExtent(layoutItem, style, neighbors);
+        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
+
+        region.viewport = layoutItem.content;
+        region.enabled = { dir == DIR_Horizontal, dir == DIR_Vertical };
+        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
+        context.PushContainer(parentid, id);
+    }
+
+    static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
+    {
+        auto& context = GetContext();
+        auto id = context.containerStack.top();
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        renderer.ResetClipRect();
+
+        auto hasHScroll = false;
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        {
+            hasHScroll = true;
+            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
+                Config.scrollbarSz);
+        }
+
+        if (region.viewport.Max.y < region.max.y && region.enabled.second)
+            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
+                Config.scrollbarSz, hasHScroll);
+
+        context.PopContainer(id);
+
+        auto& layout = context.adhocLayout.top();
+        layout.nextpos = region.viewport.Max;
+        dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
+    }
+
+    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+        int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((int)splits.size() < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        LayoutItemDescriptor layoutItem;
+        AddExtent(layoutItem, neighbors);
+        auto& context = GetContext();
+        auto& el = context.splitterStack.push();
+        el.dir = dir;
+        el.extent = layoutItem.margin;
+        el.id = id;
+
+        auto& state = context.SplitterState(id);
+        const auto& style = context.GetStyle(WS_Default);
+        state.current = 0;
+
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+
+        auto idx = 0;
+        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
+            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto prev = el.extent.Min;
+
+        for (const auto& split : splits)
+        {
+            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                ImVec2{ state.spacing[idx].curr * width, height });
+
+            if (state.spacing[idx].curr == -1.f)
+            {
+                state.spacing[idx].curr = split.initial;
+                regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                    ImVec2{ state.spacing[idx].curr * width, height });
+            }
+
+            if (split.scrollable)
+            {
+                auto scid = GetNextId(WT_SplitterScrollRegion);
+                auto& scroll = state.scrolldata[idx];
+                scroll.viewport = ImRect{ prev, regionEnd };
+                scroll.enabled = { el.dir == DIR_Horizontal, el.dir == DIR_Vertical };
+                state.scrollids[idx] = scid;
+                context.AddItemGeometry(scid, scroll.viewport, true);
+            }
+            else
+                state.viewport[idx] = ImRect{ prev, regionEnd };
+
+            state.spacing[idx].min = split.min;
+            state.spacing[idx].max = split.max;
+            prev = regionEnd;
+            el.dir == DIR_Vertical ? prev.x = layoutItem.margin.Min.x : prev.y = layoutItem.margin.Min.y;
+            el.dir == DIR_Vertical ? prev.y += splittersz : prev.x += splittersz;
+            ++idx;
+        }
+
+        if (state.scrollids[state.current] == -1)
+        {
+            auto& layout = context.adhocLayout.top();
+            layout.nextpos = state.viewport[state.current].Min;
+            renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+        }
+        else
+        {
+            auto& scroll = state.scrolldata[0];
+            StartSplitterScrollableRegion(state.scrollids[0], state.scrollids[1], el.id, el.dir, scroll);
+        }
+    }
+
+    void NextSplitRegion()
+    {
+        auto& context = GetContext();
+        auto& el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        const auto& style = context.GetStyle(WS_Default);
+        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
+            ImVec2{ state.spacing[state.current].curr * width, height });
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+
+        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
+            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto scid = state.scrollids[state.current];
+        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
+        else renderer.ResetClipRect();
+
+        auto& layout = context.adhocLayout.top();
+        auto nextpos = layout.nextpos;
+        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } :
+            ImVec2{ splittersz, el.extent.GetHeight() });
+
+        renderer.SetClipRect(nextpos, nextpos + sz);
+        DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
+        DrawBackground(nextpos, nextpos + sz, style, renderer);
+        auto radius = std::max(splittersz - 2.f, 1.f);
+        if (el.dir == DIR_Vertical)
+        {
+            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
+            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
+            startpos.x += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        else
+        {
+            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
+            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
+            startpos.y += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        renderer.ResetClipRect();
+
+        if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
+        {
+            Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical :
+                MouseCursor::ResiveHorizontal);
+            auto isDrag = io.isLeftMouseDown();
+            if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
+            state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+            if (isDrag)
+            {
+                auto amount = el.dir == DIR_Vertical ? (mousepos.y - el.extent.Min.y) / height :
+                    (mousepos.x - el.extent.Min.x) / width;
+                auto prev = state.spacing[state.current].curr;
+                state.spacing[state.current].curr = clamp(amount, state.spacing[state.current].min, state.spacing[state.current].max);
+                auto diff = prev - state.spacing[state.current].curr;
+                LOG("Moving to %f (relative amount: %f)\n", mousepos.y, state.spacing[state.current].curr);
+
+                if (diff != 0.f)
+                    state.spacing[state.current + 1].curr += diff;
+            }
+            else state.isdragged[state.current] = false;
+        }
+        else
+        {
+            state.states[state.current] = WS_Default;
+            Config.platform->SetMouseCursor(MouseCursor::Arrow);
+        }
+
+        state.current++;
+        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        scid = state.scrollids[state.current];
+
+        if (scid != -1)
+        {
+            auto& scroll = state.scrolldata[state.current];
+            layout.nextpos = scroll.viewport.Min;
+            layout.lastItemId = scid;
+
+            if (state.current + 1 < GLIMMER_MAX_SPLITTER_REGIONS)
+                StartSplitterScrollableRegion(scid, state.scrollids[state.current + 1], el.id, el.dir, scroll);
+            else
+                StartSplitterScrollableRegion(scid, el.id, el.id, el.dir, scroll);
+        }
+        else
+        {
+            layout.nextpos = state.viewport[state.current].Min;
+            renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+        }
+    }
+
+    void EndSplitRegion()
+    {
+        auto& context = GetContext();
+        auto el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+
+        auto scid = state.scrollids[state.current];
+        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
+        else renderer.ResetClipRect();
+
+        context.splitterStack.pop();
+        context.AddItemGeometry(el.id, el.extent);
+        renderer.ResetClipRect();
+    }
+
+#pragma endregion
+
+#pragma region Popups
+
+    bool StartPopUp(int32_t id, ImVec2 origin)
+    {
+        auto io = Config.platform->CurrentIO();
+        if (!io.isKeyPressed(Key_Escape))
+        {
+            auto& overlayctx = PushContext(id);
+            overlayctx.ToggleDeferedRendering(true);
+            overlayctx.deferEvents = true;
+            overlayctx.popupOrigin = origin;
+            overlayctx.popupTarget = id;
+            return true;
+        }
+        else
+            GetContext().activePopUpRegion = ImRect{};
+
+        return false;
+    }
+
+    WidgetDrawResult EndPopUp()
+    {
+        auto& overlayctx = GetContext();
+        WidgetDrawResult result;
+
+        if (overlayctx.deferedRenderer->size.y > 0.f)
+        {
+            auto& renderer = overlayctx.parentContext->usingDeferred ? *overlayctx.parentContext->deferedRenderer : *Config.renderer;
+            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
+
+            if ((origin + size) > overlayctx.WindowSize())
+                origin.y = origin.y - size.y;
+
+            if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
+            {
+                overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
+                overlayctx.deferedRenderer->Render(renderer, origin);
+                overlayctx.ToggleDeferedRendering(false);
+                overlayctx.deferEvents = false;
+
+                result = overlayctx.HandleEvents(origin);
+                renderer.EndOverlay();
+            }
+        }
+
+        PopContext();
+        return result;
+    }
+
+#pragma endregion
+
     WindowConfig& GetWindowConfig()
     {
         return Config;
@@ -2631,31 +3256,6 @@ namespace glimmer
         auto id = context.maxids[type]; 
         if (type == WT_SplitterScrollRegion) context.maxids[type]++;
         return id;
-    }
-
-    static void AddExtent(LayoutItemDescriptor& layoutItem, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto sz = context.MaximumExtent();
-        auto nextpos = context.NextAdHocPos();
-        layoutItem.margin.Min = nextpos;
-        layoutItem.border.Min = layoutItem.margin.Min;
-        layoutItem.padding.Min = layoutItem.border.Min;
-        layoutItem.content.Min = layoutItem.padding.Min;
-
-        if (neighbors.right != -1) layoutItem.margin.Max.x = context.GetGeometry(neighbors.right).Min.x;
-        else layoutItem.margin.Max.x = layoutItem.margin.Min.x + (sz.x - nextpos.x);
-
-        layoutItem.border.Max.x = layoutItem.margin.Max.x;
-        layoutItem.padding.Max.x = layoutItem.border.Max.x;
-        layoutItem.content.Max.x = layoutItem.padding.Max.x;
-
-        if (neighbors.bottom != -1) layoutItem.margin.Max.y = context.GetGeometry(neighbors.bottom).Min.y;
-        else layoutItem.margin.Max.y = layoutItem.margin.Min.y + (sz.y - nextpos.y);
-
-        layoutItem.border.Max.y = layoutItem.margin.Max.y;
-        layoutItem.padding.Max.y = layoutItem.border.Max.y;
-        layoutItem.content.Max.y = layoutItem.padding.Max.y;
     }
 
     WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
@@ -2738,8 +3338,8 @@ namespace glimmer
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -2768,8 +3368,8 @@ namespace glimmer
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -2803,8 +3403,8 @@ namespace glimmer
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -2815,6 +3415,35 @@ namespace glimmer
                 renderer.ResetClipRect();
             }
             
+            break;
+        }
+        case WT_Spinner: {
+            auto& state = context.GetState(wid).state.spinner;
+            auto& style = context.GetStyle(state.state);
+            CopyStyle(context.GetStyle(WS_Default), style);
+            AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v());
+            auto bounds = SpinnerBounds(wid, state, renderer, layoutItem.padding);
+
+            layoutItem.border.Max = bounds.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+            layoutItem.margin.Max = layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom };
+            layoutItem.content = layoutItem.padding = bounds;
+
+            if (!context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                AddItemToLayout(layout, layoutItem);
+            }
+            else
+            {
+                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                result = SpinnerImpl(wid, state, layoutItem.padding, io, renderer);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+            }
+
             break;
         }
         case WT_Slider: {
@@ -2841,8 +3470,8 @@ namespace glimmer
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
+                if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -3026,335 +3655,6 @@ namespace glimmer
         return Widget(id, WT_ItemGrid, geometry, neighbors);
     }
 
-    void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
-    {
-        auto& context = GetContext();
-        const auto& style = context.GetStyle(WS_Default);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        LayoutItemDescriptor layoutItem;
-        NeighborWidgets neighbors;
-        if (dir == DIR_Vertical) neighbors.bottom = nextid;
-        else neighbors.right = nextid;
-
-        AddExtent(layoutItem, style, neighbors);
-        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
-
-        region.viewport = layoutItem.content;
-        region.enabled = { dir == DIR_Horizontal, dir == DIR_Vertical };
-        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
-        context.PushContainer(parentid, id);
-    }
-
-    static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
-    {
-        auto& context = GetContext();
-        auto id = context.containerStack.top();
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        renderer.ResetClipRect();
-
-        auto hasHScroll = false;
-        auto io = Config.platform->CurrentIO();
-        auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.max.x && region.enabled.first)
-        {
-            hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
-                Config.scrollbarSz);
-        }
-
-        if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
-                Config.scrollbarSz, hasHScroll);
-
-        context.PopContainer(id);
-
-        auto& layout = context.adhocLayout.top();
-        layout.nextpos = region.viewport.Max;
-        dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
-    }
-
-    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
-        int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert(splits.size() <= 8u);
-
-        LayoutItemDescriptor layoutItem;
-        AddExtent(layoutItem, neighbors);
-        auto& context = GetContext();
-        auto& el = context.splitterStack.push();
-        el.dir = dir;
-        el.extent = layoutItem.margin;
-        el.id = id;
-
-        auto& state = context.SplitterState(id);
-        const auto& style = context.GetStyle(WS_Default);
-        state.current = 0;
-        
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-
-        auto idx = 0;
-        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
-            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
-        auto prev = el.extent.Min;
-
-        for (const auto& split : splits)
-        {
-            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
-                ImVec2{ state.spacing[idx].curr * width, height });
-
-            if (state.spacing[idx].curr == -1.f)
-            {
-                state.spacing[idx].curr = split.initial;
-                regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
-                    ImVec2{ state.spacing[idx].curr * width, height });
-            }
-
-            if (split.scrollable)
-            {
-                auto scid = GetNextId(WT_SplitterScrollRegion);
-                auto& scroll = state.scrolldata[idx];
-                scroll.viewport = ImRect{ prev, regionEnd };
-                scroll.enabled = { el.dir == DIR_Horizontal, el.dir == DIR_Vertical };
-                state.scrollids[idx] = scid;
-                context.AddItemGeometry(scid, scroll.viewport, true);
-            }
-            else
-                state.viewport[idx] = ImRect{ prev, regionEnd };
-
-            state.spacing[idx].min = split.min;
-            state.spacing[idx].max = split.max;
-            prev = regionEnd;
-            el.dir == DIR_Vertical ? prev.x = layoutItem.margin.Min.x : prev.y = layoutItem.margin.Min.y;
-            el.dir == DIR_Vertical ? prev.y += splittersz : prev.x += splittersz;
-            ++idx; 
-        }
-
-        if (state.scrollids[state.current] == -1)
-        {
-            auto& layout = context.adhocLayout.top();
-            layout.nextpos = state.viewport[state.current].Min;
-            renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
-        }
-        else
-        {
-            auto& scroll = state.scrolldata[0];
-            StartSplitterScrollableRegion(state.scrollids[0], state.scrollids[1], el.id, el.dir, scroll);
-        }
-    }
-
-    void NextSplitRegion()
-    {
-        auto& context = GetContext();
-        auto& el = context.splitterStack.top();
-        auto& state = context.SplitterState(el.id);
-        auto io = Config.platform->CurrentIO();
-        auto mousepos = io.mousepos;
-        const auto& style = context.GetStyle(WS_Default);
-        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
-            ImVec2{ state.spacing[state.current].curr * width, height });
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-
-        assert(state.current < 8);
-
-        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
-            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
-        auto scid = state.scrollids[state.current];
-        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
-        else renderer.ResetClipRect();
-
-        auto& layout = context.adhocLayout.top();
-        auto nextpos = layout.nextpos;
-        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } :
-            ImVec2{ splittersz, el.extent.GetHeight() });
-
-        renderer.SetClipRect(nextpos, nextpos + sz);
-        DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
-        DrawBackground(nextpos, nextpos + sz, style, renderer);
-        auto radius = std::max(splittersz - 2.f, 1.f);
-        if (el.dir == DIR_Vertical)
-        {
-            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
-            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
-            startpos.x += radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.x += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.x += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-        }
-        else
-        {
-            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
-            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
-            startpos.y += radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.y += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.y += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-        }
-        renderer.ResetClipRect();
-
-        if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
-        {
-            Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical : 
-                MouseCursor::ResiveHorizontal);
-            auto isDrag = io.isLeftMouseDown();
-            if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
-            state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
-            
-            if (isDrag)
-            {
-                auto amount = el.dir == DIR_Vertical ? (mousepos.y - el.extent.Min.y) / height :
-                    (mousepos.x - el.extent.Min.x) / width;
-                auto prev = state.spacing[state.current].curr;
-                state.spacing[state.current].curr = clamp(amount, state.spacing[state.current].min, state.spacing[state.current].max);
-                auto diff = prev - state.spacing[state.current].curr;
-                LOG("Moving to %f (relative amount: %f)\n", mousepos.y, state.spacing[state.current].curr);
-
-                if (diff != 0.f)
-                    state.spacing[state.current + 1].curr += diff;
-            }
-            else state.isdragged[state.current] = false;
-        }
-        else
-        {
-            state.states[state.current] = WS_Default;
-            Config.platform->SetMouseCursor(MouseCursor::Arrow);
-        }
-
-        state.current++;
-        assert(state.current < 8);
-
-        scid = state.scrollids[state.current];
-
-        if (scid != -1)
-        {
-            auto& scroll = state.scrolldata[state.current];
-            layout.nextpos = scroll.viewport.Min;
-            layout.lastItemId = scid;
-
-            if (state.current + 1 < 8)
-                StartSplitterScrollableRegion(scid, state.scrollids[state.current + 1], el.id, el.dir, scroll);
-            else
-                StartSplitterScrollableRegion(scid, el.id, el.id, el.dir, scroll);
-        }
-        else 
-        {
-            layout.nextpos = state.viewport[state.current].Min;
-            renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
-        }
-    }
-
-    void EndSplitRegion()
-    {
-        auto& context = GetContext();
-        auto el = context.splitterStack.top();
-        auto& state = context.SplitterState(el.id);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        
-        auto scid = state.scrollids[state.current];
-        if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
-        else renderer.ResetClipRect();
-
-        context.splitterStack.pop();
-        context.AddItemGeometry(el.id, el.extent);
-        renderer.ResetClipRect();
-    }
-
-    bool StartPopUp(int32_t id, ImVec2 origin)
-    {
-        auto io = Config.platform->CurrentIO();
-        if (!io.isKeyPressed(Key_Escape))
-        {
-            auto& overlayctx = PushContext(id);
-            overlayctx.ToggleDeferedRendering(true);
-            overlayctx.deferEvents = true;
-            overlayctx.popupOrigin = origin;
-            overlayctx.popupTarget = id;
-            return true;
-        }
-        else
-            GetContext().activePopUpRegion = ImRect{};
-
-        return false;
-    }
-
-    WidgetDrawResult EndPopUp()
-    {
-        auto& overlayctx = GetContext();
-        WidgetDrawResult result;
-
-        if (overlayctx.deferedRenderer->size.y > 0.f)
-        {
-            auto& renderer = overlayctx.parentContext->usingDeferred ? *overlayctx.parentContext->deferedRenderer : *Config.renderer;
-            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
-
-            if ((origin + size) > overlayctx.WindowSize())
-                origin.y = origin.y - size.y;
-
-            if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
-            {
-                overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
-                overlayctx.deferedRenderer->Render(renderer, origin);
-                overlayctx.ToggleDeferedRendering(false);
-                overlayctx.deferEvents = false;
-
-                result = overlayctx.HandleEvents(origin);
-                renderer.EndOverlay();
-            }
-        }
-
-        PopContext();
-        return result;
-    }
-
-    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& region = context.ScrollRegion(id);
-        const auto& style = context.GetStyle(WS_Default);
-
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        LayoutItemDescriptor layoutItem;
-        AddExtent(layoutItem, style, neighbors);
-        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
-
-        region.viewport = layoutItem.content;
-        region.enabled = { hscroll, vscroll };
-        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
-        context.containerStack.push(id);
-    }
-
-    void EndScrollableRegion()
-    {
-        auto& context = GetContext();
-        auto id = context.containerStack.top();
-        auto& region = context.ScrollRegion(id);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        renderer.ResetClipRect();
-
-        auto hasHScroll = false;
-        auto io = Config.platform->CurrentIO();
-        auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.max.x && region.enabled.first)
-        {
-            hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
-                Config.scrollbarSz);
-        }
-
-        if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
-                Config.scrollbarSz, hasHScroll);
-
-        context.containerStack.pop();
-        context.AddItemGeometry(id, region.viewport);
-    }
-
     WidgetStateData& GetWidgetState(WidgetType type, int16_t id)
     {
         auto& context = GetContext();
@@ -3372,31 +3672,5 @@ namespace glimmer
     {
         auto wtype = (WidgetType)(id >> 16);
         return GetWidgetState(wtype, (int16_t)(id & 0xffff));
-    }
-
-    void ItemGridState::setColumnResizable(int16_t col, bool resizable)
-    {
-        setColumnProps(col, COL_Resizable, resizable);
-    }
-
-    void ItemGridState::setColumnProps(int16_t col, ColumnProperty prop, bool set)
-    {
-        if (col >= 0)
-        {
-            auto lastLevel = (int)config.headers.size() - 1;
-            set ? config.headers[lastLevel][col].props |= prop : config.headers[lastLevel][col].props &= ~prop;
-            while (lastLevel > 0)
-            {
-                auto parent = config.headers[lastLevel][col].parent;
-                lastLevel--;
-                set ? config.headers[lastLevel][parent].props |= prop : config.headers[lastLevel][parent].props &= ~prop;
-            }
-        }
-        else
-        {
-            for (auto level = 0; level < (int)config.headers.size(); ++level)
-                for (auto lcol = 0; lcol < (int)config.headers[level].size(); ++lcol)
-                    set ? config.headers[level][lcol].props |= prop : config.headers[level][lcol].props &= ~prop;
-        }
     }
 }

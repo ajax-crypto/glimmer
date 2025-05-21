@@ -1,13 +1,13 @@
 #include "im_font_manager.h"
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-#include "imgui.h"
+#include "libs/inc/imgui/imgui.h"
 #ifdef IMGUI_ENABLE_FREETYPE
-#include "misc/freetype/imgui_freetype.h"
+#include "libs/inc/imgui/misc/freetype/imgui_freetype.h"
 #endif
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
-#include "blend2d.h"
+#include "libs/inc/blend2d/blend2d.h"
 #endif
 
 #include <string>
@@ -324,7 +324,7 @@ namespace glimmer
         auto copyFileName = [](const std::string_view fontname, char* fontpath, int startidx) {
             auto sz = std::min((int)fontname.size(), _MAX_PATH - startidx);
 
-            if (sz == 0) std::memset(fontpath, 0, _MAX_PATH);
+            if (sz == 0) memset(fontpath, 0, _MAX_PATH);
             else
             {
 #ifdef _WIN32
@@ -332,7 +332,7 @@ namespace glimmer
 #else
                 if (fontpath[startidx - 1] != '/') { fontpath[startidx] = '/'; startidx++; }
 #endif
-                std::memcpy(fontpath + startidx, fontname.data(), sz);
+                memcpy(fontpath + startidx, fontname.data(), sz);
                 fontpath[startidx + sz] = 0;
             }
 
@@ -370,7 +370,7 @@ namespace glimmer
                 for (auto idx = 0; idx < FT_Total; ++idx)
                 {
                     auto baseFontPath = BaseFontPaths[idx];
-                    std::memset(baseFontPath, 0, _MAX_PATH);
+                    memset(baseFontPath, 0, _MAX_PATH);
                     auto sz = std::min((int)names->BasePath.size(), _MAX_PATH);
                     strncpy_s(baseFontPath, _MAX_PATH - 1, names->BasePath.data(), sz);
                     baseFontPath[sz] = '\0';
@@ -654,7 +654,7 @@ namespace glimmer
             if (fsSelection & 0x10) info.isBold = true;
 
             uint8_t panose[10];
-            std::memcpy(panose, buffer.data() + os2TableOffset + 32, 10);
+            memcpy(panose, buffer.data() + os2TableOffset + 32, 10);
 
             // Refer to this: https://monotype.github.io/panose/pan2.htm for PANOSE docs
             if (panose[0] == 2 && panose[3] == 9) info.isMono = true;
@@ -682,7 +682,7 @@ namespace glimmer
 
         if (!pipe) return std::string{};
 
-        while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+        while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
             result += buffer.data();
 
         pclose(pipe);

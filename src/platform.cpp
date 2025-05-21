@@ -13,15 +13,15 @@
 #endif
 
 #if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
+#include "libs/inc/imgui/imgui_impl_glfw.h"
+#include "libs/inc/imgui/imgui_impl_opengl3.h"
 
 #include <stdio.h>
 #define GL_SILENCE_DEPRECATION
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
 #endif
-#include <GLFW/glfw3.h> // Will drag system OpenGL headers
+#include <libs/inc/GLFW/glfw3.h> // Will drag system OpenGL headers
 
 #ifdef __EMSCRIPTEN__
 #include "../libs/emscripten/emscripten_mainloop_stub.h"
@@ -305,7 +305,6 @@ namespace glimmer
             return true;
         }
 
-        IODescriptor desc;
         GLFWwindow* m_window = nullptr;
         float bgcolor[4];
         bool softwareCursor = false;
