@@ -284,4 +284,81 @@ namespace glimmer
         
         renderer.ResetClipRect();
     }
+
+    void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, uint32_t fillColor, float thickness, IRenderer& renderer)
+    {
+        startpos += padding;
+        size -= (padding + padding);
+
+        switch (symbol)
+        {
+        case glimmer::SymbolIcon::DownArrow:
+        {
+            ImVec2 start{ startpos.x, startpos.y }, end{ startpos.x + (size.x * 0.5f), startpos.y + size.y };
+            renderer.DrawLine(start, end, outlineColor, thickness);
+            renderer.DrawLine(end, ImVec2{ startpos.x + size.x, startpos.y }, outlineColor, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::UpArrow:
+        {
+            ImVec2 start{ startpos.x, startpos.y + size.y }, end{ startpos.x + (size.x * 0.5f), startpos.y };
+            renderer.DrawLine(start, end, outlineColor, thickness);
+            renderer.DrawLine(end, ImVec2{ startpos.x + size.x, startpos.y + size.y }, outlineColor, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::DownTriangle:
+        {
+            ImVec2 pos1{ startpos.x, startpos.y };
+            ImVec2 pos2{ pos1.x + size.x, pos1.y };
+            ImVec2 pos3{ startpos.x + size.x, pos1.y + (size.y * 0.5f) };
+            renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
+            renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::UpTriangle:
+        {
+            ImVec2 pos1{ startpos.x, startpos.y + size.y };
+            ImVec2 pos2{ pos1.x + (0.5f * size.x), startpos.y };
+            ImVec2 pos3{ pos2.x + size.x, pos1.y + size.y };
+            renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
+            renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::RightTriangle:
+        {
+            ImVec2 pos1{ startpos.x, startpos.y };
+            ImVec2 pos2{ pos1.x + size.x, startpos.y + (0.5f * size.y) };
+            ImVec2 pos3{ startpos.x, startpos.y + size.y };
+            renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
+            renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::Plus:
+        {
+            auto halfw = size.x * 0.5f, halfh = size.y * 0.5f;
+            renderer.DrawLine(ImVec2{ startpos.x + halfw, startpos.y },
+                ImVec2{ startpos.x + halfw , startpos.y + size.y }, outlineColor, thickness);
+            renderer.DrawLine(ImVec2{ startpos.x, startpos.y + halfh },
+                ImVec2{ startpos.x + size.x, startpos.y + halfh }, outlineColor, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::Minus:
+        {
+            auto halfh = size.y * 0.5f;
+            renderer.DrawLine(ImVec2{ startpos.x, startpos.y + halfh },
+                ImVec2{ startpos.x + size.x, startpos.y + halfh }, outlineColor, thickness);
+            break;
+        }
+        case glimmer::SymbolIcon::Cross:
+        {
+            renderer.DrawLine(ImVec2{ startpos.x, startpos.y },
+                ImVec2{ startpos.x + size.x, startpos.y + size.y }, outlineColor, thickness);
+            renderer.DrawLine(ImVec2{ startpos.x + size.x, startpos.y },
+                ImVec2{ startpos.x, startpos.y + size.y }, outlineColor, thickness);
+            break;
+        }
+        default:
+            break;
+        }
+    }
 }

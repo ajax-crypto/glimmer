@@ -28,6 +28,44 @@
 #endif
 #endif
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <WinUser.h>
+#undef CreateWindow
+
+static void DetermineKeyStatus(glimmer::IODescriptor& desc)
+{
+    desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
+    desc.insert = false;
+}
+#elif __linux__
+#include <ctsdio>
+#include <unistd.h>
+
+static std::string exec(const char* cmd) 
+{
+    char buffer[128];
+    std::string result = "";
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) throw std::runtime_error("popen() failed!");
+
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+        result += buffer;
+
+    pclose(pipe);
+    return result;
+}
+
+static void DetermineKeyStatus(glimmer::IODescriptor& desc)
+{
+    std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
+    desc.capslock = xset_output.find("on") != std::string::npos;
+    desc.insert = false;
+}
+#endif
+
 namespace glimmer
 {
     static void RegisterKeyBindings()
@@ -66,6 +104,11 @@ namespace glimmer
 
     struct ImGuiGLFWPlatform final : public IPlatform
     {
+        ImGuiGLFWPlatform()
+        {
+            DetermineKeyStatus(desc);
+        }
+
         void SetClipboardText(std::string_view input)
         {
             static char buffer[GLIMMER_MAX_CLIPBOARD_TEXTSZ];
@@ -112,6 +155,7 @@ namespace glimmer
             desc.mousepos = io.MousePos;
             desc.mouseWheel = io.MouseWheel;
             desc.modifiers = io.KeyMods;
+            totalTime += io.DeltaTime;
 
             for (auto idx = 0; idx < ImGuiMouseButton_COUNT; ++idx)
             {
@@ -128,10 +172,15 @@ namespace glimmer
                 auto imkey = ImGuiKey_NamedKey_BEGIN + key;
                 if (ImGui::IsKeyPressed((ImGuiKey)imkey))
                 {
-                    if (rollover < GLIMMER_NKEY_ROLLOVER_MAX)
-                        desc.key[rollover++] = (Key)key;
-                    desc.keyStatus[key] = ButtonStatus::Pressed;
-                    escape = imkey == ImGuiKey_Escape;
+                    if ((ImGuiKey)imkey == ImGuiKey_CapsLock) desc.capslock = !desc.capslock;
+                    else if ((ImGuiKey)imkey == ImGuiKey_Insert) desc.insert = !desc.insert;
+                    else
+                    {
+                        if (rollover < GLIMMER_NKEY_ROLLOVER_MAX)
+                            desc.key[rollover++] = (Key)key;
+                        desc.keyStatus[key] = ButtonStatus::Pressed;
+                        escape = imkey == ImGuiKey_Escape;
+                    }
                 }
                 else if (ImGui::IsKeyReleased((ImGuiKey)imkey))
                     desc.keyStatus[key] = ButtonStatus::Released;
@@ -239,7 +288,7 @@ namespace glimmer
             softwareCursor = params.softwareCursor;
         }
 
-        bool PollEvents(bool (*runner)(void*), void* data)
+        bool PollEvents(bool (*runner)(ImVec2, void*), void* data)
         {
             auto close = false;
             AddBaseStyleFontPtrs();
@@ -280,7 +329,7 @@ namespace glimmer
                     auto dl = ImGui::GetWindowDrawList();
                     Config.renderer->UserData = dl;
                     dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
-                    close = !runner(data);
+                    close = !runner(winsz, data);
                 }
 
                 ImGui::End();
@@ -336,5 +385,10 @@ namespace glimmer
         for (auto k = 0; k <= GLIMMER_NKEY_ROLLOVER_MAX; ++k) key[k] = Key_Invalid;
         for (auto ks = 0; ks < (GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1); ++ks)
             keyStatus[ks] = ButtonStatus::Default;
+    }
+
+    float IPlatform::fps() const
+    {
+        return (float)frameCount / totalTime;
     }
 }

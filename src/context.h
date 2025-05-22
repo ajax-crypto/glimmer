@@ -137,8 +137,6 @@ namespace glimmer
     {
         int caretpos = 0;
         bool caretVisible = true;
-        bool capslock = false;
-        bool replace = false;
         bool isSelecting = false;
         float lastCaretShowTime = 0.f;
         float selectionStart = -1.f;
@@ -190,6 +188,12 @@ namespace glimmer
         bool isdragged[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
 
         SplitterInternalState();
+    };
+
+    struct SpinnerInternalState
+    {
+        float lastChangeTime = 0.f;
+        float repeatRate = 0.f;
     };
 
     struct LayoutItemDescriptor
@@ -299,6 +303,7 @@ namespace glimmer
         std::vector<CheckboxInternalState> checkboxStates;
         std::vector<InputTextInternalState> inputTextStates;
         std::vector<SplitterInternalState> splitterStates;
+        std::vector<SpinnerInternalState> spinnerStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
 
@@ -405,6 +410,12 @@ namespace glimmer
         {
             auto index = id & 0xffff;
             return splitterStates[index];
+        }
+
+        SpinnerInternalState& SpinnerState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return spinnerStates[index];
         }
 
         ScrollableRegion& ScrollRegion(int32_t id)

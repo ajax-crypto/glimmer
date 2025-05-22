@@ -161,7 +161,7 @@ int main(int argc, char** argv)
         grid.setColumnProps(-1, glimmer::COL_Moveable, true);
         void* data = widgets;
 
-        config.platform->PollEvents([](void* data) {
+        config.platform->PollEvents([](ImVec2, void* data) {
             int32_t* widgets = (int32_t*)data;
             glimmer::PushStyle("background-color: rgb(200, 200, 200); border: 1px solid gray; padding: 5px; alignment: center; margin: 5px;", "border: 1px solid black");
 

@@ -1,12 +1,5 @@
 #include "widgets.h"
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
-#include "libs/inc/imgui/imgui.h"
-#endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
-#include "libs/inc/blend2d/blend2d.h"
-#endif
-
 #include <cstring>
 #include <cassert>
 #include <cmath>
@@ -1132,23 +1125,71 @@ namespace glimmer
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.spinner;
+            auto& spinner = context.SpinnerState(id);
 
             if (incbtn.Contains(io.mousepos))
             {
-                if (io.isLeftMouseDown() || io.clicked())
+                if (io.isLeftMouseDown())
                 {
-                    state.data = std::min(state.data + state.delta, state.max);
-                    result.event = WidgetEvent::Edited;
+                    if (!(state.state & WS_Pressed))
+                    {
+                        spinner.lastChangeTime = 0.f;
+                        spinner.repeatRate = state.repeatTrigger;
+                    }
+
+                    if (spinner.lastChangeTime >= state.repeatRate)
+                    {
+                        state.data = std::min(state.data + state.delta, state.max);
+                        spinner.repeatRate = state.repeatRate;
+                        result.event = WidgetEvent::Edited;
+                    }
+                    else spinner.lastChangeTime += io.deltaTime;
+
+                    state.state |= WS_Pressed;
+                }
+                else 
+                {
+                    state.state &= ~WS_Pressed;
+
+                    if (io.clicked())
+                    {
+                        state.data = std::min(state.data + state.delta, state.max);
+                        result.event = WidgetEvent::Edited;
+                    }
                 }
             }
             else if (decbtn.Contains(io.mousepos))
             {
-                if (io.isLeftMouseDown() || io.clicked())
+                if (io.isLeftMouseDown())
                 {
-                    state.data = std::max(state.data - state.delta, state.min);
-                    result.event = WidgetEvent::Edited;
+                    if (!(state.state & WS_Pressed))
+                    {
+                        spinner.lastChangeTime = 0.f;
+                        spinner.repeatRate = state.repeatTrigger;
+                    }
+
+                    if (spinner.lastChangeTime >= state.repeatRate)
+                    {
+                        state.data = std::max(state.data - state.delta, state.min);
+                        spinner.repeatRate = state.repeatRate;
+                        result.event = WidgetEvent::Edited;
+                    }
+                    else spinner.lastChangeTime += io.deltaTime;
+
+                    state.state |= WS_Pressed;
+                }
+                else
+                {
+                    state.state &= ~WS_Pressed;
+
+                    if (io.clicked())
+                    {
+                        state.data = std::max(state.data - state.delta, state.min);
+                        result.event = WidgetEvent::Edited;
+                    }
                 }
             }
+            else spinner.lastChangeTime = 0.f;
         }
         else
             context.deferedEvents.emplace_back(WT_Spinner, id, extent, incbtn, decbtn);
@@ -1221,27 +1262,8 @@ namespace glimmer
             default: break;
             }
 
-            if (!specificStyle.upDownArrows)
-            {
-                if (inc)
-                {
-                    auto halfw = rect.GetWidth() * 0.5f, halfh = rect.GetHeight() * 0.5f;
-                    renderer.DrawLine(ImVec2{ rect.Min.x + halfw - 1.f, rect.Min.y + 2.f },
-                        ImVec2{ rect.Min.x + halfw - 1.f, rect.Max.y - 2.f }, darker, 2.f);
-                    renderer.DrawLine(ImVec2{ rect.Min.x + 2.f, rect.Min.y + halfh - 1.f },
-                        ImVec2{ rect.Max.x - 2.f, rect.Min.y + halfh - 1.f }, darker, 2.f);
-                }
-                else
-                {
-                    auto halfh = rect.GetHeight() * 0.5f;
-                    renderer.DrawLine(ImVec2{ rect.Min.x + 2.f, rect.Min.y + halfh - 1.f },
-                        ImVec2{ rect.Max.x - 2.f, rect.Min.y + halfh - 1.f }, darker, 2.f);
-                }
-            }
-            else
-            {
-
-            }
+            if (!specificStyle.upDownArrows) DrawSymbol(rect.Min, rect.GetSize(), { 8.f, 5.f }, inc ? SymbolIcon::Plus : SymbolIcon::Minus, darker, 0, 2.f, renderer);
+            else DrawSymbol(rect.Min, rect.GetSize(), { 8.f, 5.f }, inc ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, darker, 0, 2.f, renderer);
 
             return darker;
         };
@@ -1295,7 +1317,7 @@ namespace glimmer
 
 #pragma endregion
 
-#pragma region Slider Widget
+#pragma region Slider
 
     ImRect SliderBounds(int32_t id, const ImRect& extent)
     {
@@ -1684,8 +1706,6 @@ namespace glimmer
                                 input.moveRight(width);
                             }
                         }
-                        else if (key == Key_CapsLock) input.capslock = !input.capslock;
-                        else if (key == Key_Insert) input.replace = !input.replace;
                         else if (key == Key_Backspace)
                         {
                             if (state.selection.second == -1)
@@ -1828,7 +1848,7 @@ namespace glimmer
                             {
                                 std::string_view text{ state.text.data(), state.text.size() };
                                 auto ch = io.modifiers & ShiftKeyMod ? KeyMappings[key].second : KeyMappings[key].first;
-                                ch = input.capslock ? std::toupper(ch) : std::tolower(ch);
+                                ch = io.capslock ? std::toupper(ch) : std::tolower(ch);
                                 auto caretAtEnd = input.caretpos == (int)text.size();
 
                                 if (caretAtEnd)
@@ -1843,7 +1863,7 @@ namespace glimmer
                                 }
                                 else
                                 {
-                                    if (!input.replace)
+                                    if (!io.insert)
                                     {
                                         state.text.push_back(0);
                                         input.pixelpos.push_back(0.f);
@@ -1872,34 +1892,21 @@ namespace glimmer
 
             if (result.event == WidgetEvent::Edited && state.ShowList != nullptr)
             {
-                context.ToggleDeferedRendering(true);
-                state.ShowList(state, { content.GetWidth(), content.GetHeight() });
+                ImRect maxrect{ { 0.f, 0.f }, context.WindowSize() };
+                ImRect padding{ content.Min - ImVec2{ style.padding.left, style.padding.top }, 
+                    content.Max + ImVec2{ style.padding.right, style.padding.bottom } };
+                ImRect border{ padding.Min - ImVec2{ style.border.left.thickness, style.border.top.thickness },
+                    padding.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness } };
+                auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
+                ImVec2 available1 = ImVec2{ maxw - border.Min.x, maxh - padding.Max.y };
+                ImVec2 available2 = ImVec2{ maxw - border.Min.x, maxh - padding.Min.y };
 
-                if (context.deferedRenderer->size.y > 0.f && !io.isKeyPressed(Key_Escape))
+                // Create the popup with its own context                
+                if (StartPopUp(id, { border.Min.x, padding.Max.y }))
                 {
-                    char buffer[32];
-                    memset(buffer, 0, 32);
-                    ImVec2 origin{ content.Min.x, content.Max.y }, size{ content.GetWidth(), context.deferedRenderer->size.y };
-
-                    if ((origin + size) > context.WindowSize())
-                        origin.y = origin.y - size.y;
-
-                    std::to_chars(buffer, buffer + 31, id);
-                    ImGui::SetNextWindowPos(origin);
-                    ImGui::SetNextWindowSize(size);
-
-                    if (ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
-                    {
-                        renderer.SetClipRect(origin, origin + size, false);
-                        context.deferedRenderer->Render(renderer, origin);
-                        renderer.ResetClipRect();
-                    }
-
-                    ImGui::End();
+                    state.ShowList(state, available1, available2);
+                    EndPopUp();
                 }
-
-                context.ToggleDeferedRendering(false);
             }
 
             if (!state.text.empty()) HandleHScroll(input.scroll, input.pixelpos.back(), content, mousepos, renderer, io, 5.f, false);
@@ -2137,11 +2144,9 @@ namespace glimmer
 
         auto arrowh = style.font.size * 0.33333f;
         auto arroww = style.font.size * 0.25f;
-        renderer.DrawLine(ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh },
-            ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh)}, style.fgcolor, 2.f);
-        renderer.DrawLine(ImVec2{ content.Max.x - (style.font.size * 0.5f), content.Min.y + (2.f * arrowh) },
-            ImVec2{ content.Max.x - arroww, content.Min.y + arrowh }, style.fgcolor, 2.f);
-        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
+        auto arrowst = ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh };
+        auto darker = DarkenColor(style.bgcolor);
+        DrawSymbol(arrowst, { arroww, arrowh }, { 2.f, 2.f }, state.opened ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, darker, 0, 2.f, renderer);
 
         result.geometry = margin;
         return result;

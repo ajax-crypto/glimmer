@@ -167,6 +167,8 @@ namespace glimmer
         float min = 0.f, max = (float)INT_MAX, delta = 1.f;
         SpinnerButtonPlacement placement = SpinnerButtonPlacement::VerticalRight;
         int precision = 3;
+        float repeatRate = 0.5; // in seconds
+        float repeatTrigger = 1.f; // in seconds
         bool isInteger = true;
     };
 
@@ -205,7 +207,7 @@ namespace glimmer
         std::vector<char> text;
         std::string_view placeholder;
         std::pair<int, int> selection{ -1, -1 };
-        void (*ShowList)(const TextInputState&, ImVec2) = nullptr;
+        void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
     };
 
     struct DropDownState : public CommonWidgetData

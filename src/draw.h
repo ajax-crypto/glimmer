@@ -9,6 +9,11 @@ namespace glimmer
     struct FourSidedBorder;
     struct ColorGradient;
 
+    enum class SymbolIcon 
+    {
+        DownArrow, UpArrow, DownTriangle, UpTriangle, RightTriangle, Search, Browse, Pin, Plus, Minus, Cross
+    };
+
     IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
     RectBreakup ComputeRectBreakups(ImRect rect, float amount);
 
@@ -19,6 +24,7 @@ namespace glimmer
 
     void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled,
         const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags = std::nullopt);
+    void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, uint32_t fillColor, float thickness, IRenderer& renderer);
 
     template <typename ItrT>
     void DrawLinearGradient(ImVec2 initpos, ImVec2 endpos, float angle, ImGuiDir dir,

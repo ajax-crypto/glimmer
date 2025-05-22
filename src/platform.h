@@ -70,6 +70,7 @@ struct ImRect
     float GetWidth() const { return Max.x - Min.x; }
     float GetHeight() const { return Max.y - Min.y; }
     float Area() const { return GetWidth() * GetHeight(); }
+    ImVec2 GetSize() const { return ImVec2{ GetWidth(), GetHeight() }; }
 };
 #endif
 
@@ -107,7 +108,7 @@ namespace glimmer
         CtrlKeyMod = ImGuiMod_Ctrl,
         ShiftKeyMod = ImGuiMod_Shift,
         AltKeyMod = ImGuiMod_Alt,
-        SuperKeyMod = ImGuiMod_Super
+        SuperKeyMod = ImGuiMod_Super,
     };
 
     enum class MouseCursor
@@ -200,6 +201,8 @@ namespace glimmer
         int32_t modifiers = 0;
         Key key[GLIMMER_NKEY_ROLLOVER_MAX + 1];
         ButtonStatus keyStatus[GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1];
+        bool capslock = false;
+        bool insert = false;
 
         IODescriptor();
 
@@ -250,9 +253,12 @@ namespace glimmer
         virtual void SetMouseCursor(MouseCursor cursor) = 0;
 
         virtual bool CreateWindow(const WindowParams& params) = 0;
-        virtual bool PollEvents(bool (*runner)(void*), void* data) = 0;
+        virtual bool PollEvents(bool (*runner)(ImVec2, void*), void* data) = 0;
+
+        float fps() const;
 
         int64_t frameCount = 0;
+        float totalTime = 0.f;
         IODescriptor desc;
     };
 

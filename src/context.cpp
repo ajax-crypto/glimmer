@@ -368,13 +368,14 @@ namespace glimmer
         memset(maxids, 0, WT_TotalTypes);
         memset(tempids, INT_MAX, WT_TotalTypes);
 
-        gridStates.resize(8);
-        tabStates.resize(16);
+        gridStates.resize(4);
+        tabStates.resize(8);
         toggleStates.resize(32);
         radioStates.resize(32);
         checkboxStates.resize(32);
         inputTextStates.resize(32);
         splitterStates.resize(4);
+        spinnerStates.resize(8);
         splitterScrollPaneParentIds.resize(32 * GLIMMER_MAX_SPLITTER_REGIONS, -1);
         dropDownOptions.resize(32);
 
