@@ -204,32 +204,7 @@ namespace glimmer
             for (auto idx = 0; idx < GLIMMER_NKEY_ROLLOVER_MAX; ++idx)
                 desc.key[idx] = Key_Invalid;
 
-            auto& context = GetContext();
-            context.InsideFrame = false;
-            context.adhocLayout.clear();
-            context.layoutItems.clear();
-
-            for (auto lidx = 0; lidx < context.layouts.size(); ++lidx)
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                {
-                    context.layouts[lidx].styles[idx].clear();
-                    context.layouts[lidx].itemIndexes.clear();
-                }
-
-            for (auto idx = 0; idx < WSI_Total; ++idx)
-            {
-                context.pushedStyles[idx].clear();
-                context.pushedStyles[idx].push();
-            }
-
-            for (auto idx = 0; idx < WT_TotalTypes; ++idx)
-            {
-                context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-            }
-
-            context.maxids[WT_SplitterScrollRegion] = 0;
-            context.maxids[WT_Layout] = 0;
-            assert(context.layouts.empty());
+            ResetAllContexts();
         }
 
         bool CreateWindow(const WindowParams& params)

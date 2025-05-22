@@ -206,6 +206,8 @@ namespace glimmer
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
         bool isComputed = false;
+        bool closing = false;
+        bool hscroll = false, vscroll = false;
     };
 
     enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget };
@@ -226,7 +228,7 @@ namespace glimmer
         ImVec2 maxdim{ 0.f, 0.f };
         ImVec2 cumulative{ 0.f, 0.f };
         ImVec2 rows[32];
-        ImVec2 cols[32];
+        ImVec2 cols[8];
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
@@ -234,7 +236,9 @@ namespace glimmer
 
         Vector<LayoutDescriptor, int16_t, 16> children{ false };
         Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
-        StyleStackT styles[WSI_Total];
+        StyleStackT styles[WSI_Total]{ false, false, false, false,
+            false, false, false, false, false };
+        FixedSizeStack<int32_t, 16> containerStack;
 
         LayoutDescriptor() {}
     };
@@ -248,7 +252,9 @@ namespace glimmer
     void AddFontPtr(FontStyle& font);
     void AddBaseStyleFontPtrs();
 
+    void ActiveContexts();
     void ResetActivePopUps(ImVec2 mousepos, bool escape);
+    void ResetAllContexts();
 
     struct EventDeferInfo
     {

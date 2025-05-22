@@ -22,22 +22,25 @@ void* LayoutMemory = nullptr;
 
 namespace glimmer
 {
-    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags);
-    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult ButtonImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const StyleDescriptor& style, const ImRect& extent, ImVec2 textsz, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult TabBarImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
+    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, const StyleDescriptor& style,
+        const ImRect& border, const ImRect& content, IRenderer& renderer);
+    void EndScrollableImpl(int32_t id, IRenderer& renderer);
 
 #pragma region Layout functions
 
@@ -421,7 +424,7 @@ namespace glimmer
                     offset = ImVec2{ layout.spacing.x, layout.cumulative.y + layout.maxdim.y + 
                         GetTotalSpacing(layout, DIR_Vertical) };
                     layout.nextpos.x = width + layout.spacing.x;
-                    layout.nextpos.y = offset.y;
+                    layout.nextpos.y = offset.y + layout.spacing.y;
                     AlignLayoutAxisItems(layout);
 
                     layout.cumulative.y += layout.maxdim.y;
@@ -468,7 +471,7 @@ namespace glimmer
 
                     offset = ImVec2{ layout.cumulative.x + layout.maxdim.x + GetTotalSpacing(layout, DIR_Horizontal), 
                         layout.spacing.y};
-                    layout.nextpos.x = offset.x;
+                    layout.nextpos.x = offset.x + layout.spacing.x;
                     layout.nextpos.y = height + layout.spacing.y;
                     AlignLayoutAxisItems(layout);
 
@@ -762,7 +765,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = LabelImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
+            result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
             break;
         }
         case glimmer::WT_Button: {
@@ -771,7 +774,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = ButtonImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
         case glimmer::WT_RadioButton: {
@@ -779,7 +782,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = RadioButtonImpl(item.id, state, item.margin, renderer, io);
+            result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
             break;
         }
         case glimmer::WT_ToggleButton: {
@@ -787,7 +790,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = ToggleButtonImpl(item.id, state, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
+            result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
             break;
         }
         case glimmer::WT_Checkbox: {
@@ -795,7 +798,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = CheckboxImpl(item.id, state, item.margin, item.padding, renderer, io);
+            result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
             break;
         }
         case WT_Spinner: {
@@ -803,7 +806,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = SpinnerImpl(item.id, state, item.padding, io, renderer);
+            result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
             break;
         }
         case glimmer::WT_Slider: {
@@ -811,7 +814,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = SliderImpl(item.id, state, item.border, renderer, io);
+            result = SliderImpl(item.id, state, style, item.border, renderer, io);
             break;
         }
         case glimmer::WT_TextInput: {
@@ -819,7 +822,9 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = TextInputImpl(item.id, state, item.margin, item.content, renderer, io);
+            result = TextInputImpl(item.id, state, style, item.margin, item.content, renderer, io);
+            LOG("Margin: (%f, %f) -> (%f, %f) | Content: (%f, %f) -> (%f, %f)\n",
+                RECT_OUT(item.margin), RECT_OUT(item.content));
             break;
         }
         case glimmer::WT_DropDown: {
@@ -827,7 +832,7 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = DropDownImpl(item.id, state, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
         case glimmer::WT_TabBar:
@@ -837,7 +842,16 @@ namespace glimmer
             const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = ItemGridImpl(item.id, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            break;
+        }
+        case WT_Scrollable: {
+            if (item.closing) EndScrollableImpl(item.id, renderer);
+            else 
+            {
+                const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, WS_Default);
+                StartScrollableImpl(item.id, item.hscroll, item.vscroll, style, item.border, item.content, renderer);
+            }
             break;
         }
         default:

@@ -14,7 +14,7 @@
 namespace glimmer
 {
     // This is required, as for some widgets, double clicking leads to a editor, and hence a text input widget
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content,
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content,
         IRenderer& renderer, const IODescriptor& io);
 
     WidgetStateData::WidgetStateData(WidgetType ty)
@@ -378,29 +378,55 @@ namespace glimmer
         return false;
     }
 
-    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
+    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, const StyleDescriptor& style, 
+        const ImRect& border, const ImRect& content, IRenderer& renderer)
     {
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
         auto& context = GetContext();
         auto& region = context.ScrollRegion(id);
-        const auto& style = context.GetStyle(WS_Default);
-
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-        LayoutItemDescriptor layoutItem;
-        AddExtent(layoutItem, style, neighbors);
-        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
-
-        region.viewport = layoutItem.content;
+        region.viewport = content;
         region.enabled = { hscroll, vscroll };
-        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
+        renderer.SetClipRect(content.Min, content.Max);
+        context.AddItemGeometry(id, region.viewport);
         context.containerStack.push(id);
     }
 
-    void EndScrollableRegion()
+    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
-        auto id = context.containerStack.top();
+
+        if (!context.layouts.empty())
+        {
+            const auto& style = context.GetStyle(WS_Default);
+            auto& layout = context.layouts.top();
+            LayoutItemDescriptor layoutItem;
+            layoutItem.wtype = WT_Scrollable;
+            layoutItem.id = id;
+            layoutItem.vscroll = vscroll;
+            layoutItem.hscroll = hscroll;
+            AddExtent(layoutItem, style, neighbors);
+            AddItemToLayout(layout, layoutItem);
+            layout.containerStack.push(id);
+        }
+        else
+        {
+            auto& region = context.ScrollRegion(id);
+            const auto& style = context.GetStyle(WS_Default);
+
+            auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+            LayoutItemDescriptor layoutItem;
+            layoutItem.wtype = WT_Scrollable;
+            layoutItem.id = id;
+            AddExtent(layoutItem, style, neighbors);
+            StartScrollableImpl(id, hscroll, vscroll, style, layoutItem.border, layoutItem.content, renderer);
+        }
+    }
+
+    void EndScrollableImpl(int32_t id, IRenderer& renderer)
+    {
+        auto& context = GetContext();
         auto& region = context.ScrollRegion(id);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
@@ -419,6 +445,29 @@ namespace glimmer
 
         context.containerStack.pop();
         context.AddItemGeometry(id, region.viewport);
+    }
+
+    void EndScrollableRegion()
+    {
+        auto& context = GetContext();
+
+        if (!context.layouts.empty())
+        {
+            auto& layout = context.layouts.top();
+            auto id = layout.containerStack.top();
+            LayoutItemDescriptor layoutItem;
+            layoutItem.wtype = WT_Scrollable;
+            layoutItem.id = id;
+            layoutItem.closing = true;
+            AddItemToLayout(layout, layoutItem);
+            layout.containerStack.pop();
+        }
+        else
+        {
+            auto id = context.containerStack.top();
+            auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+            EndScrollableImpl(id, renderer);
+        }
     }
 
 #pragma endregion
@@ -770,7 +819,7 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_Button, id, margin, border, padding, content, text);
     }
 
-    WidgetDrawResult LabelImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
     {
         auto& context = GetContext();
@@ -778,7 +827,6 @@ namespace glimmer
 
         WidgetDrawResult result;
         auto& state = context.GetState(id).state.label;
-        auto& style = context.GetStyle(state.state);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -790,13 +838,12 @@ namespace glimmer
         return result;
     }
 
-    WidgetDrawResult ButtonImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult ButtonImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
         auto& state = context.GetState(id).state.button;
-        auto& style = context.GetStyle(state.state);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -871,12 +918,11 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_ToggleButton, id, center, extent);
     }
 
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const ImRect& extent, ImVec2 textsz, 
+    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const StyleDescriptor& style, const ImRect& extent, ImVec2 textsz,
         IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
         auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
         auto& toggle = context.ToggleState(id);
 
@@ -967,12 +1013,11 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_RadioButton, id, extent, maxrad);
     }
 
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const ImRect& extent, 
+    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const StyleDescriptor& style, const ImRect& extent,
         IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
         auto& specificStyle = context.radioButtonStyles[log2((unsigned)state.state)].top();
         auto& radio = context.RadioState(id);
 
@@ -1034,11 +1079,10 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_Checkbox, id, extent);
     }
 
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const ImRect& extent, const ImRect& padding, 
+    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& padding,
         IRenderer& renderer, const IODescriptor& io)
     {
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
         auto& check = context.CheckboxState(id);
         WidgetDrawResult result;
 
@@ -1202,12 +1246,12 @@ namespace glimmer
         return ToRGBA(r, g, b, a);
     }
 
-    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const ImRect& extent, const IODescriptor& io, IRenderer& renderer)
+    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, 
+        const ImRect& extent, const IODescriptor& io, IRenderer& renderer)
     {
         WidgetDrawResult result;
         ImRect incbtn, decbtn;
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
         const auto& specificStyle = context.spinnerStyles[log2((unsigned)state.state)].top();
         static char buffer[32] = { 0 };
 
@@ -1389,11 +1433,11 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_Slider, id, extent, thumb);
     }
 
-    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
+    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const StyleDescriptor& style, 
+        const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
         const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
 
         auto bgcolor = state.TrackColor ? state.TrackColor(state.data) : style.bgcolor;
@@ -1915,12 +1959,11 @@ namespace glimmer
     }
 
     // TODO: capslock and insert state is global -> poll and find out...
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const ImRect& extent, const ImRect& content, 
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content,
         IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
         auto& input = context.InputTextState(id);
 
         if (state.state & WS_Focused)
@@ -2030,17 +2073,18 @@ namespace glimmer
             {
                 if (state.isComboBox)
                 {
-                    if (state.inputId == -1)
+                   /* if (state.inputId == -1)
                     {
                         state.inputId = GetNextId(WT_TextInput);
                         auto& text = GetWidgetState(state.inputId).state.input.text;
                         for (auto ch : state.text) text.push_back(ch);
                     }
 
-                    auto res = TextInputImpl(state.inputId, state.input, margin, content, renderer, io);
+                    auto res = TextInputImpl(state.inputId, state.input, style, margin, content, renderer, io);
                     if (res.event == WidgetEvent::Edited)
                         state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
-                    state.opened = true;
+                    state.opened = true;*/
+                    // Create per dropdown input id
                 }
             }
             else if (ismouseover && !state.tooltip.empty() && !io.isLeftMouseDown())
@@ -2124,16 +2168,11 @@ namespace glimmer
         else context.deferedEvents.emplace_back(WT_DropDown, id, margin, border, padding, content);
     }
 
-    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
-
-        LOG("Margin: (%f, %f, %f, %f) | Padding: (%f, %f, %f, %f)\n",
-            style.margin.left, style.margin.top, style.margin.right, style.margin.bottom,
-            style.padding.left, style.padding.top, style.padding.right, style.padding.bottom);
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
@@ -2156,7 +2195,7 @@ namespace glimmer
 
 #pragma region TabBar
 
-    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult TabBarImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
@@ -2505,13 +2544,12 @@ namespace glimmer
         return itemcontent;
     }
 
-    WidgetDrawResult ItemGridImpl(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
         auto& state = context.GetState(id).state.grid;
-        auto& style = context.GetStyle(state.state);
         auto& gridstate = context.GridState(id);
         auto mousepos = io.mousepos;
 
@@ -2550,8 +2588,6 @@ namespace glimmer
 
                     auto col = gridstate.colmap[level].vtol[vcol];
                     auto& hdr = headers[level][col];
-                    if (style.font.font == nullptr) style.font.font = GetFont(style.font.family,
-                        style.font.size, FT_Normal);
 
                     static char buffer[256];
                     memset(buffer, ' ', 255);
@@ -2637,8 +2673,6 @@ namespace glimmer
                     auto col = gridstate.colmap[level].vtol[vcol];
                     auto& hdr = headers[level][col];
                     hdr.content.Min.x = lastx;
-                    if (style.font.font == nullptr) style.font.font = GetFont(style.font.family,
-                        style.font.size, FT_Normal);
 
                     // Find sum of all descendant headers, which will be this headers width
                     for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
@@ -3304,7 +3338,7 @@ namespace glimmer
                     context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 auto flags = ToTextFlags(state.type);
-                result = LabelImpl(wid, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io, flags);
+                result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io, flags);
             }
             break;
         }
@@ -3328,7 +3362,7 @@ namespace glimmer
                 std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(
                     context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 context.AddItemGeometry(wid, layoutItem.margin);
-                result = ButtonImpl(wid, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io);
+                result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io);
             }
             break;
         }
@@ -3350,7 +3384,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = RadioButtonImpl(wid, state, bounds, renderer, io);
+                result = RadioButtonImpl(wid, state, style, bounds, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -3380,7 +3414,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(bounds.Min, bounds.Max);
-                result = ToggleButtonImpl(wid, state, bounds, textsz, renderer, io);
+                result = ToggleButtonImpl(wid, state, style, bounds, textsz, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -3415,7 +3449,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = CheckboxImpl(wid, state, layoutItem.margin, layoutItem.padding, renderer, io);
+                result = CheckboxImpl(wid, state, style, layoutItem.margin, layoutItem.padding, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -3444,7 +3478,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = SpinnerImpl(wid, state, layoutItem.padding, io, renderer);
+                result = SpinnerImpl(wid, state, style, layoutItem.padding, io, renderer);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -3455,8 +3489,10 @@ namespace glimmer
             auto& state = context.GetState(wid).state.slider;
             auto& style = context.GetStyle(state.state);
             CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, state.dir == DIR_Horizontal ? 0.f : style.font.size, 
-                state.dir == DIR_Vertical ? 0.f : style.font.size);
+            auto deltav = style.margin.v() + style.border.v() + style.padding.v();
+            auto deltah = style.margin.h() + style.border.h() + style.padding.h();
+            AddExtent(layoutItem, style, neighbors, state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah, 
+                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav);
             auto bounds = SliderBounds(wid, layoutItem.margin);
 
             if (bounds.GetArea() != layoutItem.margin.GetArea())
@@ -3482,7 +3518,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = SliderImpl(wid, state, layoutItem.border, renderer, io);
+                result = SliderImpl(wid, state, style, layoutItem.border, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
             }
@@ -3492,8 +3528,9 @@ namespace glimmer
         case WT_TextInput: {
             auto& state = context.GetState(wid).state.input;
             auto& style = context.GetStyle(state.state);
-            auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
+            
             CopyStyle(context.GetStyle(WS_Default), style);
+            auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
             AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + vdelta);
 
             if (!context.layouts.empty())
@@ -3507,7 +3544,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = TextInputImpl(wid, state, layoutItem.border, layoutItem.content, renderer, io);
+                result = TextInputImpl(wid, state, style, layoutItem.border, layoutItem.content, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
             }
@@ -3517,8 +3554,9 @@ namespace glimmer
         case WT_DropDown: {
             auto& state = context.GetState(wid).state.dropdown;
             auto& style = context.GetStyle(state.state);
-            auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
+            
             CopyStyle(context.GetStyle(WS_Default), style);
+            auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
             AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + vdelta);
             auto [bounds, textrect] = DropDownBounds(id, state, layoutItem.content, renderer);
 
@@ -3541,7 +3579,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = DropDownImpl(wid, state, layoutItem.margin, layoutItem.border, layoutItem.padding, 
+                result = DropDownImpl(wid, state, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
                     layoutItem.content, textrect, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
@@ -3589,7 +3627,7 @@ namespace glimmer
             else
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = ItemGridImpl(wid, layoutItem.margin, layoutItem.border, layoutItem.padding, 
+                result = ItemGridImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
                     layoutItem.content, layoutItem.text, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();

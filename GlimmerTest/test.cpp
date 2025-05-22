@@ -202,7 +202,7 @@ int main(int argc, char** argv)
 
                     Move(FD_Horizontal);
                     PushStyle("border: 1px solid black; width: 200px; background-color: rgb(240, 240, 240)");
-                    PushStyle(WS_Selected, "background-color: rgb(50, 100, 255); color: white");
+                    PushStyle(WS_Selected, "border: 2px solid black; background-color: rgb(50, 100, 255); color: white");
                     TextInput(widgets[INPUT], ToRight);
                     PopStyle(1, WS_Selected);
                     PopStyle(1, WS_Default);

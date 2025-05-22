@@ -112,6 +112,12 @@ namespace glimmer
             AddFontPtr(context.pushedStyles[idx].top().font);
     }
 
+    void ActiveContexts()
+    {
+        for (auto& context : WidgetContexts)
+            context.InsideFrame = true;
+    }
+
     void ResetActivePopUps(ImVec2 mousepos, bool escape)
     {
         for (auto it = WidgetContexts.rbegin(); it != WidgetContexts.rend(); ++it)
@@ -121,6 +127,41 @@ namespace glimmer
             {
                 it->parentContext->activePopUpRegion = ImRect{};
             }
+        }
+    }
+
+    void ResetAllContexts()
+    {
+        for (auto& context : WidgetContexts)
+        {
+            context.InsideFrame = false;
+            context.adhocLayout.clear();
+            context.layoutItems.clear();
+
+            for (auto lidx = 0; lidx < context.layouts.size(); ++lidx)
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    context.layouts[lidx].styles[idx].clear();
+                    context.layouts[lidx].itemIndexes.clear();
+                }
+
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
+                context.pushedStyles[idx].clear();
+                context.pushedStyles[idx].push();
+            }
+
+            for (auto idx = 0; idx < WT_TotalTypes; ++idx)
+            {
+                context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
+            }
+
+            context.layouts.clear();
+            context.maxids[WT_SplitterScrollRegion] = 0;
+            context.maxids[WT_Layout] = 0;
+            context.activePopUpRegion = ImRect{};
+
+            assert(context.layouts.empty());
         }
     }
 

@@ -277,4 +277,6 @@ namespace glimmer
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
     std::pair<Sizing, bool> ParseLayoutStyle(LayoutDescriptor& layout, std::string_view css, float pwidth, float pheight);
+
+#define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
 }
