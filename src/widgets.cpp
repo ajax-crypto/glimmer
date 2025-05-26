@@ -1553,11 +1553,12 @@ namespace glimmer
             auto ispressed = mouseover && io.isLeftMouseDown();
             auto hasclick = io.clicked();
             auto isclicked = (hasclick && mouseover) || (!hasclick && (state.state & WS_Focused));
-            Config.platform->SetMouseCursor(mouseover ? MouseCursor::TextInput : MouseCursor::Arrow);
             mouseover ? state.state |= WS_Hovered : state.state &= ~WS_Hovered;
             ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
             isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
             if (input.lastClickTime != -1.f) input.lastClickTime += io.deltaTime;
+
+            if (mouseover) Config.platform->SetMouseCursor(MouseCursor::TextInput);
 
             // When mouse is down inside the input, text selection is in progress
             // Hence, either text selection is starting, in which case record the start position.
@@ -2553,8 +2554,8 @@ namespace glimmer
             IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
         auto& evprop = gridstate.cols[level][col - 1];
 
-        if (!evprop.mouseDown)
-            Config.platform->SetMouseCursor(isMouseNearColDrag ? MouseCursor::Grab : MouseCursor::Arrow);
+        if (!evprop.mouseDown && isMouseNearColDrag)
+            Config.platform->SetMouseCursor(MouseCursor::Grab);
 
         if (io.isLeftMouseDown())
         {
@@ -2564,7 +2565,6 @@ namespace glimmer
                 {
                     evprop.mouseDown = true;
                     evprop.lastPos = mousepos;
-                    Config.platform->SetMouseCursor(MouseCursor::ResiveHorizontal);
                     gridstate.state = ItemGridCurrentState::ResizingColumns;
                     LOG("Drag start at %f for column #%d\n", mousepos.x, col);
                 }
@@ -2575,7 +2575,7 @@ namespace glimmer
                 evprop.modified += (mousepos.x - evprop.lastPos.x);
                 evprop.lastPos = mousepos;
                 UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, true);
-                Config.platform->SetMouseCursor(MouseCursor::ResiveHorizontal);
+                Config.platform->SetMouseCursor(MouseCursor::ResizeHorizontal);
                 gridstate.state = ItemGridCurrentState::ResizingColumns;
             }
         }
@@ -2591,7 +2591,6 @@ namespace glimmer
             }
 
             evprop.mouseDown = false;
-            Config.platform->SetMouseCursor(MouseCursor::Arrow);
             gridstate.state = ItemGridCurrentState::Default;
         }
     }
@@ -3293,28 +3292,28 @@ namespace glimmer
         renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
 
         auto idx = 0;
-        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
         auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
             style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        width -= splittersz * (float)splits.size();
+        height -= splittersz * (float)splits.size();
         auto prev = el.extent.Min;
 
         for (const auto& split : splits)
         {
-            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
-                ImVec2{ state.spacing[idx].curr * width, height });
-
             if (state.spacing[idx].curr == -1.f)
             {
-                state.spacing[idx].curr = split.initial;
-                regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
-                    ImVec2{ state.spacing[idx].curr * width, height });
+                state.spacing[idx].curr = split.initial;      
             }
+
+            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                ImVec2{ state.spacing[idx].curr * width, height });
 
             if (split.scrollable)
             {
                 auto scid = GetNextId(WT_SplitterScrollRegion);
                 auto& scroll = state.scrolldata[idx];
-                scroll.viewport = ImRect{ prev, regionEnd };
+                scroll.viewport = state.viewport[idx] = ImRect{ prev, regionEnd };
                 scroll.enabled = { el.dir == DIR_Horizontal, el.dir == DIR_Vertical };
                 state.scrollids[idx] = scid;
                 context.AddItemGeometry(scid, scroll.viewport, true);
@@ -3352,8 +3351,6 @@ namespace glimmer
         auto mousepos = io.mousepos;
         const auto& style = context.GetStyle(WS_Default);
         const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto regionStart = el.extent.Min + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[state.current].curr * height } :
-            ImVec2{ state.spacing[state.current].curr * width, height });
         auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
 
         assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
@@ -3364,10 +3361,9 @@ namespace glimmer
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
         else renderer.ResetClipRect();
 
-        auto& layout = context.adhocLayout.top();
-        auto nextpos = layout.nextpos;
-        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } :
-            ImVec2{ splittersz, el.extent.GetHeight() });
+        auto nextpos = el.dir == DIR_Vertical ? ImVec2{ el.extent.Min.x, state.viewport[state.current].Max.y } :
+            ImVec2{ state.viewport[state.current].Max.x, el.extent.Min.y };
+        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } : ImVec2{ splittersz, height });
 
         renderer.SetClipRect(nextpos, nextpos + sz);
         DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
@@ -3400,35 +3396,45 @@ namespace glimmer
         if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
         {
             Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical :
-                MouseCursor::ResiveHorizontal);
+                MouseCursor::ResizeHorizontal);
             auto isDrag = io.isLeftMouseDown();
-            if (!state.isdragged[state.current]) state.isdragged[state.current] = true;
             state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
 
             if (isDrag)
             {
-                auto amount = el.dir == DIR_Vertical ? (mousepos.y - el.extent.Min.y) / height :
-                    (mousepos.x - el.extent.Min.x) / width;
-                auto prev = state.spacing[state.current].curr;
-                state.spacing[state.current].curr = clamp(amount, state.spacing[state.current].min, state.spacing[state.current].max);
-                auto diff = prev - state.spacing[state.current].curr;
-                LOG("Moving to %f (relative amount: %f)\n", mousepos.y, state.spacing[state.current].curr);
+                if (!state.isdragged[state.current])
+                {
+                    state.isdragged[state.current] = true;
+                    state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
+                }
+                else
+                {
+                    auto amount = el.dir == DIR_Vertical ? (mousepos.y - state.dragstart[state.current]) / height :
+                        (mousepos.x - state.dragstart[state.current]) / width;
+                    auto prev = state.spacing[state.current].curr;
+                    state.spacing[state.current].curr = clamp(prev + amount, state.spacing[state.current].min, state.spacing[state.current].max);
+                    auto diff = prev - state.spacing[state.current].curr;
 
-                if (diff != 0.f)
-                    state.spacing[state.current + 1].curr += diff;
+                    if (diff != 0.f)
+                    {
+                        state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
+                        state.spacing[state.current + 1].curr += diff;
+                    } 
+                }
             }
             else state.isdragged[state.current] = false;
         }
-        else
+        else if (!io.isLeftMouseDown())
         {
             state.states[state.current] = WS_Default;
-            Config.platform->SetMouseCursor(MouseCursor::Arrow);
+            state.isdragged[state.current] = false;
         }
 
         state.current++;
         assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
 
         scid = state.scrollids[state.current];
+        auto& layout = context.adhocLayout.top();
 
         if (scid != -1)
         {

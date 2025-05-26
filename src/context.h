@@ -6,7 +6,7 @@
 #include <bit>
 
 #ifndef GLIMMER_MAX_SPLITTER_REGIONS
-#define GLIMMER_MAX_SPLITTER_REGIONS 8
+#define GLIMMER_MAX_SPLITTER_REGIONS 4
 #endif
 
 #ifndef GLLIMMER_MAX_STYLE_STACKSZ
@@ -183,6 +183,7 @@ namespace glimmer
         ScrollableRegion scrolldata[GLIMMER_MAX_SPLITTER_REGIONS]; // ith scroll region data
         ImRect viewport[GLIMMER_MAX_SPLITTER_REGIONS]; // ith non-scroll region geometry
         bool isdragged[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
+        float dragstart[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
 
         SplitterInternalState();
     };

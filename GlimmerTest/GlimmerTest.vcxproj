@@ -162,6 +162,11 @@
   <ItemGroup>
     <ClCompile Include="test.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\staticlib\glimmer\glimmer.vcxproj">
+      <Project>{59bc9330-eaf8-4c3d-94b6-8f8649224729}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

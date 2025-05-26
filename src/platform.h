@@ -118,11 +118,12 @@ namespace glimmer
         TextInput = ImGuiMouseCursor_TextInput, 
         ResizeAll = ImGuiMouseCursor_ResizeAll,
         ResizeVertical = ImGuiMouseCursor_ResizeNS,
-        ResiveHorizontal = ImGuiMouseCursor_ResizeEW,
+        ResizeHorizontal = ImGuiMouseCursor_ResizeEW,
         ResizeTopRight = ImGuiMouseCursor_ResizeNESW,
         ResizeTopLeft = ImGuiMouseCursor_ResizeNWSE,
         Grab = ImGuiMouseCursor_Hand,
         NotAllowed = ImGuiMouseCursor_NotAllowed,
+        TotalCursors
     };
 
     enum Key : int16_t

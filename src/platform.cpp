@@ -141,9 +141,9 @@ namespace glimmer
             return result;
         }
 
-        void SetMouseCursor(MouseCursor cursor)
+        void SetMouseCursor(MouseCursor _cursor)
         {
-            ImGui::SetMouseCursor((ImGuiMouseCursor)cursor);
+            cursor = _cursor;
         }
 
         void EnterFrame()
@@ -203,6 +203,7 @@ namespace glimmer
             }
 
             InitFrameData();
+            cursor = MouseCursor::Arrow;
         }
 
         void ExitFrame()
@@ -210,6 +211,7 @@ namespace glimmer
             ++frameCount; ++deltaFrames;
             totalDeltaTime += desc.deltaTime;
             maxFrameTime = std::max(maxFrameTime, desc.deltaTime);
+            ImGui::SetMouseCursor((ImGuiMouseCursor)cursor);
 
             for (auto idx = 0; idx < GLIMMER_NKEY_ROLLOVER_MAX; ++idx)
                 desc.key[idx] = Key_Invalid;
@@ -367,6 +369,7 @@ namespace glimmer
 
         GLFWwindow* m_window = nullptr;
         float bgcolor[4];
+        MouseCursor cursor;
         bool softwareCursor = false;
     };
 

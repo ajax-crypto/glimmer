@@ -481,6 +481,7 @@ namespace glimmer
             states[idx] = WS_Default;
             scrollids[idx] = -1;
             isdragged[idx] = false;
+            dragstart[idx] = 0.f;
         }
     }
 
