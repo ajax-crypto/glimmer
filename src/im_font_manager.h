@@ -54,6 +54,8 @@ namespace glimmer
         // Use this to auto-scale fonts, loading the largest size for a family
         // NOTE: For ImGui backend, this will save on memory from texture
         FLT_AutoScale = 2048,
+        FLT_Hinting = 4096,
+        FLT_Antialias = 8192,
 
         // TODO: Handle absolute size font-size fonts (Look at imrichtext.cpp: PopulateSegmentStyle function)
     };

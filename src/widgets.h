@@ -20,7 +20,6 @@ namespace glimmer
     WidgetDrawResult Slider(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult TextInput(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult TabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult ItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
@@ -34,4 +33,16 @@ namespace glimmer
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{});
     void EndScrollableRegion();
+
+    bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
+    WidgetDrawResult EndTabBar(bool canAddTab);
+
+    bool StartItemGrid();
+    bool StartItemGridHeader();
+    void AddHeader();
+    WidgetDrawResult EndItemGridHeader();
+    void AddColumn();
+    void AddRow();
+    WidgetDrawResult EndItemGrid();
 }

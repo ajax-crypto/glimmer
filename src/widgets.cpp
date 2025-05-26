@@ -389,7 +389,7 @@ namespace glimmer
         region.enabled = { hscroll, vscroll };
         renderer.SetClipRect(content.Min, content.Max);
         context.AddItemGeometry(id, region.viewport);
-        context.containerStack.push(id);
+        context.containerStack.push() = id;
     }
 
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
@@ -407,7 +407,7 @@ namespace glimmer
             layoutItem.hscroll = hscroll;
             AddExtent(layoutItem, style, neighbors);
             AddItemToLayout(layout, layoutItem);
-            layout.containerStack.push(id);
+            layout.containerStack.push() = id;
         }
         else
         {
@@ -443,7 +443,7 @@ namespace glimmer
             HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
-        context.containerStack.pop();
+        context.containerStack.pop(1, true);
         context.AddItemGeometry(id, region.viewport);
     }
 
@@ -460,7 +460,7 @@ namespace glimmer
             layoutItem.id = id;
             layoutItem.closing = true;
             AddItemToLayout(layout, layoutItem);
-            layout.containerStack.pop();
+            layout.containerStack.pop(1, true);
         }
         else
         {
@@ -1501,7 +1501,7 @@ namespace glimmer
 
         input.scroll.pos.x = std::max(0.f, input.scroll.pos.x - diff);
         state.text.pop_back();
-        input.pixelpos.pop_back();
+        input.pixelpos.pop_back(true);
     }
 
     static void DeleteSelectedText(TextInputState& state, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
@@ -1528,7 +1528,7 @@ namespace glimmer
         for (auto idx = to; idx < textsz; ++idx)
         {
             state.text.pop_back();
-            input.pixelpos.pop_back();
+            input.pixelpos.pop_back(true);
         }
 
         input.scroll.pos.x = std::max(0.f, input.scroll.pos.x - shift);
@@ -1774,7 +1774,7 @@ namespace glimmer
                                     }
 
                                     state.text.pop_back();
-                                    input.pixelpos.pop_back();
+                                    input.pixelpos.pop_back(true);
                                 }
                                 else RemoveCharAt(input.caretpos, state, input);
 
@@ -2186,6 +2186,7 @@ namespace glimmer
         auto arrowst = ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh };
         auto darker = DarkenColor(style.bgcolor);
         DrawSymbol(arrowst, { arroww, arrowh }, { 2.f, 2.f }, state.opened ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, darker, 0, 2.f, renderer);
+        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
 
         result.geometry = margin;
         return result;
@@ -2195,47 +2196,286 @@ namespace glimmer
 
 #pragma region TabBar
 
-    WidgetDrawResult TabBarImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    ImRect TabBarBounds(int32_t id, const ImRect& content, IRenderer& renderer)
+    {
+        ImRect result;
+        auto& context = GetContext();
+        auto& state = context.TabBarState(id);
+        const auto& config = context.GetState(id).state.tab;
+        int16_t tabidx = 0, lastRowStart = 0;
+        auto height = 0.f;
+        auto fontsz = 0.f;
+        ImVec2 offset = result.Min = content.Min;
+
+        for (const auto& item : context.currentTab.items)
+        {
+            auto& tab = state.tabs[tabidx];
+            auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
+            const auto& style = context.GetStyle(flag);
+            auto txtsz = renderer.GetTextSize(item.name, style.font.font, style.font.size);
+            tab.extent.Min = offset;
+
+            switch (context.currentTab.sizing)
+            {
+            case TabBarItemSizing::Scrollable:
+            {
+                auto txtorigin = result.Max.x;
+                offset.x += style.padding.h() + txtsz.x + config.spacing.x;
+                height = std::max(height, style.padding.v() + txtsz.y);
+                tab.extent.Max = ImVec2{ offset.x, offset.y + height };
+                break;
+            }
+
+            case TabBarItemSizing::MultiRow:
+                if (style.padding.h() + txtsz.x > content.GetWidth())
+                {
+                    auto prevh = height;
+                    auto leftover = style.padding.h() + txtsz.x - content.GetWidth();
+                    auto toadd = leftover / (float)(tabidx - lastRowStart);
+
+                    for (auto idx = tabidx; idx >= lastRowStart; --idx)
+                    {
+                        state.tabs[idx].extent.Max.x += toadd;
+                        state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
+                    }
+                        
+                    offset.y += height + config.spacing.y;
+                    offset.x = content.Min.x;
+                    height = style.padding.v() + txtsz.y;
+                    lastRowStart = tabidx;
+
+                    // TODO: Expand size if expand tabs set to true
+                }
+                else
+                {
+                    height = std::max(height, style.padding.v() + txtsz.y);
+                    tab.extent.Min = offset;
+                    offset.x += txtsz.x + style.padding.h() + config.spacing.x;
+                    tab.extent.Max.x = offset.x;
+                }
+                break;
+
+            case TabBarItemSizing::ShrinkToFit:
+                height = std::max(height, style.padding.v() + txtsz.y);
+                tab.extent.Min = offset;
+                offset.x += txtsz.x + style.padding.h();
+                tab.extent.Max.x = offset.x;
+                break;
+
+            default: break;
+            }
+
+            if (item.itemflags & TI_Pinnable)
+            {
+                offset.x += config.btnspacing;
+                tab.pin.Min = ImVec2{ offset.x, offset.y + style.padding.top };
+                offset.x += config.btnsize * style.font.size;
+                tab.pin.Max = ImVec2{ offset.x, tab.pin.Min.y + style.font.size };
+            }
+
+            if (item.itemflags & TI_Closeable) 
+            {
+                offset.x += config.btnspacing;
+                tab.close.Min = ImVec2{ offset.x, offset.y + style.padding.top };
+                offset.x += config.btnsize * style.font.size;
+                tab.close.Max = ImVec2{ offset.x, tab.close.Min.y + style.font.size };
+            }
+
+            offset.x += style.padding.left;
+            tab.extent.Max.x = offset.x;
+            tab.extent.Max.y += style.padding.bottom;
+            tab.text.Min = tab.extent.Min + ImVec2{ style.padding.left, style.padding.top };
+            tab.text.Max = tab.text.Min + txtsz;
+            offset.x += config.spacing.x;
+            fontsz = std::max(fontsz, style.font.size);
+            tabidx++;
+        }
+
+        if (context.currentTab.newTabButton)
+        {
+            const auto& style = context.GetStyle(WS_Default);
+
+            offset.x += config.spacing.x;
+            state.create = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+            offset.x += state.create.GetWidth();
+        }
+
+        if (context.currentTab.sizing == TabBarItemSizing::ShrinkToFit)
+        {
+            auto extrah = (offset.x - content.Min.x) - content.GetWidth() + state.create.GetWidth();
+
+            if ((extrah > 0.f) || config.expandTabs)
+            {
+                auto cumulative = 0.f;
+                extrah /= (float)tabidx;
+
+                for (auto idx = 0; idx < tabidx; ++idx)
+                {
+                    state.tabs[idx].extent.Min.x -= cumulative;
+                    state.tabs[idx].extent.Max.x -= (cumulative + extrah);
+                    state.tabs[idx].pin.TranslateX(-(cumulative + extrah));
+                    state.tabs[idx].close.TranslateX(-(cumulative + extrah));
+                    state.tabs[idx].text.TranslateX(-cumulative);
+                    cumulative += extrah;
+                }
+
+                if (context.currentTab.newTabButton)
+                {
+                    const auto& last = state.tabs.back();
+                    auto sz = state.create.GetSize();
+                    state.create.Min.x = last.extent.Max.x + config.spacing.x;
+                    state.create.Min.y = last.extent.Min.y;
+                    state.create.Max = state.create.Min + sz;
+                }
+            }
+        }
+        
+        for (auto idx = tabidx - 1; idx >= lastRowStart; --idx)
+            state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
+
+        result.Max = state.tabs.back().extent.Max;
+        return result;
+    }
+
+    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        
+        if (!context.deferEvents)
+        {
+            auto& state = context.TabBarState(id);
+            auto tabidx = 0;
+            auto hashover = false;
+
+            for (auto& tab : state.tabs)
+            {
+                auto& rect = tab.extent;
+                auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                    (state.tabs[tabidx].state & TI_Disabled) ? WS_Disabled : WS_Default;
+                const auto& style = context.GetStyle(flag);
+                
+                if (tab.close.Contains(io.mousepos) && io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.tabclosed = tabidx;
+                }
+                else if (tab.pin.Contains(io.mousepos) && io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    tab.pinned = !tab.pinned;
+                }
+                else if (rect.Contains(io.mousepos))
+                {
+                    state.hovered = tabidx;
+                    hashover = true;
+
+                    if (io.clicked())
+                    {
+                        result.event = WidgetEvent::Clicked;
+                        state.current = tabidx;
+                        result.tabidx = tabidx;
+                    }
+                }
+
+                ++tabidx;
+            }
+
+            if (!hashover)
+            {
+                state.hovered = state.create.Contains(io.mousepos) ? -1 : -2;
+                if (io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.newTab = true;
+                }
+            }
+
+            auto width = state.tabs.back().extent.Max.x - state.tabs.front().extent.Min.x;
+            HandleHScroll(state.scroll.state, width, content, io.mousepos, renderer, io, 5.f, false);
+        }
+        else context.deferedEvents.emplace_back(WT_TabBar, id, content);
+    }
+
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io, 
+        IRenderer& renderer)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        auto& state = context.GetState(id).state.tab;
-        auto& map = context.TabStates(id);
-
-        if (state.horizontal)
+        auto& state = context.TabBarState(id);
+        const auto& config = context.GetState(id).state.tab;
+        auto tabidx = 0;
+        
+        for (const auto& tab : state.tabs)
         {
-            for (auto vcol = 0; vcol < (int)state.tabs.size(); ++vcol)
+            auto& rect = tab.extent;
+            auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
+            const auto& style = context.GetStyle(flag);
+            const auto& specificStyle = context.tabBarStyles[log2((unsigned)flag)].top();
+            auto darker = DarkenColor(style.bgcolor);
+            
+            renderer.SetClipRect(rect.Min, rect.Max);
+            DrawBackground(rect.Min, rect.Max, style, renderer);
+            DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
+            DrawText(rect.Min, rect.Max,  tab.text, context.currentTab.items[tabidx].name, flag & WS_Disabled,
+                style, renderer);
+
+            if (tab.pinned || (((tabidx == state.current) || (tabidx == state.hovered)) &&
+                context.currentTab.items[tabidx].itemflags & TI_Pinnable))
             {
-                if (map.map.vtol[vcol] == -1)
+                if (config.circularButtons)
                 {
-                    map.map.vtol[vcol] = vcol;
-                    map.map.ltov[vcol] = vcol;
+                    ImVec2 center{ tab.pin.Min.x + (tab.pin.GetWidth() * 0.5f), tab.pin.Min.y +
+                        (tab.pin.GetHeight() * 0.5f) };
+                    auto radius = (1.f / std::sqrtf(2)) * tab.pin.GetWidth();
+                    renderer.DrawCircle(center, radius, specificStyle.pinbgcolor, true);
                 }
+                else
+                    renderer.DrawRect(tab.pin.Min, tab.pin.Max, specificStyle.pinbgcolor, true);
 
-                auto col = map.map.vtol[vcol];
-                auto& tab = state.tabs[col];
-                auto& style = context.GetStyle(tab.state.state);
-
-                auto ismouseover = padding.Contains(io.mousepos);
-                tab.state.state = !ismouseover ? WS_Default :
-                    io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-                DrawBoxShadow(border.Min, border.Max, style, renderer);
-                DrawBackground(border.Min, border.Max, style, renderer);
-                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-                DrawText(content.Min, content.Max, text, tab.state.text, tab.state.state & WS_Disabled, style, renderer);
-
-                if (ismouseover && io.clicked())
-                    result.event = WidgetEvent::Clicked;
-                else if (ismouseover && !tab.state.tooltip.empty() && !io.isLeftMouseDown())
-                    ShowTooltip(tab.state._hoverDuration, margin, margin.Min, tab.state.tooltip, io, renderer);
-                else tab.state._hoverDuration == 0;
-
-                result.geometry = margin;
-                return result;
+                DrawSymbol(tab.pin.Min, tab.pin.GetSize(),
+                    { specificStyle.pinPadding, specificStyle.pinPadding }, SymbolIcon::Cross,
+                    specificStyle.pincolor, specificStyle.pinbgcolor, 2.f, renderer);
             }
+            
+            if ((context.currentTab.items[tabidx].itemflags & TI_Closeable) && ((tabidx == state.current) ||
+                (tabidx == state.hovered)))
+            {
+                if (config.circularButtons)
+                {
+                    ImVec2 center{ tab.close.Min.x + (tab.close.GetWidth() * 0.5f), tab.close.Min.y +
+                        (tab.close.GetHeight() * 0.5f) };
+                    auto radius = (1.f / std::sqrtf(2)) * tab.close.GetWidth();
+                    renderer.DrawCircle(center, radius, specificStyle.closebgcolor, true);
+                }
+                else
+                    renderer.DrawRect(tab.close.Min, tab.close.Max, specificStyle.closebgcolor, true);
+
+                DrawSymbol(tab.close.Min, tab.close.GetSize(),
+                    { specificStyle.closePadding, specificStyle.closePadding },
+                    SymbolIcon::Cross, specificStyle.closecolor, specificStyle.closebgcolor, 2.f, renderer);
+            }
+
+            renderer.ResetClipRect();
+            tabidx++;
         }
+
+        if (context.currentTab.newTabButton)
+        {
+            auto flag = state.hovered == -1 ? WS_Hovered : WS_Default;
+            const auto& style = context.GetStyle(flag);
+
+            DrawBackground(state.create.Min, state.create.Max, style, renderer);
+            DrawBorderRect(state.create.Min, state.create.Max, style.border, style.bgcolor, renderer);
+            DrawSymbol(state.create.Min, state.create.GetSize(),
+                { style.padding.left, style.padding.top },
+                SymbolIcon::Plus, style.fgcolor, 0, 2.f, renderer);
+        }
+
+        HandleTabBarEvent(id, content, io, renderer, result);
+        result.geometry = content;
+        return result;
     }
 
 #pragma endregion
@@ -2401,7 +2641,7 @@ namespace glimmer
             gridstate.drag.column = movingcol;
             gridstate.drag.level = level;
             gridstate.state = ItemGridCurrentState::ReorderingColumns;
-            ERROR("\nMarking column (v: %d, l: %d) as moving (%f -> %f)\n", vcol, lcol, mcol.content.Min.x, mcol.content.Max.x);
+            LOGERROR("\nMarking column (v: %d, l: %d) as moving (%f -> %f)\n", vcol, lcol, mcol.content.Min.x, mcol.content.Max.x);
         }
         else if (isMouseDown && gridstate.drag.mouseDown && gridstate.drag.column == vcol && gridstate.drag.level == level)
         {
@@ -3219,7 +3459,7 @@ namespace glimmer
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
         else renderer.ResetClipRect();
 
-        context.splitterStack.pop();
+        context.splitterStack.pop(1, true);
         context.AddItemGeometry(el.id, el.extent);
         renderer.ResetClipRect();
     }
@@ -3261,6 +3501,8 @@ namespace glimmer
 
             if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
             {
+                renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
+
                 overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
                 overlayctx.deferedRenderer->Render(renderer, origin);
                 overlayctx.ToggleDeferedRendering(false);
@@ -3376,9 +3618,6 @@ namespace glimmer
             if (!context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -3406,9 +3645,6 @@ namespace glimmer
             if (!context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -3441,9 +3677,6 @@ namespace glimmer
             if (!context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -3470,9 +3703,6 @@ namespace glimmer
             if (!context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                //if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                //if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem);
             }
             else
@@ -3588,26 +3818,27 @@ namespace glimmer
             break;
         }
         case WT_TabBar: {
-            auto& state = context.GetState(wid).state.grid;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, 0.f, 0.f);
+            const auto& style = context.GetStyle(WS_Default);
 
-            if (!context.layouts.empty())
+            if (context.layouts.empty())
             {
-                auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
+                AddExtent(layoutItem, style, context.currentTab.neighbors, 0.f, 0.f);
+                auto bounds = TabBarBounds(context.currentTab.id, layoutItem.border, renderer);
+                bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
+
+                result = TabBarImpl(wid, bounds, style, io, renderer);
+                context.AddItemGeometry(wid, bounds);
             }
             else
             {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                // TODO: ...
-                renderer.ResetClipRect();
+                auto& layout = context.layouts.top();
+                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                 AddExtent(layoutItem, style, context.currentTab.neighbors, 0.f, 0.f);
+                 auto bounds = TabBarBounds(context.currentTab.id, layoutItem.padding, renderer);
+                 bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
+                 layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
+                 AddItemToLayout(layout, layoutItem);
             }
-            
             break;
         }
         case WT_ItemGrid: {
@@ -3688,9 +3919,36 @@ namespace glimmer
         return Widget(id, WT_DropDown, geometry, neighbors);
     }
 
-    WidgetDrawResult TabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        return Widget(id, WT_TabBar, geometry, neighbors);
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.emplace_back();
+        tab.id = context.layouts.empty() ? id : (int32_t)(context.layouts.top().tabbars.size() - 1); 
+        tab.geometry = geometry; tab.neighbors = neighbors;
+
+        const auto& config = context.GetState(id).state.tab;
+        tab.sizing = config.sizing;
+        tab.newTabButton = config.createNewTabs;
+        return true;
+    }
+
+    void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        tab.items.emplace_back(name, tooltip, flags);
+    }
+
+    WidgetDrawResult EndTabBar(bool canAddTab)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        tab.newTabButton = canAddTab;
+        auto& state = context.TabBarState(tab.id);
+        state.tabs.resize(tab.items.size());
+        auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
+        context.currentTab = TabBarDescriptor{};
+        return result;
     }
 
     WidgetDrawResult ItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

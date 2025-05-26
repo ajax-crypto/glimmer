@@ -285,7 +285,8 @@ namespace glimmer
         renderer.ResetClipRect();
     }
 
-    void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, uint32_t fillColor, float thickness, IRenderer& renderer)
+    void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, 
+        uint32_t fillColor, float thickness, IRenderer& renderer)
     {
         startpos += padding;
         size -= (padding + padding);

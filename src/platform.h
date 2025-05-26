@@ -258,11 +258,15 @@ namespace glimmer
         float fps() const;
 
         int64_t frameCount = 0;
+        int32_t deltaFrames = 0;
         float totalTime = 0.f;
+        float totalDeltaTime = 0.f;
+        float maxFrameTime = 0.f;
         IODescriptor desc;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
 
 #define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
+#define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 }

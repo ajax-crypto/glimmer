@@ -114,7 +114,12 @@ namespace glimmer
             static char buffer[GLIMMER_MAX_CLIPBOARD_TEXTSZ];
 
             auto sz = std::min(input.size(), (size_t)(GLIMMER_MAX_CLIPBOARD_TEXTSZ - 1));
+#ifdef WIN32
+            strncpy_s(buffer, input.data(), sz);
+#else
             std::strncpy(buffer, input.data(), sz);
+#endif
+            
             buffer[sz] = 0;
 
             ImGui::SetClipboardText(buffer);
@@ -143,9 +148,10 @@ namespace glimmer
 
         void EnterFrame()
         {
-            auto& context = GetContext();
-            context.InsideFrame = true;
-            context.adhocLayout.push();
+#ifdef _DEBUG
+            TotalMallocs = 0;
+            AllocatedBytes = 0;
+#endif
 
             auto& io = ImGui::GetIO();
             auto rollover = 0;
@@ -195,16 +201,37 @@ namespace glimmer
             {
                 ResetActivePopUps(desc.mousepos, escape);
             }
+
+            InitFrameData();
         }
 
         void ExitFrame()
         {
-            ++frameCount;
+            ++frameCount; ++deltaFrames;
+            totalDeltaTime += desc.deltaTime;
+            maxFrameTime = std::max(maxFrameTime, desc.deltaTime);
 
             for (auto idx = 0; idx < GLIMMER_NKEY_ROLLOVER_MAX; ++idx)
                 desc.key[idx] = Key_Invalid;
 
-            ResetAllContexts();
+            ResetFrameData();
+
+            if (totalDeltaTime > 1.f)
+            {
+#ifdef _DEBUG
+                auto fps = ((float)deltaFrames / totalDeltaTime);
+                if (fps >= 50.f)
+                    LOG("Total Frames: %d | Current FPS: %f | Max Frame Time: %f\n", deltaFrames,
+                        fps, maxFrameTime);
+                else
+                    LOGERROR("Total Frames: %d | Current FPS: %f | Max Frame Time: %f\n", deltaFrames,
+                        fps, maxFrameTime);
+                LOG("Inter-frame allocation in last 1s: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
+#endif
+                maxFrameTime = 0.f;
+                totalDeltaTime = 0.f;
+                deltaFrames = 0;
+            }
         }
 
         bool CreateWindow(const WindowParams& params)
@@ -261,12 +288,21 @@ namespace glimmer
             bgcolor[2] = (float)params.bgcolor[2] / 255.f;
             bgcolor[3] = (float)params.bgcolor[3] / 255.f;
             softwareCursor = params.softwareCursor;
+
+#ifdef _DEBUG
+            _CrtSetDbgFlag(_CRTDBG_DELAY_FREE_MEM_DF);
+#endif //  _DEBUG
+
+            return true;
         }
 
         bool PollEvents(bool (*runner)(ImVec2, void*), void* data)
         {
             auto close = false;
-            AddBaseStyleFontPtrs();
+
+#ifdef _DEBUG
+            LOG("Pre-rendering allocations: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
+#endif
 
 #ifdef __EMSCRIPTEN__
             // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.

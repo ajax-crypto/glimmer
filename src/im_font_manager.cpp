@@ -137,6 +137,8 @@ namespace glimmer
 #ifdef IM_RICHTEXT_TARGET_IMGUI
     static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag, bool isMonospace)
     {
+        config.FontBuilderFlags = config.FontBuilderFlags | flag;
+
         if (ft == FT_Normal)
         {
             auto font = family.Files.Files[FT_Normal].empty() ? nullptr :
@@ -150,10 +152,10 @@ namespace glimmer
             auto fallback = family.FontPtrs[FT_Normal][size];
 
 #ifdef IMGUI_ENABLE_FREETYPE
-            auto configFlags = config.FontBuilderFlags;
+            //auto configFlags = config.FontBuilderFlags;
 
             if (family.Files.Files[ft].empty()) {
-                config.FontBuilderFlags = configFlags | flag;
+                //config.FontBuilderFlags = configFlags | flag;
                 family.FontPtrs[ft][size] = io.Fonts->AddFontFromFileTTF(
                     family.Files.Files[FT_Normal].data(), size, &config);
             }
@@ -170,14 +172,18 @@ namespace glimmer
     }
 
     bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, 
-        bool autoScale, bool isMonospace)
+        bool autoScale, bool isMonospace, bool hinting, bool antialias)
     {
+        int32_t flags = !hinting ? ImGuiFreeTypeBuilderFlags_NoHinting : 
+            !antialias ? ImGuiFreeTypeBuilderFlags_MonoHinting : ImGuiFreeTypeBuilderFlags_LightHinting;
+        flags = flags | (!antialias ? ImGuiFreeTypeBuilderFlags_Monochrome : 0);
+
         ImGuiIO& io = ImGui::GetIO();
         FontStore[family].Files = files;
 
         auto& ffamily = FontStore[family];
         ffamily.AutoScale = autoScale;
-        LoadFont(io, ffamily, FT_Normal, size, config, 0, isMonospace);
+        LoadFont(io, ffamily, FT_Normal, size, config, flags, isMonospace);
 
 #ifdef IMGUI_ENABLE_FREETYPE
         LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeBuilderFlags_Bold, isMonospace);
@@ -236,34 +242,34 @@ namespace glimmer
 #endif
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-    static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale)
+    static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale, bool hinting, bool antialias)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale, false);
+        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz, fconfig) :
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz, fconfig) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz, fconfig);
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
         // TODO: Add default fonts for other platforms
     }
 
-    static void LoadDefaultMonospaceFont(float sz, const ImFontConfig& fconfig, bool autoScale)
+    static void LoadDefaultMonospaceFont(float sz, const ImFontConfig& fconfig, bool autoScale, bool hinting, bool antialias)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, true);
+        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, true, hinting, antialias);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz, fconfig) :
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz, fconfig) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz, fconfig);
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
         // TODO: Add default fonts for other platforms
     }
@@ -308,7 +314,7 @@ namespace glimmer
 #endif
 
     static bool LoadDefaultFonts(float sz, const FontFileNames* names, bool skipProportional, bool skipMonospace,
-        bool autoScale, const ImWchar* glyphs)
+        bool autoScale, bool hinting, bool antialias, const ImWchar* glyphs)
     {
 #ifdef IM_RICHTEXT_TARGET_IMGUI
         ImFontConfig fconfig;
@@ -316,9 +322,6 @@ namespace glimmer
         fconfig.OversampleV = 1;
         fconfig.RasterizerMultiply = sz <= 16.f ? 2.f : 1.f;
         fconfig.GlyphRanges = glyphs;
-#ifdef IMGUI_ENABLE_FREETYPE
-        fconfig.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_NoHinting;
-#endif
 #endif
 
         auto copyFileName = [](const std::string_view fontname, char* fontpath, int startidx) {
@@ -342,8 +345,8 @@ namespace glimmer
         if (names == nullptr)
         {
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-            if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale);
-            if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale);
+            if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale, hinting, antialias);
+            if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
             if (!skipProportional) LoadDefaultProportionalFont(sz);
@@ -388,7 +391,7 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false);
+                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz);
@@ -397,7 +400,7 @@ namespace glimmer
             else
             {
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale);
+                if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 if (!skipProportional) LoadDefaultProportionalFont(sz);
@@ -411,7 +414,7 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true);
+                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz);
@@ -420,7 +423,7 @@ namespace glimmer
             else
             {
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale);
+                if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
                 if (!skipMonospace) LoadDefaultMonospaceFont(sz);
@@ -461,7 +464,7 @@ namespace glimmer
         for (auto sz : sizes)
         {
             LoadDefaultFonts(sz, names, !(flt & FLT_Proportional), !(flt & FLT_Monospace),
-                flt & FLT_AutoScale, glyphrange);
+                flt & FLT_AutoScale, flt & FLT_Hinting, flt & FLT_Antialias, glyphrange);
         }
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI

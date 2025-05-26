@@ -260,6 +260,18 @@ namespace glimmer
         static RadioButtonStyleDescriptor ParseFrom(std::string_view css);
     };
 
+    struct TabBarStyleDescriptor
+    {
+        uint32_t pincolor = 0;
+        uint32_t pinbgcolor = 0;
+        uint32_t closecolor = 0;
+        uint32_t closebgcolor = 0;
+        float pinPadding = 2.f;
+        float closePadding = 2.f;
+
+        static TabBarStyleDescriptor ParseFrom(std::string_view css);
+    };
+
     union CommonWidgetStyleDescriptor
     {
         ToggleButtonStyleDescriptor toggle;

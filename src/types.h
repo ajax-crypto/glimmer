@@ -206,6 +206,7 @@ namespace glimmer
     {
         std::vector<char> text;
         std::string_view placeholder;
+        std::string_view prefix, suffix;
         std::pair<int, int> selection{ -1, -1 };
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
     };
@@ -223,6 +224,35 @@ namespace glimmer
         void (*ShowList)(ImVec2, ImVec2, DropDownState&) = nullptr;
     };
 
+    enum TabItemProperty
+    {
+        TI_Closeable = 1, 
+        TI_Pinnable = 2,
+        TI_Active = 4,
+        TI_AddNewTab = 8
+    };
+
+    enum TabItemState
+    {
+        TI_Pinned = 1, TI_Disabled = 2
+    };
+
+    enum class TabBarItemSizing
+    {
+        Scrollable, ShrinkToFit, MultiRow
+    };
+
+    struct TabBarState
+    {
+        TabBarItemSizing sizing;
+        ImVec2 spacing;
+        float btnspacing = 5.f;
+        float btnsize = 0.75f; // 75% of tab text height
+        bool expandTabs = false;
+        bool circularButtons = true;
+        bool createNewTabs = false;
+    };
+
     enum ColumnProperty : int32_t
     {
         COL_Resizable = 1,
@@ -232,7 +262,7 @@ namespace glimmer
         COL_Expandable = 1 << 4,
         COL_WidthAbsolute = 1 << 5,
         COL_WrapHeader = 1 << 6,
-        COL_Moveable = 1 << 7
+        COL_Moveable = 1 << 7,
     };
 
     struct ItemGridState : public CommonWidgetData
@@ -286,27 +316,6 @@ namespace glimmer
         void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);
     };
 
-    enum TabButtonFlags : int32_t
-    {
-        TAB_Closeable = 1,
-        TAB_Pinned = 2,
-        TAB_Add = 4
-    };
-
-    struct TabBarState
-    {
-        struct TabButtonDesc
-        {
-            ButtonState state;
-            int32_t flags = 0;
-        };
-
-        int selected = 0;
-        std::vector<TabButtonDesc> tabs;
-        bool scrollable = false;
-        bool horizontal = true;
-    };
-
     enum class WidgetEvent
     {
         None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited, Selected
@@ -319,7 +328,10 @@ namespace glimmer
         int32_t row = -1;
         int16_t col = -1;
         int16_t depth = -1;
+        int16_t tabclosed = -1;
+        int16_t tabidx = -1;
         ImRect geometry, content;
+        bool newTab = false;
     };
 
     struct WidgetStateData

@@ -437,8 +437,8 @@ namespace glimmer
         if (!text.empty())
         {
             //SetCurrentFont(config.DefaultFontFamily, Config.defaultFontSz, FT_Normal);
-            ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
-            ResetFont();
+            //ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
+            //ResetFont();
         }
     }
 
@@ -497,7 +497,12 @@ namespace glimmer
 
             if (fromFile)
             {
+#ifdef WIN32
+                FILE* fptr = nullptr;
+                fopen_s(&fptr, content.data(), "r");
+#else
                 auto fptr = std::fopen(content.data(), "r");
+#endif
                 
                 if (fptr != nullptr)
                 {
@@ -540,7 +545,12 @@ namespace glimmer
 
         if (!found)
         {
+#ifdef WIN32
+            FILE* fptr = nullptr;
+            fopen_s(&fptr, file.data(), "r");
+#else
             auto fptr = std::fopen(file.data(), "r");
+#endif
             
             if (fptr != nullptr)
             {
@@ -800,7 +810,7 @@ namespace glimmer
             renderer.UserData = prevdl;
         }
 
-        void Reset() { queue.clear(); size = { 0.f, 0.f }; }
+        void Reset() { queue.clear(true); size = { 0.f, 0.f }; }
 
         void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
         {

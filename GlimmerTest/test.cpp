@@ -1,5 +1,12 @@
 #include "../src/glimmer.h"
 
+#if !defined(_DEBUG) && defined(WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#undef CreateWindow
+#endif
+
 auto svg = R"SVG(
 <svg viewBox='0 0 108 95' xmlns='http://www.w3.org/2000/svg'>
 <g transform='scale(0.1)'>
@@ -39,7 +46,7 @@ int main(int argc, char** argv)
         names.Monospace.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         //names.Proportional.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         glimmer::FontDescriptor desc;
-        desc.flags = glimmer::FLT_Proportional;
+        desc.flags = glimmer::FLT_Proportional | glimmer::FLT_Antialias | glimmer::FLT_Hinting;
         //desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
@@ -51,7 +58,7 @@ int main(int argc, char** argv)
         glimmer::GetWindowConfig().defaultFontSz = 24.f;
 
         enum Labels { UPPER, LEFT, LEFT2, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, 
-            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, SPINNER, TOTAL };
+            DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, SPINNER, TAB, TOTAL };
         int32_t widgets[TOTAL];
 
         auto lid = glimmer::GetNextId(glimmer::WT_Label);
@@ -113,6 +120,12 @@ int main(int argc, char** argv)
         slider.max = 100.f;
         widgets[SLIDER] = tid;
 
+        tid = glimmer::GetNextId(glimmer::WT_TabBar);
+        auto& tab = glimmer::GetWidgetState(tid).state.tab;
+        tab.sizing = glimmer::TabBarItemSizing::ShrinkToFit;
+        tab.expandTabs = true;
+        widgets[TAB] = tid;
+
         tid = glimmer::GetNextId(glimmer::WT_DropDown);
         auto& dd = glimmer::GetWidgetState(tid).state.dropdown;
         dd.text = "DropDown";
@@ -170,6 +183,13 @@ int main(int argc, char** argv)
             Label(widgets[UPPER], ExpandH);
             Move(FD_Vertical);
 
+            StartTabBar(widgets[TAB]);
+                AddTab("Tab 1", "", TI_Closeable);
+                AddTab("Tab 2", "", TI_Closeable);
+                AddTab("Tab 3", "", TI_Closeable);
+            EndTabBar(true);
+            Move(FD_Vertical);
+
             StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
                 SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f, .scrollable = false } }, ExpandH);
 
@@ -183,12 +203,13 @@ int main(int argc, char** argv)
                     Label(widgets[LEFT2], ExpandV);
                 }
                 EndSplitRegion();
+                PopStyle(1, WS_Default);
 
                 NextSplitRegion();
 
                 //Move(FD_Horizontal);
                 BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignHCenter | TextAlignBottom, false, { 5.f, 5.f },
-                    NeighborWidgets{ .top = widgets[UPPER] });
+                    NeighborWidgets{ .top = widgets[TAB] });
 
                 {
                     Label(widgets[BOTTOM]);
@@ -221,7 +242,7 @@ int main(int argc, char** argv)
 
                 EndLayout();
 
-                Move(widgets[LEFT], widgets[UPPER], true, true);
+                Move(widgets[LEFT], widgets[TAB], true, true);
                 PushStyle("background-color: white; padding: 5px;");
                 ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
             }

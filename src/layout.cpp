@@ -34,24 +34,24 @@ namespace glimmer
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult TabBarImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, const StyleDescriptor& style,
         const ImRect& border, const ImRect& content, IRenderer& renderer);
     void EndScrollableImpl(int32_t id, IRenderer& renderer);
+    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
+        IRenderer& renderer);
 
 #pragma region Layout functions
 
     void PushSpan(int32_t direction)
     {
-        GetContext().spans.push(direction);
+        GetContext().spans.push() = direction;
     }
 
     void SetSpan(int32_t direction)
     {
-        GetContext().spans.push(direction | OnlyOnce);
+        GetContext().spans.push() = direction | OnlyOnce;
     }
 
     void Move(int32_t direction)
@@ -105,7 +105,7 @@ namespace glimmer
     void PopSpan(int depth)
     {
         auto& context = GetContext();
-        context.spans.pop(depth);
+        context.spans.pop(depth, true);
     }
 
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
@@ -114,10 +114,10 @@ namespace glimmer
         auto& context = GetContext();
         auto totalsz = context.MaximumAbsExtent();
         auto nextpos = context.NextAdHocPos();
-        auto offset = context.layouts.top().nextpos;
+        auto offset = !context.layouts.empty() ? context.layouts.top().nextpos : ImVec2{ 0, 0 };
 
-        if (width <= 0.f) width = totalsz.x - nextpos.x - offset.x;
-        if (height <= 0.f) height = totalsz.y - nextpos.y - offset.y;
+        if (width <= 0.f) width = clamp(totalsz.x - nextpos.x - offset.x, style.mindim.x, style.maxdim.x);
+        if (height <= 0.f) height = clamp(totalsz.y - nextpos.y - offset.y, style.mindim.y, style.maxdim.y);
 
         layoutItem.margin.Min = nextpos;
         layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
@@ -409,6 +409,9 @@ namespace glimmer
         layout.currow = std::max(layout.currow, (int16_t)0);
         layout.currcol = std::max(layout.currcol, (int16_t)0);
 
+        if (layout.rows.empty()) layout.rows.resize(32);
+        if (layout.cols.empty()) layout.cols.resize(16);
+
         switch (layout.type)
         {
         case Layout::Horizontal:
@@ -520,7 +523,7 @@ namespace glimmer
         auto& context = GetContext();
         context.layoutItems.push_back(item);
         
-        if (!context.spans.empty() && (context.spans.top() & OnlyOnce) != 0) context.spans.pop();
+        if (!context.spans.empty() && (context.spans.top() & OnlyOnce) != 0) context.spans.pop(1, true);
 
         if (layout.from == -1) layout.from = layout.to = (int16_t)(context.layoutItems.size() - 1);
         else layout.to = (int16_t)(context.layoutItems.size() - 1);
@@ -578,7 +581,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& layout = context.layouts.push();
-        const auto& style = context.currStyleStates == 0 ? context.pushedStyles[WSI_Default].top() : context.currStyle[WSI_Default];
+        const auto& style = context.currStyleStates == 0 ? context.StyleStack[WSI_Default].top() : context.currStyle[WSI_Default];
 
         layout.id = (WT_Layout << 16) | context.maxids[WT_Layout];
         context.maxids[WT_Layout]++;
@@ -589,6 +592,14 @@ namespace glimmer
         layout.spacing = spacing;
         layout.type == Layout::Horizontal ? (layout.hofmode = wrap ? OverflowMode::Wrap : OverflowMode::Scroll) :
             (layout.vofmode = wrap ? OverflowMode::Wrap : OverflowMode::Scroll);
+        
+        // Record style stack states for context, will be restored in EndLayout()
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            layout.styleStartIdx[idx] = context.StyleStack[idx].size();
+            layout.currstyle[idx] = context.currStyle[idx];
+        }
+        layout.currStyleStates = context.currStyleStates;
         
         auto nextpos = context.NextAdHocPos();
         ImRect available = GetAvailableSpace(alignment, nextpos, neighbors);
@@ -694,7 +705,7 @@ namespace glimmer
     void PopSizing(int depth)
     {
         auto& context = GetContext();
-        context.sizing.pop(depth);
+        context.sizing.pop(depth, true);
     }
 
     static void UpdateGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
@@ -732,20 +743,20 @@ namespace glimmer
         item.text.Max.y = item.text.Min.y + texth;
     }
 
-    static StyleDescriptor const& GetStyle(StyleStackT* pushedStyles, StyleDescriptor* currStyle,
+    static StyleDescriptor const& GetStyle(StyleStackT* StyleStack, StyleDescriptor* currStyle,
         int32_t currStyleStates, int32_t state)
     {
         const auto& defstyle = (currStyleStates & WS_Default) ? currStyle[WSI_Default] :
-            !pushedStyles[WSI_Default].empty() ? pushedStyles[WSI_Default].top() : GetContext().GetStyle(WS_Default);
+            !StyleStack[WSI_Default].empty() ? StyleStack[WSI_Default].top() : GetContext().GetStyle(WS_Default);
 
         auto idx = log2((unsigned)state);
         auto& style = (currStyleStates & state) ? currStyle[idx] :
-            !pushedStyles[idx].empty() ? pushedStyles[idx].top() : GetContext().GetStyle(state);
+            !StyleStack[idx].empty() ? StyleStack[idx].top() : GetContext().GetStyle(state);
         CopyStyle(defstyle, style);
         return style;
     }
 
-    static WidgetDrawResult RenderWidget(const LayoutDescriptor& layout, LayoutItemDescriptor& item, StyleStackT* pushedStyles,
+    static WidgetDrawResult RenderWidget(const LayoutDescriptor& layout, LayoutItemDescriptor& item, StyleStackT* StyleStack,
         StyleDescriptor* currStyle, int32_t currStyleStates, const IODescriptor& io)
     {
         WidgetDrawResult result;
@@ -762,7 +773,7 @@ namespace glimmer
         case glimmer::WT_Label: {
             auto& state = context.GetState(item.id).state.label;
             auto flags = ToTextFlags(state.type);
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
@@ -771,7 +782,7 @@ namespace glimmer
         case glimmer::WT_Button: {
             auto& state = context.GetState(item.id).state.button;
             auto flags = ToTextFlags(state.type);
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
@@ -779,7 +790,7 @@ namespace glimmer
         }
         case glimmer::WT_RadioButton: {
             auto& state = context.GetState(item.id).state.radio;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
@@ -787,7 +798,7 @@ namespace glimmer
         }
         case glimmer::WT_ToggleButton: {
             auto& state = context.GetState(item.id).state.toggle;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
@@ -795,7 +806,7 @@ namespace glimmer
         }
         case glimmer::WT_Checkbox: {
             auto& state = context.GetState(item.id).state.checkbox;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
@@ -803,7 +814,7 @@ namespace glimmer
         }
         case WT_Spinner: {
             auto& state = context.GetState(item.id).state.spinner;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
@@ -811,7 +822,7 @@ namespace glimmer
         }
         case glimmer::WT_Slider: {
             auto& state = context.GetState(item.id).state.slider;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SliderImpl(item.id, state, style, item.border, renderer, io);
@@ -819,27 +830,23 @@ namespace glimmer
         }
         case glimmer::WT_TextInput: {
             auto& state = context.GetState(item.id).state.input;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = TextInputImpl(item.id, state, style, item.margin, item.content, renderer, io);
-            LOG("Margin: (%f, %f) -> (%f, %f) | Content: (%f, %f) -> (%f, %f)\n",
-                RECT_OUT(item.margin), RECT_OUT(item.content));
             break;
         }
         case glimmer::WT_DropDown: {
             auto& state = context.GetState(item.id).state.dropdown;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
             break;
         }
-        case glimmer::WT_TabBar:
-            break;
         case glimmer::WT_ItemGrid: {
             auto& state = context.GetState(item.id).state.grid;
-            const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, state.state);
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
@@ -849,9 +856,17 @@ namespace glimmer
             if (item.closing) EndScrollableImpl(item.id, renderer);
             else 
             {
-                const auto& style = GetStyle(pushedStyles, currStyle, currStyleStates, WS_Default);
+                const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, WS_Default);
                 StartScrollableImpl(item.id, item.hscroll, item.vscroll, style, item.border, item.content, renderer);
             }
+            break;
+        }
+        case WT_TabBar: {
+            const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, WS_Default);
+            UpdateGeometry(item, bbox, style);
+            context.AddItemGeometry(item.id, bbox);
+            context.currentTab = layout.tabbars[item.id];
+            result = TabBarImpl(item.id, item.content, style, io, renderer);
             break;
         }
         default:
@@ -913,33 +928,25 @@ namespace glimmer
 
             if (context.layouts.size() == 1)
             {
+                static StyleStackT StyleStack[WSI_Total];
+
                 auto io = Config.platform->CurrentIO();
-
-                /*if (layout.vofmode == OverflowMode::Scroll || layout.hofmode == OverflowMode::Scroll)
-                {
-                    auto& region = layout.scroll;
-                    const auto& style = context.GetStyle(WS_Default);
-
-                    auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
-                    LayoutItemDescriptor layoutItem;
-                    layoutItem.margin = layout.geometry;
-                    layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-                    layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-                    DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
-
-                    region.viewport = layoutItem.content;
-                    region.enabled = { layout.vofmode == OverflowMode::Scroll, layout.hofmode == OverflowMode::Scroll };
-                    renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
-                    context.containerStack.push(id);
-                }*/
-
                 auto popStyle = false;
-                static StyleStackT pushedStyles[WSI_Total];
                 StyleDescriptor currStyle[WSI_Total];
                 int32_t currStyleStates = 0;
                 ImVec2 min{ FLT_MAX, FLT_MAX }, max;
 
-                for (auto idx = 0; idx < WSI_Total; ++idx) pushedStyles[idx].clear();
+                // Restore style states for context
+                context.currStyleStates = layout.currStyleStates;
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    auto diff = context.StyleStack[idx].size() - layout.styleStartIdx[idx];
+                    if (diff > 0) context.StyleStack[idx].pop(diff, true);
+
+                    context.currStyle[idx] = layout.currstyle[idx];
+                }
+
+                for (auto idx = 0; idx < WSI_Total; ++idx) StyleStack[idx].clear(true);
 
                 for (const auto [data, op] : layout.itemIndexes)
                 {
@@ -948,7 +955,7 @@ namespace glimmer
                     case LayoutOps::AddWidget:
                     {
                         auto& item = context.layoutItems[(int16_t)data];
-                        if (auto res = RenderWidget(layout, item, pushedStyles, currStyle,
+                        if (auto res = RenderWidget(layout, item, StyleStack, currStyle,
                             currStyleStates, io); res.event != WidgetEvent::None)
                             result = res;
                         min = ImMin(min, item.margin.Min);
@@ -959,7 +966,7 @@ namespace glimmer
                             popStyle = false;
                             for (auto idx = 0; idx < WSI_Total; ++idx)
                                 if ((1 << idx) & context.currStyleStates)
-                                    pushedStyles[idx].pop(1);
+                                    StyleStack[idx].pop(1, true);
                         }
                         break;
                     }
@@ -967,7 +974,7 @@ namespace glimmer
                     {
                         auto state = data & 0xffffffff;
                         auto index = data >> 32;
-                        pushedStyles[state].push(layout.styles[state][index]);
+                        StyleStack[state].push() = layout.styles[state][index];
                         break;
                     }
                     case LayoutOps::PopStyle:
@@ -976,7 +983,7 @@ namespace glimmer
                         auto amount = data >> 32;
                         for (auto idx = 0; idx < WSI_Total; ++idx)
                             if ((1 << idx) & states)
-                                pushedStyles[idx].pop(amount);
+                                StyleStack[idx].pop(amount, true);
                         break;
                     }
                     case LayoutOps::SetStyle:
@@ -1010,20 +1017,14 @@ namespace glimmer
             }
 #endif
 
-            for (auto idx = 0; idx < WSI_Total; ++idx)
-            {
-                layout.styles[idx].clear();
-                layout.itemIndexes.clear();
-            }
-
             --depth;
-            context.layouts.pop();
+            layout.reset();
+            context.layouts.pop(1, false);
         }
 
         if (context.layouts.empty())
         {
-            context.layoutItems.clear();
-            context.adhocLayout.top().nextpos = geometry.Max;
+            context.ResetLayoutData();
         }
 
         return result;

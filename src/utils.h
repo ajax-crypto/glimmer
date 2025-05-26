@@ -9,11 +9,11 @@
 #include <cstdio>
 #define LOG(FMT, ...) std::fprintf(stderr, FMT, __VA_ARGS__)
 #define HIGHLIGHT(FMT, ...) std::fprintf(stderr, "\x1B[93m" FMT "\x1B[0m", __VA_ARGS__)
-#define ERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
+#define LOGERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
 #else
 #define LOG(FMT, ...)
 #define HIGHLIGHT(FMT, ...)
-#define ERROR(FMT, ...)
+#define LOGERROR(FMT, ...)
 #endif
 
 namespace glimmer
@@ -57,6 +57,39 @@ namespace glimmer
     {
         while (start != end) { *start = el; ++start; }
     }
+
+#ifdef _DEBUG
+    inline int32_t TotalMallocs = 0;
+    inline int32_t AllocatedBytes = 0;
+
+    inline void* AllocateImpl(size_t amount)
+    {
+        TotalMallocs++;
+        AllocatedBytes += amount;
+        return std::malloc(amount);
+    }
+
+    inline void* ReallocateImpl(void* ptr, size_t amount)
+    {
+        TotalMallocs++;
+        AllocatedBytes += amount;
+        return std::realloc(ptr, amount);
+    }
+
+    inline void DeallocateImpl(void* ptr) 
+    { 
+        --TotalMallocs;
+        std::free(ptr); 
+    }
+    
+    inline void* (*AllocateFunc)(size_t amount) = &AllocateImpl;
+    inline void* (*ReallocateFunc)(void* ptr, size_t amount) = &ReallocateImpl;
+    inline void (*DeallocateFunc)(void* ptr) = &DeallocateImpl;
+#else
+    inline void* (*AllocateFunc)(size_t amount) = &std::malloc;
+    inline void* (*ReallocateFunc)(void* ptr, size_t amount) = &std::realloc;
+    inline void (*DeallocateFunc)(void* ptr) = &std::free;
+#endif
 
     template <typename T, typename Sz, Sz blocksz = 128>
     struct Vector
@@ -107,7 +140,7 @@ namespace glimmer
         ~Vector()
         {
             if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
-            std::free(_data);
+            DeallocateFunc(_data);
         }
 
         explicit Vector(bool init = true)
@@ -115,20 +148,21 @@ namespace glimmer
             if (init)
             {
                 _capacity = blocksz;
-                _data = (T*)std::malloc(sizeof(T) * blocksz);
+                _data = (T*)AllocateFunc(sizeof(T) * blocksz);
                 _default_init(0, _capacity);
             }
         }
 
-        template <typename IntegralT>
+        template <typename IntegralT, 
+            typename = std::enable_if<!std::is_same_v<IntegralT, bool>, void>::type>
         explicit Vector(IntegralT initialsz)
-            : _capacity{ (Sz)initialsz }, _data{ (T*)std::malloc(sizeof(T) * (Sz)initialsz) }
+            : _capacity{ (Sz)initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * (Sz)initialsz) }
         {
             _default_init(0, _capacity);
         }
 
         explicit Vector(Sz initialsz, const T& el)
-            : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)std::malloc(sizeof(T) * initialsz) }
+            : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * initialsz) }
         {
             Fill(_data, _data + _capacity, el);
         }
@@ -137,11 +171,11 @@ namespace glimmer
         {
             if (_data == nullptr)
             {
-                _data = (T*)std::malloc(sizeof(T) * count);
+                _data = (T*)AllocateFunc(sizeof(T) * count);
             }
             else if (_capacity < count)
             {
-                auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
+                auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * count);
                 if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
             }
@@ -154,11 +188,11 @@ namespace glimmer
         {
             if (_data == nullptr)
             {
-                _data = (T*)std::malloc(sizeof(T) * count);
+                _data = (T*)AllocateFunc(sizeof(T) * count);
             }
             else if (_capacity < count)
             {
-                auto ptr = (T*)std::realloc(_data, sizeof(T) * count);
+                auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * count);
                 if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
             }
@@ -179,7 +213,7 @@ namespace glimmer
 
             if (_capacity < targetsz)
             {
-                auto ptr = (T*)std::realloc(_data, sizeof(T) * targetsz);
+                auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * targetsz);
                 if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
                 _data = ptr;
                 _capacity = targetsz;
@@ -199,10 +233,10 @@ namespace glimmer
         }
 
         void push_back(const T& el) { _reallocate(true); _data[_size] = el; _size++; }
-        void pop_back() { if constexpr (std::is_default_constructible_v<T>) _data[_size - 1] = T{}; --_size; }
-        void clear() { _default_init(0, _size); _size = 0; }
+        void pop_back(bool definit) { if constexpr (std::is_default_constructible_v<T>) if (definit) _data[_size - 1] = T{}; --_size; }
+        void clear(bool definit) { if (definit) _default_init(0, _size); _size = 0; }
         void reset(const T& el) { Fill(_data, _data + _size, el); }
-        void shrink_to_fit() { _data = (T*)std::realloc(_data, _size * sizeof(T)); _capacity = _size; }
+        void shrink_to_fit() { _data = (T*)ReallocateFunc(_data, _size * sizeof(T)); _capacity = _size; }
 
         Iterator begin() { return _data; }
         Iterator end() { return _data + _size; }
@@ -238,7 +272,7 @@ namespace glimmer
         void _reallocate(bool initialize)
         {
             T* ptr = nullptr;
-            if (_size == _capacity) ptr = (T*)std::realloc(_data, (_capacity + blocksz) * sizeof(T));
+            if (_size == _capacity) ptr = (T*)ReallocateFunc(_data, (_capacity + blocksz) * sizeof(T));
 
             if (ptr != nullptr)
             {
@@ -254,17 +288,19 @@ namespace glimmer
         Sz _capacity = 0;
     };
 
-    template <typename T, int capacity>
+    template <typename T, int16_t capacity>
     struct FixedSizeStack
     {
         T* _data = nullptr;
-        int _size = 0;
+        int16_t _size = 0;
+        int16_t _max = 0;
 
         static_assert(capacity > 0, "capacity has to be a +ve value");
+        static_assert(std::is_default_constructible_v<T>, "Element type must be default constructible");
 
         FixedSizeStack(bool init = true)
         {
-            _data = (T*)std::malloc(sizeof(T) * capacity);
+            _data = (T*)AllocateFunc(sizeof(T) * capacity);
 
             if (init)
             {
@@ -275,80 +311,91 @@ namespace glimmer
 
         ~FixedSizeStack()
         {
-            if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
-            std::free(_data);
+            if constexpr (std::is_destructible_v<T>) 
+                for (int16_t idx = 0; idx < _size; ++idx) _data[idx].~T();
+            DeallocateFunc(_data);
         }
 
-        template <typename... ArgsT>
-        T& push(ArgsT&&... args)
+        T& push()
         {
             assert(_size < capacity);
-            ::new(_data + _size) T{ std::forward<ArgsT>(args)... };
             ++_size;
+            _max = std::max(_max, _size);
             return _data[_size - 1];
         }
 
-        void pop(int depth = 1)
+        void pop(int16_t depth, bool definit)
         {
             while (depth > 0 && _size > 0)
             {
                 --_size;
                 if constexpr (std::is_default_constructible_v<T>)
-                    ::new(_data + _size) T{};
+                    if (definit)
+                        ::new(_data + _size) T{};
                 --depth;
             }
         }
 
-        void clear() { pop(_size); }
+        void clear(bool definit) { pop(_size, definit); }
 
         int size() const { return _size; }
         bool empty() const { return _size == 0; }
         T* begin() const { return _data; }
         T* end() const { return _data + _size; }
 
-        T& operator[](int idx) { return _data[idx]; }
-        T const& operator[](int idx) const { return _data[idx]; }
+        T& operator[](int16_t idx) { return _data[idx]; }
+        T const& operator[](int16_t idx) const { return _data[idx]; }
 
-        T& top(int depth = 0) { return _data[_size - 1 - depth]; }
-        T const& top(int depth = 0) const { return _data[_size - 1 - depth]; }
+        T& top(int16_t depth = 0) { return _data[_size - (int16_t)1 - depth]; }
+        T const& top(int16_t depth = 0) const { return _data[_size - (int16_t)1 - depth]; }
 
-        T& next(int amount) { return _data[_size - 1 - amount]; }
-        T const& next(int amount) const { return _data[_size - 1 - amount]; }
+        T& next(int16_t amount) { return _data[_size - (int16_t)1 - amount]; }
+        T const& next(int16_t amount) const { return _data[_size - (int16_t)1 - amount]; }
     };
 
     template <typename T, typename Sz, Sz blocksz = 128>
     struct DynamicStack
     {
         using IteratorT = typename Vector<T, Sz, blocksz>::Iterator;
+        static_assert(std::is_default_constructible_v<T>, "Element type must be default constructible");
 
         DynamicStack(Sz capacity, const T& el)
             : _data{ capacity, el }
         {
         }
 
-        DynamicStack(Sz capacity = blocksz)
-            : _data{ capacity }
+        template <typename T>
+        DynamicStack(T param)
+            : _data{ param }
         {
         }
 
-        template <typename... ArgsT>
-        T& push(ArgsT&&... args)
+        DynamicStack()
+            : _data{ blocksz }
         {
-            return _data.emplace_back(std::forward<ArgsT>(args)...);
         }
 
-        void pop(int depth = 1)
+        T& push()
+        {
+            auto nextidx = _data.size() + (Sz)1;
+            if (nextidx < _max) _data._size++;
+            T& el = nextidx < _max ? _data[nextidx - (Sz)1] : _data.emplace_back();
+            _max = std::max(_max, _data.size());
+            return el;
+        }
+
+        void pop(int depth, bool definit)
         {
             while (depth > 0 && _data._size > 0)
             {
                 --_data._size;
                 if constexpr (std::is_default_constructible_v<T>)
-                    ::new(_data._data + _data._size) T{};
+                    if (definit) ::new(_data._data + _data._size) T{};
                 --depth;
             }
         }
 
-        void clear() { pop(_data._size); }
+        void clear(bool definit) { pop(_data._size, definit); }
 
         Sz size() const { return _data.size(); }
         bool empty() const { return _data.size() == 0; }
@@ -367,6 +414,7 @@ namespace glimmer
     private:
 
         Vector<T, Sz, blocksz> _data;
+        Sz _max = 0;
     };
 
     template <typename T>

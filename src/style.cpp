@@ -817,7 +817,7 @@ namespace glimmer
             {
                 if (AreSame(stylePropVal, "bold")) style.font.flags |= FontStyleBold;
                 else if (AreSame(stylePropVal, "light")) style.font.flags |= FontStyleLight;
-                else ERROR("Invalid font-weight property value... [%.*s]\n",
+                else LOGERROR("Invalid font-weight property value... [%.*s]\n",
                     (int)stylePropVal.size(), stylePropVal.data());
             }
             else
@@ -1030,7 +1030,7 @@ namespace glimmer
             if (AreSame(stylePropVal, "normal")) style.font.flags |= FontStyleNormal;
             else if (AreSame(stylePropVal, "italic") || AreSame(stylePropVal, "oblique"))
                 style.font.flags |= FontStyleItalics;
-            else ERROR("Invalid font-style property value [%.*s]\n",
+            else LOGERROR("Invalid font-style property value [%.*s]\n",
                 (int)stylePropVal.size(), stylePropVal.data());
             prop = StyleFontStyle;
         }
@@ -1071,7 +1071,7 @@ namespace glimmer
         }
         else
         {
-            ERROR("Invalid style property... [%.*s]\n", (int)stylePropName.size(), stylePropName.data());
+            LOGERROR("Invalid style property... [%.*s]\n", (int)stylePropName.size(), stylePropName.data());
         }
 
         return prop;
@@ -1200,16 +1200,17 @@ namespace glimmer
             {
                 if (style == WSI_Default)
                 {
-                    auto parent = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
-                    auto& pushed = stack[style].push(parent);
+                    auto parent = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+                    auto& pushed = stack[style].push();
+                    pushed = parent;
                     pushed.bgcolor = IM_COL32_BLACK_TRANS;
                     pushed.From(css[style]);
                 }
                 else
                 {
-                    auto pushed = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
-                    pushed.From(css[style]);
-                    stack[style].push(pushed);
+                    auto defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+                    defstyle.From(css[style]);
+                    stack[style].push() = defstyle;
                 }
 
                 res |= (1 << style);
@@ -1226,13 +1227,19 @@ namespace glimmer
 
         if (idx == WSI_Default)
             if (!stack[idx].empty())
-                stack[idx].push(stack[idx].top()).From(css);
+            {
+                auto& style = stack[idx].push();
+                style = stack[idx].top();
+                style.bgcolor = IM_COL32_BLACK_TRANS;
+                style.From(css);
+            }
             else
                 stack[idx].push().From(css);
         else
         {
-            const auto& defstyle = stack[WSI_Default].empty() ? GetContext().pushedStyles[WSI_Default].top() : stack[WSI_Default].top();
-            auto& style = stack[idx].push(defstyle);
+            const auto& defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+            auto& style = stack[idx].push();
+            style = defstyle;
             style.From(css);
             style.specified |= defstyle.specified;
         }
@@ -1260,7 +1267,7 @@ namespace glimmer
             }
         }
        
-        PushStyle(css, context.pushedStyles);
+        PushStyle(css, context.StyleStack);
     }
 
     void PushStyle(WidgetState state, std::string_view css)
@@ -1280,7 +1287,7 @@ namespace glimmer
             }
         }
         
-        PushStyle(state, css, context.pushedStyles);
+        PushStyle(state, css, context.StyleStack);
     }
 
     void SetNextStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
@@ -1343,8 +1350,8 @@ namespace glimmer
         {
             if ((1 << style) & state)
             {
-                auto limit = depth;
-                context.pushedStyles[style].pop(limit);
+                auto popsz = std::min(context.StyleStack[style].size() - 1, depth);
+                context.StyleStack[style].pop(popsz, true);
             }
         }
     }
@@ -1512,6 +1519,7 @@ namespace glimmer
             }*/
         }
 
+        AddFontPtr(font);
         specified |= prop;
         return *this;
     }

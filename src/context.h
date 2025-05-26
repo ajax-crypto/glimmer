@@ -9,6 +9,14 @@
 #define GLIMMER_MAX_SPLITTER_REGIONS 8
 #endif
 
+#ifndef GLLIMMER_MAX_STYLE_STACKSZ
+#define GLLIMMER_MAX_STYLE_STACKSZ 16
+#endif
+
+#ifndef GLIMMER_MAX_WIDGET_SPECIFIC_STYLES
+#define GLIMMER_MAX_WIDGET_SPECIFIC_STYLES 4
+#endif
+
 namespace glimmer
 {
     // =============================================================================================
@@ -90,17 +98,6 @@ namespace glimmer
         ItemGridCurrentState state = ItemGridCurrentState::Default;
 
         void swapColumns(int16_t from, int16_t to, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int level);
-    };
-
-    struct TabBarInternalState
-    {
-        struct BiDirMap
-        {
-            Vector<int16_t, int16_t> ltov{ 128, -1 };
-            Vector<int16_t, int16_t> vtol{ 128, -1 };
-        };
-
-        BiDirMap map;
     };
 
     struct ToggleButtonInternalState
@@ -212,7 +209,25 @@ namespace glimmer
 
     enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget };
 
-    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, 16>;
+    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
+
+    struct TabItemDescriptor
+    {
+        std::string_view name, tooltip;
+        int32_t itemflags = 0;
+    };
+
+    struct TabBarDescriptor
+    {
+        int32_t id;
+        int32_t geometry;
+        TabBarItemSizing sizing = TabBarItemSizing::ShrinkToFit;
+        NeighborWidgets neighbors;
+        Vector<TabItemDescriptor, int16_t, 8> items;
+        bool newTabButton = false;
+
+        TabBarDescriptor() {}
+    };
 
     struct LayoutDescriptor
     {
@@ -221,14 +236,16 @@ namespace glimmer
         int32_t fill = FD_None;
         int32_t alignment = TextAlignLeading;
         int16_t from = -1, to = -1, itemidx = -1;
+        int16_t styleStartIdx[WSI_Total];
         int16_t currow = -1, currcol = -1;
+        int32_t currStyleStates = 0;
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
         ImVec2 spacing{ 0.f, 0.f };
         ImVec2 maxdim{ 0.f, 0.f };
         ImVec2 cumulative{ 0.f, 0.f };
-        ImVec2 rows[32];
-        ImVec2 cols[8];
+        Vector<ImVec2, int16_t> rows;
+        Vector<ImVec2, int16_t> cols;
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
@@ -239,8 +256,31 @@ namespace glimmer
         StyleStackT styles[WSI_Total]{ false, false, false, false,
             false, false, false, false, false };
         FixedSizeStack<int32_t, 16> containerStack;
+        Vector<TabBarDescriptor, int16_t, 8> tabbars{ false };
+        StyleDescriptor currstyle[WSI_Total];
 
-        LayoutDescriptor() {}
+        LayoutDescriptor() 
+        {
+            for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
+        }
+
+        void reset();
+    };
+
+    struct TabBarInternalState
+    {
+        struct ItemDescriptor
+        {
+            int16_t state = 0;
+            ImRect extent, close, pin, text;
+            bool pinned = false;
+        };
+
+        int16_t current = -1;
+        int16_t hovered = -1;
+        Vector<ItemDescriptor, int16_t, 16> tabs;
+        ImRect create;
+        ScrollableRegion scroll;
     };
 
     ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
@@ -250,11 +290,9 @@ namespace glimmer
         float width = 0.f, float height = 0.f);
 
     void AddFontPtr(FontStyle& font);
-    void AddBaseStyleFontPtrs();
-
-    void ActiveContexts();
     void ResetActivePopUps(ImVec2 mousepos, bool escape);
-    void ResetAllContexts();
+    void InitFrameData();
+    void ResetFrameData();
 
     struct EventDeferInfo
     {
@@ -310,21 +348,27 @@ namespace glimmer
         std::vector<InputTextInternalState> inputTextStates;
         std::vector<SplitterInternalState> splitterStates;
         std::vector<SpinnerInternalState> spinnerStates;
+        std::vector<TabBarInternalState> tabBarStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
+        
+        // Tab bars are not nested
+        TabBarDescriptor currentTab;
 
         std::vector<WidgetContextData*> nestedContexts[WT_TotalTypes];
         WidgetContextData* parentContext = nullptr;
 
         // Styling data is static as it is persisted across contexts
-        static StyleStackT pushedStyles[WSI_Total];
+        static StyleStackT StyleStack[WSI_Total];
         static StyleDescriptor currStyle[WSI_Total];
         static int32_t currStyleStates;
+
         // Per widget specific style objects
-        static DynamicStack<ToggleButtonStyleDescriptor, int16_t> toggleButtonStyles[WSI_Total];
-        static DynamicStack<RadioButtonStyleDescriptor, int16_t>  radioButtonStyles[WSI_Total];
-        static DynamicStack<SliderStyleDescriptor, int16_t>  sliderStyles[WSI_Total];
-        static DynamicStack<SpinnerStyleDescriptor, int16_t>  spinnerStyles[WSI_Total];
+        static DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> toggleButtonStyles[WSI_Total];
+        static DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> radioButtonStyles[WSI_Total];
+        static DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> sliderStyles[WSI_Total];
+        static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
+        static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
@@ -424,6 +468,12 @@ namespace glimmer
             return spinnerStates[index];
         }
 
+        TabBarInternalState& TabBarState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return tabBarStates[index];
+        }
+
         ScrollableRegion& ScrollRegion(int32_t id)
         {
             auto index = id & 0xffff;
@@ -438,6 +488,8 @@ namespace glimmer
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
         WidgetDrawResult HandleEvents(ImVec2 origin);
+
+        void ResetLayoutData();
 
         const ImRect& GetGeometry(int32_t id) const;
         float MaximumExtent(Direction dir) const;

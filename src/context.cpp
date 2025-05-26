@@ -15,6 +15,7 @@ namespace glimmer
 {
     static std::list<WidgetContextData> WidgetContexts;
     static WidgetContextData* CurrentContext = nullptr;
+    static bool StartedRendering = false;
 
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
@@ -76,6 +77,39 @@ namespace glimmer
         }
     }
 
+    void LayoutDescriptor::reset()
+    {
+        type = Layout::Invalid;
+        id = 0;
+        fill = FD_None;
+        alignment = TextAlignLeading;
+        from = -1, to = -1, itemidx = -1;
+        currow = -1, currcol = -1;
+        currStyleStates = 0;
+        geometry = ImRect{ { FIT_SZ, FIT_SZ },{ FIT_SZ, FIT_SZ } };
+        nextpos = ImVec2{ 0.f, 0.f };
+        prevpos = ImVec2{ 0.f, 0.f };
+        spacing = ImVec2{ 0.f, 0.f };
+        maxdim = ImVec2{ 0.f, 0.f };
+        cumulative = ImVec2{ 0.f, 0.f };
+        hofmode = OverflowMode::Scroll;
+        vofmode = OverflowMode::Scroll;
+        scroll = ScrollableRegion{};
+        popSizingOnEnd = false;
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            styleStartIdx[idx] = -1;
+            styles[idx].clear(false);
+        }
+
+        itemIndexes.clear(true);
+        tabbars.clear(false);
+        containerStack.clear(true);
+        rows.clear(true);
+        cols.clear(true);
+    }
+
     ImVec2 WidgetContextData::NextAdHocPos() const
     {
         const auto& layout = adhocLayout.top();
@@ -94,7 +128,7 @@ namespace glimmer
 
     void AddFontPtr(FontStyle& font)
     {
-        if (font.font == nullptr)
+        if (font.font == nullptr && StartedRendering)
         {
             auto isbold = font.flags & FontStyleBold;
             auto isitalics = font.flags & FontStyleItalics;
@@ -102,20 +136,6 @@ namespace glimmer
             auto ft = isbold && isitalics ? FT_BoldItalics : isbold ? FT_Bold : isitalics ? FT_Italics : islight ? FT_Light : FT_Normal;
             font.font = GetFont(font.family, font.size, ft);
         }
-    }
-
-    void AddBaseStyleFontPtrs()
-    {
-        auto& context = *WidgetContexts.begin();
-
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-            AddFontPtr(context.pushedStyles[idx].top().font);
-    }
-
-    void ActiveContexts()
-    {
-        for (auto& context : WidgetContexts)
-            context.InsideFrame = true;
     }
 
     void ResetActivePopUps(ImVec2 mousepos, bool escape)
@@ -130,45 +150,57 @@ namespace glimmer
         }
     }
 
-    void ResetAllContexts()
+    void InitFrameData()
+    {
+        StartedRendering = true;
+
+        for (auto it = WidgetContexts.rbegin(); it != WidgetContexts.rend(); ++it)
+        {
+            auto& context = *it;
+            context.InsideFrame = true;
+            context.adhocLayout.push();
+        }
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+            AddFontPtr(WidgetContextData::StyleStack[idx].top().font);
+    }
+
+    void ResetFrameData()
     {
         for (auto& context : WidgetContexts)
         {
             context.InsideFrame = false;
-            context.adhocLayout.clear();
-            context.layoutItems.clear();
-
-            for (auto lidx = 0; lidx < context.layouts.size(); ++lidx)
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                {
-                    context.layouts[lidx].styles[idx].clear();
-                    context.layouts[lidx].itemIndexes.clear();
-                }
-
-            for (auto idx = 0; idx < WSI_Total; ++idx)
-            {
-                context.pushedStyles[idx].clear();
-                context.pushedStyles[idx].push();
-            }
+            context.adhocLayout.clear(true);
 
             for (auto idx = 0; idx < WT_TotalTypes; ++idx)
             {
                 context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
             }
-
-            context.layouts.clear();
+            
+            context.ResetLayoutData();
             context.maxids[WT_SplitterScrollRegion] = 0;
             context.maxids[WT_Layout] = 0;
             context.activePopUpRegion = ImRect{};
 
             assert(context.layouts.empty());
         }
+
+        CurrentContext = &(*(WidgetContexts.begin()));
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            auto popsz = WidgetContextData::StyleStack[idx].size() - 1;
+            if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
+            WidgetContextData::currStyle[idx] = StyleDescriptor{};
+        }
+
+        WidgetContextData::currStyleStates = 0;
     }
 
     StyleDescriptor& WidgetContextData::GetStyle(int32_t state)
     {
         auto style = log2((unsigned)state);
-        auto& res = (state & currStyleStates) ? currStyle[style] : pushedStyles[style].top();
+        auto& res = (state & currStyleStates) ? currStyle[style] : StyleStack[style].top();
         AddFontPtr(res.font);
         return res;
     }
@@ -186,7 +218,7 @@ namespace glimmer
         }
         else
         {
-            adhocLayout.pop();
+            adhocLayout.pop(1, true);
             deferedRenderer = nullptr;
         }
     }
@@ -199,12 +231,12 @@ namespace glimmer
         if (wtype == WT_SplitterScrollRegion)
             splitterScrollPaneParentIds[index] = parentId;
 
-        containerStack.push(id);
+        containerStack.push() = id;
     }
 
     void WidgetContextData::PopContainer(int32_t id)
     {
-        containerStack.pop();
+        containerStack.pop(1, true);
 
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
@@ -266,6 +298,7 @@ namespace glimmer
         const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
     void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
+    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin)
     {
@@ -332,13 +365,26 @@ namespace glimmer
                 ev.content.Translate(origin);
                 HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);
                 break;
+            case WT_TabBar:
+                ev.extent.Translate(origin);
+                HandleTabBarEvent(ev.id, ev.extent, io, renderer, result);
+                break;
             default:
                 break;
             }
         }
 
-        deferedEvents.clear();
+        deferedEvents.clear(true);
         return result;
+    }
+
+    void WidgetContextData::ResetLayoutData()
+    {
+        for (auto lidx = 0; lidx < layouts.size(); ++lidx)
+            layouts[lidx].reset();
+
+        layouts.clear(false);
+        layoutItems.clear(true);
     }
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
@@ -417,6 +463,7 @@ namespace glimmer
         inputTextStates.resize(32);
         splitterStates.resize(4);
         spinnerStates.resize(8);
+        tabBarStates.resize(4);
         splitterScrollPaneParentIds.resize(32 * GLIMMER_MAX_SPLITTER_REGIONS, -1);
         dropDownOptions.resize(32);
 
@@ -442,26 +489,29 @@ namespace glimmer
         return *CurrentContext;
     }
 
-    static void InitContextStyles(WidgetContextData* context, bool addFont)
+    static void InitContextStyles()
     {
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
-            auto& style = context->pushedStyles[idx].push();
+            auto& style = WidgetContextData::StyleStack[idx].push();
             style.font.size *= Config.fontScaling;
 
-            context->radioButtonStyles[idx].push();
-            auto& slider = context->sliderStyles[idx].push();
-            auto& spinner = context->spinnerStyles[idx].push();
-            auto& toggle = context->toggleButtonStyles[idx].push();
+            WidgetContextData::radioButtonStyles[idx].push();
+            auto& slider = WidgetContextData::sliderStyles[idx].push();
+            auto& spinner = WidgetContextData::spinnerStyles[idx].push();
+            auto& toggle = WidgetContextData::toggleButtonStyles[idx].push();
+            auto& tab = WidgetContextData::tabBarStyles[idx].push();
             toggle.fontsz *= Config.fontScaling;
-
-            if (addFont) AddFontPtr(style.font);
 
             switch (idx)
             {
             case WSI_Hovered:
                 slider.thumbColor = ToRGBA(255, 255, 255);
                 spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
+                tab.closebgcolor  = tab.pinbgcolor = ToRGBA(150, 150, 150);
+                tab.pincolor = ToRGBA(0, 0, 0);
+                tab.closecolor = ToRGBA(255, 0, 0);
+                [[fallthrough]];
             case WSI_Checked:
                 toggle.trackColor = ToRGBA(200, 200, 200);
                 toggle.indicatorTextColor = ToRGBA(100, 100, 100);
@@ -471,6 +521,9 @@ namespace glimmer
                 toggle.indicatorTextColor = ToRGBA(0, 100, 0);
                 slider.thumbColor = ToRGBA(240, 240, 240);
                 spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
+                tab.closebgcolor = tab.pinbgcolor = ToRGBA(0, 0, 0, 0);
+                tab.pincolor = ToRGBA(0, 0, 0);
+                tab.closecolor = ToRGBA(255, 0, 0);
                 break;
             }
         }
@@ -484,7 +537,7 @@ namespace glimmer
             {
                 constexpr auto totalStyles = 16 * WSI_Total;
                 CurrentContext = &(WidgetContexts.emplace_back());
-                InitContextStyles(CurrentContext, false);
+                InitContextStyles();
             }
         }
         else
@@ -496,7 +549,6 @@ namespace glimmer
             {
                 auto& ctx = WidgetContexts.emplace_back();
                 ctx.parentContext = CurrentContext;
-                InitContextStyles(&ctx, true);
 
                 auto& children = CurrentContext->nestedContexts[wtype];
                 if (children.empty()) children.resize(32, nullptr);
@@ -515,11 +567,12 @@ namespace glimmer
         assert(CurrentContext != nullptr);
     }
 
-    StyleStackT WidgetContextData::pushedStyles[WSI_Total];
+    StyleStackT WidgetContextData::StyleStack[WSI_Total];
     StyleDescriptor WidgetContextData::currStyle[WSI_Total];
-    int32_t WidgetContextData::currStyleStates;
-    DynamicStack<ToggleButtonStyleDescriptor, int16_t> WidgetContextData::toggleButtonStyles[WSI_Total];
-    DynamicStack<RadioButtonStyleDescriptor, int16_t>  WidgetContextData::radioButtonStyles[WSI_Total];
-    DynamicStack<SliderStyleDescriptor, int16_t> WidgetContextData::sliderStyles[WSI_Total];
-    DynamicStack<SpinnerStyleDescriptor, int16_t> WidgetContextData::spinnerStyles[WSI_Total];
+    int32_t WidgetContextData::currStyleStates = 0;
+    DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
+    DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
+    DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];
+    DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::spinnerStyles[WSI_Total];
+    DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::tabBarStyles[WSI_Total];
 }

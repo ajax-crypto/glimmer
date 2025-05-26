@@ -1,5 +1,8 @@
 # Prerequisites
 *.d
+*.log
+*.tlog
+*.recipe
 
 # Compiled Object files
 *.slo
