@@ -7,6 +7,7 @@
 
 #ifdef _DEBUG
 #include <cstdio>
+#include <unordered_map>
 #define LOG(FMT, ...) std::fprintf(stderr, FMT, __VA_ARGS__)
 #define HIGHLIGHT(FMT, ...) std::fprintf(stderr, "\x1B[93m" FMT "\x1B[0m", __VA_ARGS__)
 #define LOGERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
@@ -58,28 +59,56 @@ namespace glimmer
         while (start != end) { *start = el; ++start; }
     }
 
+    template <typename T, typename ItrT>
+    void Fill(ItrT start, ItrT end)
+    {
+        while (start != end) { ::new (&(*start)) T{}; ++start; }
+    }
+
 #ifdef _DEBUG
     inline int32_t TotalMallocs = 0;
+    inline int32_t TotalReallocs = 0;
     inline int32_t AllocatedBytes = 0;
+    inline std::unordered_map<void*, size_t> Allocations;
 
     inline void* AllocateImpl(size_t amount)
     {
         TotalMallocs++;
         AllocatedBytes += amount;
-        return std::malloc(amount);
+        auto ptr = std::malloc(amount);
+        if (Allocations.find(ptr) != Allocations.end())
+            LOGERROR("Possibly overwriting memory @ %p\n", ptr);
+        Allocations[ptr] = amount;
+        return ptr;
     }
 
     inline void* ReallocateImpl(void* ptr, size_t amount)
     {
-        TotalMallocs++;
-        AllocatedBytes += amount;
-        return std::realloc(ptr, amount);
+        auto result = std::realloc(ptr, amount);
+        auto it = Allocations.find(ptr);
+        if (it == Allocations.end()) {
+            AllocatedBytes += amount;
+            TotalMallocs++;
+        }
+        else { 
+            AllocatedBytes += amount - it->second; 
+            TotalReallocs++;
+            Allocations.erase(ptr);
+        }
+        Allocations.emplace(result, amount);
+        return result;
     }
 
     inline void DeallocateImpl(void* ptr) 
     { 
-        --TotalMallocs;
-        std::free(ptr); 
+        if (ptr != nullptr)
+        {
+            --TotalMallocs;
+            std::free(ptr);
+            AllocatedBytes -= Allocations.at(ptr);
+            Allocations.erase(ptr);
+        }
+        else LOGERROR("Unchecked de-allocation of nullptr...\n");
     }
     
     inline void* (*AllocateFunc)(size_t amount) = &AllocateImpl;
@@ -305,7 +334,7 @@ namespace glimmer
             if (init)
             {
                 if constexpr (std::is_default_constructible_v<T>)
-                    Fill(_data, _data + capacity, T{});
+                    Fill<T>(_data, _data + capacity);
             }
         }
 

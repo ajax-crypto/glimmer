@@ -148,11 +148,6 @@ namespace glimmer
 
         void EnterFrame()
         {
-#ifdef _DEBUG
-            TotalMallocs = 0;
-            AllocatedBytes = 0;
-#endif
-
             auto& io = ImGui::GetIO();
             auto rollover = 0;
             auto escape = false, clicked = false;
@@ -228,7 +223,9 @@ namespace glimmer
                 else
                     LOGERROR("Total Frames: %d | Current FPS: %f | Max Frame Time: %f\n", deltaFrames,
                         fps, maxFrameTime);
-                LOG("Inter-frame allocation in last 1s: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
+                LOG("*alloc calls in last 1s: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
+                TotalMallocs = 0;
+                AllocatedBytes = 0;
 #endif
                 maxFrameTime = 0.f;
                 totalDeltaTime = 0.f;

@@ -3,7 +3,7 @@
 
 namespace glimmer
 {
-    WindowConfig& GetWindowConfig();
+    UIConfig& GetUIConfig();
 
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);

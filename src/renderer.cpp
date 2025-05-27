@@ -942,9 +942,901 @@ namespace glimmer
 
 #pragma endregion
 
-    IRenderer* CreateDeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth))
+#pragma region SVG Renderer
+
+    // Helper to format uint32_t color to SVG "rgb(r,g,b)" or "rgba(r,g,b,a_float)" string into a buffer
+    // Returns the number of characters written (excluding null terminator).
+    inline int formatColorToSvg(char* buffer, size_t bufferSize, uint32_t colorInt)
     {
-        static thread_local DeferredRenderer renderer{ tm };
+        auto [r, g, b, a] = DecomposeColor(colorInt); // Assumes DecomposeColor is available
+        if (a == 255)
+        {
+            return snprintf(buffer, bufferSize, "rgb(%d,%d,%d)", r, g, b);
+        }
+        else
+        {
+            return snprintf(buffer, bufferSize, "rgba(%d,%d,%d,%.3f)", r, g, b, static_cast<float>(a) / 255.0f);
+        }
+    }
+
+    // Helper to format uint32_t color's alpha to SVG opacity string into a buffer
+    // Returns the number of characters written.
+    inline int formatOpacityToSvg(char* buffer, size_t bufferSize, uint32_t colorInt) 
+    {
+        auto [r, g, b, a] = DecomposeColor(colorInt);
+        return snprintf(buffer, bufferSize, "%.3f", static_cast<float>(a) / 255.0f);
+    }
+
+    struct SVGRenderer final : public IRenderer
+    {
+        ImVec2(*textMeasureFunc)(std::string_view text, void* fontPtr, float sz, float wrapWidth);
+
+        int defsIdCounter;
+        std::string currentClipPathId; // Kept as std::string for convenience of ID management
+        bool clippingActive;
+        ImVec2 svgDimensions;
+
+        std::string currentFontFamily; // Kept as std::string
+        float currentFontSizePixels;
+
+        static constexpr size_t svgMainBufferSize = 1024 * 64; // 64KB for main content
+        static constexpr size_t svgDefsBufferSize = 1024 * 8;  // 8KB for <defs> content
+        static constexpr size_t scratchBufferSize = 1024 * 2;  // 2KB for temporary formatting
+
+        char mainSvgBuffer[svgMainBufferSize];
+        size_t mainSvgBufferOffset;
+
+        char defsBuffer[svgDefsBufferSize];
+        size_t defsBufferOffset;
+
+        char scratchBuffer[scratchBufferSize]; // For formatting individual elements
+
+        // Helper to append data to a buffer, handling potential overflow.
+        void appendToBuffer(char* destBuffer, size_t& destOffset, size_t destCapacity, const char* srcData, int srcLen) 
+        {
+            if (srcLen <= 0) return;
+            if (destOffset + srcLen < destCapacity) {
+                memcpy(destBuffer + destOffset, srcData, srcLen);
+                destOffset += srcLen;
+                destBuffer[destOffset] = '\0'; // Keep null-terminated for safety if used as C-string
+            }
+            else {
+                // Handle overflow: for now, just don't append to prevent overrun.
+                // Optionally, log an error or append an overflow marker if space allows.
+            }
+        }
+
+        void appendStringViewToBuffer(char* destBuffer, size_t& destOffset, size_t destCapacity, std::string_view sv) 
+        {
+            appendToBuffer(destBuffer, destOffset, destCapacity, sv.data(), static_cast<int>(sv.length()));
+        }
+
+        SVGRenderer(ImVec2(*measureFunc)(std::string_view text, void* fontPtr, float sz, float wrapWidth), ImVec2 dimensionsVal = { 800, 600 })
+            : textMeasureFunc(measureFunc),
+            defsIdCounter(0),
+            clippingActive(false),
+            svgDimensions(dimensionsVal),
+            currentFontFamily("sans-serif"),
+            currentFontSizePixels(16.f),
+            mainSvgBufferOffset(0),
+            defsBufferOffset(0)
+        {
+            mainSvgBuffer[0] = '\0';
+            defsBuffer[0] = '\0';
+            Reset();
+        }
+
+        void Reset() override
+        {
+            mainSvgBufferOffset = 0;
+            mainSvgBuffer[0] = '\0';
+            defsBufferOffset = 0;
+            defsBuffer[0] = '\0';
+
+            defsIdCounter = 0;
+            currentClipPathId.clear();
+            clippingActive = false;
+
+            this->size = svgDimensions;
+        }
+
+        std::string GetSVG()
+        {
+            std::string finalSvgStr;
+            // Estimate size
+            size_t headerLen = 200; // Approx
+            size_t footerLen = 20;  // Approx
+            finalSvgStr.reserve(headerLen + defsBufferOffset + mainSvgBufferOffset + footerLen);
+
+            float svgW = (svgDimensions.x > 0.001f) ? svgDimensions.x : 1.0f;
+            float svgH = (svgDimensions.y > 0.001f) ? svgDimensions.y : 1.0f;
+
+            int writtenHeader = snprintf(scratchBuffer, scratchBufferSize,
+                "<svg width=\"%.2f\" height=\"%.2f\" viewBox=\"0 0 %.2f %.2f\" "
+                "xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">\n"
+                "  <defs>\n",
+                svgW, svgH, svgW, svgH);
+            if (writtenHeader > 0) finalSvgStr.append(scratchBuffer, writtenHeader);
+
+            if (defsBufferOffset > 0) 
+            {
+                finalSvgStr.append(defsBuffer, defsBufferOffset);
+            }
+            finalSvgStr.append("  </defs>\n"); // Close defs
+
+            if (mainSvgBufferOffset > 0) 
+            {
+                finalSvgStr.append(mainSvgBuffer, mainSvgBufferOffset);
+            }
+
+            finalSvgStr.append("</svg>\n");
+            return finalSvgStr;
+        }
+
+        // --- IRenderer Implementation ---
+
+        void SetClipRect(ImVec2 startPos, ImVec2 endPos, bool intersect) override
+        {
+            if (clippingActive) 
+            { // Close previous clipping group in main content
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "  </g>\n", strlen("  </g>\n"));
+            }
+
+            defsIdCounter++;
+            char clipIdCstr[64];
+            snprintf(clipIdCstr, sizeof(clipIdCstr), "clipPathDef%d", defsIdCounter);
+            currentClipPathId = clipIdCstr;
+
+            int defsWritten = snprintf(scratchBuffer, scratchBufferSize,
+                "    <clipPath id=\"%s\">\n"
+                "      <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" />\n"
+                "    </clipPath>\n",
+                currentClipPathId.c_str(),
+                startPos.x, startPos.y,
+                std::max(0.0f, endPos.x - startPos.x),
+                std::max(0.0f, endPos.y - startPos.y));
+            if (defsWritten > 0) 
+            {
+                appendToBuffer(defsBuffer, defsBufferOffset, svgDefsBufferSize, scratchBuffer, defsWritten);
+            }
+
+            int gWritten = snprintf(scratchBuffer, scratchBufferSize, "  <g clip-path=\"url(#%s)\">\n", currentClipPathId.c_str());
+            if (gWritten > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, gWritten);
+            }
+            clippingActive = true;
+        }
+
+        void ResetClipRect() override
+        {
+            if (clippingActive) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "  </g>\n", strlen("  </g>\n"));
+                clippingActive = false;
+                currentClipPathId.clear();
+            }
+        }
+
+        void DrawLine(ImVec2 startPos, ImVec2 endPos, uint32_t color, float thickness = 1.f) override
+        {
+            if (thickness <= 0.f) return;
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+
+            int written = snprintf(scratchBuffer, scratchBufferSize,
+                "  <line x1=\"%.2f\" y1=\"%.2f\" x2=\"%.2f\" y2=\"%.2f\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                startPos.x, startPos.y, endPos.x, endPos.y, colorBuf, thickness);
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawPolyline(ImVec2* points, int numPoints, uint32_t color, float thickness) override
+        {
+            if (numPoints < 2 || thickness <= 0.f) return;
+
+            char pointsListStr[scratchBufferSize / 2];
+            int pointsListOffset = 0;
+            char pointItemBuf[40];
+
+            for (int i = 0; i < numPoints; ++i) 
+            {
+                int currentPtLen = snprintf(pointItemBuf, sizeof(pointItemBuf), "%.2f,%.2f%s",
+                    points[i].x, points[i].y, (i == numPoints - 1 ? "" : " "));
+                if (pointsListOffset + currentPtLen < (int)sizeof(pointsListStr) - 1) { // -1 for null terminator
+                    memcpy(pointsListStr + pointsListOffset, pointItemBuf, currentPtLen);
+                    pointsListOffset += currentPtLen;
+                }
+                else { break; }
+            }
+            pointsListStr[pointsListOffset] = '\0';
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+
+            int written = snprintf(scratchBuffer, scratchBufferSize,
+                "  <polyline points=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" fill=\"none\" />\n",
+                pointsListStr, colorBuf, thickness);
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+
+            int written = 0;
+            if (filled) 
+            {
+                if (thickness > 0.0f) {
+                    written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <polygon points=\"%.2f,%.2f %.2f,%.2f %.2f,%.2f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        pos1.x, pos1.y, pos2.x, pos2.y, pos3.x, pos3.y, colorBuf, colorBuf, thickness);
+                }
+                else {
+                    written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <polygon points=\"%.2f,%.2f %.2f,%.2f %.2f,%.2f\" fill=\"%s\" />\n",
+                        pos1.x, pos1.y, pos2.x, pos2.y, pos3.x, pos3.y, colorBuf);
+                }
+            }
+            else 
+            {
+                if (thickness <= 0.f) return;
+                written = snprintf(scratchBuffer, scratchBufferSize,
+                    "  <polygon points=\"%.2f,%.2f %.2f,%.2f %.2f,%.2f\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                    pos1.x, pos1.y, pos2.x, pos2.y, pos3.x, pos3.y, colorBuf, thickness);
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawRect(ImVec2 startPos, ImVec2 endPos, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            float w = endPos.x - startPos.x;
+            float h = endPos.y - startPos.y;
+            if (w <= 0.001f && h <= 0.001f) 
+            {
+                if (!filled && thickness > 0.f && (std::abs(w) < 0.001f || std::abs(h) < 0.001f)) { /* line */ }
+                else return;
+            }
+            
+            w = std::max(0.0f, w);
+            h = std::max(0.0f, h);
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+            int written = 0;
+
+            if (filled) 
+            {
+                if (thickness > 0.0f) 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        startPos.x, startPos.y, w, h, colorBuf, colorBuf, thickness);
+                }
+                else 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"%s\" />\n",
+                        startPos.x, startPos.y, w, h, colorBuf);
+                }
+            }
+            else 
+            {
+                if (thickness <= 0.f) return;
+                written = snprintf(scratchBuffer, scratchBufferSize,
+                    "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                    startPos.x, startPos.y, w, h, colorBuf, thickness);
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawRoundedRect(ImVec2 startPos, ImVec2 endPos, uint32_t color, bool filled,
+            float topLeftR, float topRightR, float bottomRightR, float bottomLeftR,
+            float thickness) override
+        {
+            float w = endPos.x - startPos.x;
+            float h = endPos.y - startPos.y;
+            if (w <= 0.001f || h <= 0.001f) return;
+            w = std::max(0.0f, w);
+            h = std::max(0.0f, h);
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+            int written = 0;
+
+            bool uniformRadii = (std::abs(topLeftR - topRightR) < 0.01f &&
+                std::abs(topRightR - bottomRightR) < 0.01f &&
+                std::abs(bottomRightR - bottomLeftR) < 0.01f);
+
+            if (uniformRadii && topLeftR >= 0.f) 
+            {
+                float radius = std::min({ topLeftR, w / 2.0f, h / 2.0f });
+                radius = std::max(0.0f, radius);
+                if (filled) {
+                    if (thickness > 0.0f) 
+                    {
+                        written = snprintf(scratchBuffer, scratchBufferSize,
+                            "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"%.2f\" ry=\"%.2f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                            startPos.x, startPos.y, w, h, radius, radius, colorBuf, colorBuf, thickness);
+                    }
+                    else 
+                    {
+                        written = snprintf(scratchBuffer, scratchBufferSize,
+                            "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"%.2f\" ry=\"%.2f\" fill=\"%s\" />\n",
+                            startPos.x, startPos.y, w, h, radius, radius, colorBuf);
+                    }
+                }
+                else 
+                {
+                    if (thickness <= 0.f) return;
+                    written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"%.2f\" ry=\"%.2f\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        startPos.x, startPos.y, w, h, radius, radius, colorBuf, thickness);
+                }
+            }
+            else 
+            {
+                float tlr = std::min({ std::max(0.0f, topLeftR), w / 2.0f, h / 2.0f });
+                float trr = std::min({ std::max(0.0f, topRightR), w / 2.0f, h / 2.0f });
+                float brr = std::min({ std::max(0.0f, bottomRightR), w / 2.0f, h / 2.0f });
+                float blr = std::min({ std::max(0.0f, bottomLeftR), w / 2.0f, h / 2.0f });
+
+                char pathDataBuf[1024];
+                int pathOffset = 0;
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "M %.2f,%.2f ", startPos.x + tlr, startPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", endPos.x - trr, startPos.y);
+                if (trr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", trr, trr, endPos.x, startPos.y + trr);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", endPos.x, endPos.y - brr);
+                if (brr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", brr, brr, endPos.x - brr, endPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", startPos.x + blr, endPos.y);
+                if (blr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", blr, blr, startPos.x, endPos.y - blr);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", startPos.x, startPos.y + tlr);
+                if (tlr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", tlr, tlr, startPos.x + tlr, startPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "Z");
+
+                if (pathOffset > 0 && pathOffset < (int)sizeof(pathDataBuf)) 
+                {
+                    if (filled) 
+                    {
+                        if (thickness > 0.0f) 
+                        {
+                            written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                                pathDataBuf, colorBuf, colorBuf, thickness);
+                        }
+                        else 
+                        {
+                            written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"%s\" />\n",
+                                pathDataBuf, colorBuf);
+                        }
+                    }
+                    else 
+                    {
+                        if (thickness <= 0.f) return;
+                        written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                            pathDataBuf, colorBuf, thickness);
+                    }
+                }
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawRectGradient(ImVec2 startPos, ImVec2 endPos, uint32_t colorFrom, uint32_t colorTo, Direction dir) override
+        {
+            float w = endPos.x - startPos.x;
+            float h = endPos.y - startPos.y;
+            if (w <= 0.001f || h <= 0.001f) return;
+            w = std::max(0.0f, w); h = std::max(0.0f, h);
+
+            defsIdCounter++;
+            char gradientIdCstr[64];
+            snprintf(gradientIdCstr, sizeof(gradientIdCstr), "gradRectDef%d", defsIdCounter);
+
+            char colorFromBuf[64], colorToBuf[64];
+            char opacityFromBuf[16], opacityToBuf[16];
+            formatColorToSvg(colorFromBuf, sizeof(colorFromBuf), colorFrom);
+            formatColorToSvg(colorToBuf, sizeof(colorToBuf), colorTo);
+            formatOpacityToSvg(opacityFromBuf, sizeof(opacityFromBuf), colorFrom);
+            formatOpacityToSvg(opacityToBuf, sizeof(opacityToBuf), colorTo);
+
+            int defsWritten = snprintf(scratchBuffer, scratchBufferSize,
+                "    <linearGradient id=\"%s\" %s>\n"
+                "      <stop offset=\"0%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "      <stop offset=\"100%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "    </linearGradient>\n",
+                gradientIdCstr,
+                (dir == DIR_Horizontal ? "x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\"" : "x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\""),
+                colorFromBuf, opacityFromBuf,
+                colorToBuf, opacityToBuf);
+            if (defsWritten > 0) 
+            {
+                appendToBuffer(defsBuffer, defsBufferOffset, svgDefsBufferSize, scratchBuffer, defsWritten);
+            }
+
+            int rectWritten = snprintf(scratchBuffer, scratchBufferSize,
+                "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" fill=\"url(#%s)\" />\n",
+                startPos.x, startPos.y, w, h, gradientIdCstr);
+            if (rectWritten > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, rectWritten);
+            }
+        }
+
+        void DrawRoundedRectGradient(ImVec2 startPos, ImVec2 endPos,
+            float topLeftR, float topRightR, float bottomRightR, float bottomLeftR,
+            uint32_t colorFrom, uint32_t colorTo, Direction dir) override
+        {
+            float w = endPos.x - startPos.x;
+            float h = endPos.y - startPos.y;
+            if (w <= 0.001f || h <= 0.001f) return;
+            w = std::max(0.0f, w); h = std::max(0.0f, h);
+
+            defsIdCounter++;
+            char gradientIdCstr[64];
+            snprintf(gradientIdCstr, sizeof(gradientIdCstr), "gradRoundRectDef%d", defsIdCounter);
+
+            char colorFromBuf[64], colorToBuf[64];
+            char opacityFromBuf[16], opacityToBuf[16];
+            formatColorToSvg(colorFromBuf, sizeof(colorFromBuf), colorFrom);
+            formatColorToSvg(colorToBuf, sizeof(colorToBuf), colorTo);
+            formatOpacityToSvg(opacityFromBuf, sizeof(opacityFromBuf), colorFrom);
+            formatOpacityToSvg(opacityToBuf, sizeof(opacityToBuf), colorTo);
+
+            int defsWritten = snprintf(scratchBuffer, scratchBufferSize,
+                "    <linearGradient id=\"%s\" %s>\n"
+                "      <stop offset=\"0%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "      <stop offset=\"100%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "    </linearGradient>\n",
+                gradientIdCstr,
+                (dir == DIR_Horizontal ? "x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\"" : "x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\""),
+                colorFromBuf, opacityFromBuf,
+                colorToBuf, opacityToBuf);
+
+            if (defsWritten > 0) 
+            {
+                appendToBuffer(defsBuffer, defsBufferOffset, svgDefsBufferSize, scratchBuffer, defsWritten);
+            }
+
+            int shapeWritten = 0;
+            bool uniformRadii = (std::abs(topLeftR - topRightR) < 0.01f &&
+                std::abs(topRightR - bottomRightR) < 0.01f &&
+                std::abs(bottomRightR - bottomLeftR) < 0.01f);
+
+            if (uniformRadii && topLeftR >= 0.f) 
+            {
+                float radius = std::min({ topLeftR, w / 2.0f, h / 2.0f });
+                radius = std::max(0.0f, radius);
+                shapeWritten = snprintf(scratchBuffer, scratchBufferSize,
+                    "  <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"%.2f\" ry=\"%.2f\" fill=\"url(#%s)\" />\n",
+                    startPos.x, startPos.y, w, h, radius, radius, gradientIdCstr);
+            }
+            else 
+            {
+                float tlr = std::min({ std::max(0.0f, topLeftR), w / 2.0f, h / 2.0f });
+                float trr = std::min({ std::max(0.0f, topRightR), w / 2.0f, h / 2.0f });
+                float brr = std::min({ std::max(0.0f, bottomRightR), w / 2.0f, h / 2.0f });
+                float blr = std::min({ std::max(0.0f, bottomLeftR), w / 2.0f, h / 2.0f });
+
+                char pathDataBuf[1024];
+                int pathOffset = 0;
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "M %.2f,%.2f ", startPos.x + tlr, startPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", endPos.x - trr, startPos.y);
+                if (trr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", trr, trr, endPos.x, startPos.y + trr);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", endPos.x, endPos.y - brr);
+                if (brr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", brr, brr, endPos.x - brr, endPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", startPos.x + blr, endPos.y);
+                if (blr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", blr, blr, startPos.x, endPos.y - blr);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "L %.2f,%.2f ", startPos.x, startPos.y + tlr);
+                if (tlr > 0.001f) pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "A %.2f,%.2f 0 0 1 %.2f,%.2f ", tlr, tlr, startPos.x + tlr, startPos.y);
+                pathOffset += snprintf(pathDataBuf + pathOffset, sizeof(pathDataBuf) - pathOffset, "Z");
+
+                if (pathOffset > 0 && pathOffset < (int)sizeof(pathDataBuf)) 
+                {
+                    shapeWritten = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"url(#%s)\" />\n",
+                        pathDataBuf, gradientIdCstr);
+                }
+            }
+
+            if (shapeWritten > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, shapeWritten);
+            }
+        }
+
+        void DrawPolygon(ImVec2* points, int numPoints, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            if (numPoints < 3) return;
+
+            char pointsListStr[scratchBufferSize / 2];
+            int pointsListOffset = 0;
+            char pointItemBuf[40];
+            for (int i = 0; i < numPoints; ++i) 
+            {
+                int currentPtLen = snprintf(pointItemBuf, sizeof(pointItemBuf), "%.2f,%.2f%s",
+                    points[i].x, points[i].y, (i == numPoints - 1 ? "" : " "));
+                if (pointsListOffset + currentPtLen < (int)sizeof(pointsListStr) - 1) 
+                {
+                    memcpy(pointsListStr + pointsListOffset, pointItemBuf, currentPtLen);
+                    pointsListOffset += currentPtLen;
+                }
+                else { break; }
+            }
+            pointsListStr[pointsListOffset] = '\0';
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+            int written = 0;
+
+            if (filled) {
+                if (thickness > 0.0f) 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <polygon points=\"%s\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        pointsListStr, colorBuf, colorBuf, thickness);
+                }
+                else 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <polygon points=\"%s\" fill=\"%s\" />\n",
+                        pointsListStr, colorBuf);
+                }
+            }
+            else 
+            {
+                if (thickness <= 0.f) return;
+                written = snprintf(scratchBuffer, scratchBufferSize, "  <polygon points=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                    pointsListStr, colorBuf, thickness);
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int numPoints) override
+        {
+            if (numPoints > 0 && colors) 
+            { // Simplified: use first color for solid fill
+                DrawPolygon(points, numPoints, colors[0], true, 0.f);
+            }
+        }
+
+        void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            if (radius <= 0.001f) return;
+            radius = std::max(0.0f, radius);
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+            int written = 0;
+
+            if (filled) 
+            {
+                if (thickness > 0.0f) 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        center.x, center.y, radius, colorBuf, colorBuf, thickness);
+                }
+                else 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"%s\" />\n",
+                        center.x, center.y, radius, colorBuf);
+                }
+            }
+            else 
+            {
+                if (thickness <= 0.f) return;
+                written = snprintf(scratchBuffer, scratchBufferSize, "  <circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                    center.x, center.y, radius, colorBuf, thickness);
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawSector(ImVec2 center, float radius, int startAngleDeg, int endAngleDeg, uint32_t color, bool filled, bool inverted, float thickness = 1.f) override
+        {
+            if (radius <= 0.001f) return;
+            radius = std::max(0.0f, radius);
+            float startRad = static_cast<float>(startAngleDeg) * M_PI / 180.0f;
+            float endRad = static_cast<float>(endAngleDeg) * M_PI / 180.0f;
+
+            ImVec2 pStart = { center.x + radius * cosf(startRad), center.y + radius * sinf(startRad) };
+            ImVec2 pEnd = { center.x + radius * cosf(endRad), center.y + radius * sinf(endRad) };
+
+            float angleDiff = static_cast<float>(endAngleDeg - startAngleDeg);
+            while (angleDiff <= -360.0f) angleDiff += 360.0f;
+            while (angleDiff > 360.0f) angleDiff -= 360.0f;
+
+            int largeArcFlag = (std::abs(angleDiff) > 180.0f) ? 1 : 0;
+            int sweepFlag = (angleDiff >= 0.0f) ? 1 : 0;
+
+            if (std::abs(angleDiff) >= 359.99f) 
+            {
+                DrawCircle(center, radius, color, filled, thickness);
+                return;
+            }
+
+            if (inverted) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "\n", strlen("\n"));
+            }
+
+            char pathDataBuf[512];
+            snprintf(pathDataBuf, sizeof(pathDataBuf), "M %.2f,%.2f L %.2f,%.2f A %.2f,%.2f 0 %d,%d %.2f,%.2f Z",
+                center.x, center.y, pStart.x, pStart.y, radius, radius, largeArcFlag, sweepFlag, pEnd.x, pEnd.y);
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+            int written = 0;
+
+            if (filled) 
+            {
+                if (thickness > 0.0f) 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                        pathDataBuf, colorBuf, colorBuf, thickness);
+                }
+                else 
+                {
+                    written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"%s\" />\n",
+                        pathDataBuf, colorBuf);
+                }
+            }
+            else 
+            {
+                if (thickness <= 0.f) return;
+                written = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" />\n",
+                    pathDataBuf, colorBuf, thickness);
+            }
+
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+
+        void DrawRadialGradient(ImVec2 center, float radius, uint32_t colorIn, uint32_t colorOut, int startAngleDeg, int endAngleDeg) override
+        {
+            if (radius <= 0.001f) return;
+            radius = std::max(0.0f, radius);
+            defsIdCounter++;
+            char gradientIdCstr[64];
+            snprintf(gradientIdCstr, sizeof(gradientIdCstr), "gradRadialDef%d", defsIdCounter);
+
+            char colorInBuf[64], colorOutBuf[64];
+            char opacityInBuf[16], opacityOutBuf[16];
+            formatColorToSvg(colorInBuf, sizeof(colorInBuf), colorIn);
+            formatColorToSvg(colorOutBuf, sizeof(colorOutBuf), colorOut);
+            formatOpacityToSvg(opacityInBuf, sizeof(opacityInBuf), colorIn);
+            formatOpacityToSvg(opacityOutBuf, sizeof(opacityOutBuf), colorOut);
+
+            int defsWritten = snprintf(scratchBuffer, scratchBufferSize,
+                "    <radialGradient id=\"%s\" cx=\"50%%\" cy=\"50%%\" r=\"50%%\" fx=\"50%%\" fy=\"50%%\">\n"
+                "      <stop offset=\"0%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "      <stop offset=\"100%%\" style=\"stop-color:%s;stop-opacity:%s\" />\n"
+                "    </radialGradient>\n",
+                gradientIdCstr, colorInBuf, opacityInBuf, colorOutBuf, opacityOutBuf);
+
+            if (defsWritten > 0) 
+            {
+                appendToBuffer(defsBuffer, defsBufferOffset, svgDefsBufferSize, scratchBuffer, defsWritten);
+            }
+
+            int shapeWritten = 0;
+            float angleDiffAbs = std::abs(static_cast<float>(endAngleDeg - startAngleDeg));
+            while (angleDiffAbs >= 360.0f) angleDiffAbs -= 360.0f;
+
+            if (angleDiffAbs < 359.99f && !(startAngleDeg == 0 && endAngleDeg == 0)) 
+            {
+                float startRad = static_cast<float>(startAngleDeg) * M_PI / 180.0f;
+                float endRad = static_cast<float>(endAngleDeg) * M_PI / 180.0f;
+                ImVec2 pStart = { center.x + radius * cosf(startRad), center.y + radius * sinf(startRad) };
+                ImVec2 pEnd = { center.x + radius * cosf(endRad), center.y + radius * sinf(endRad) };
+
+                float angleDiffSweep = static_cast<float>(endAngleDeg - startAngleDeg);
+                while (angleDiffSweep <= -360.0f) angleDiffSweep += 360.0f;
+                while (angleDiffSweep > 360.0f) angleDiffSweep -= 360.0f;
+                int largeArcFlag = (std::abs(angleDiffSweep) > 180.0f) ? 1 : 0;
+                int sweepFlag = (angleDiffSweep >= 0.0f) ? 1 : 0;
+
+                char pathDataBuf[512];
+                snprintf(pathDataBuf, sizeof(pathDataBuf), "M %.2f,%.2f L %.2f,%.2f A %.2f,%.2f 0 %d,%d %.2f,%.2f Z",
+                    center.x, center.y, pStart.x, pStart.y, radius, radius, largeArcFlag, sweepFlag, pEnd.x, pEnd.y);
+                shapeWritten = snprintf(scratchBuffer, scratchBufferSize, "  <path d=\"%s\" fill=\"url(#%s)\" />\n",
+                    pathDataBuf, gradientIdCstr);
+            }
+            else 
+            {
+                shapeWritten = snprintf(scratchBuffer, scratchBufferSize, "  <circle cx=\"%.2f\" cy=\"%.2f\" r=\"%.2f\" fill=\"url(#%s)\" />\n",
+                    center.x, center.y, radius, gradientIdCstr);
+            }
+
+            if (shapeWritten > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, shapeWritten);
+            }
+        }
+
+        bool SetCurrentFont(std::string_view family, float sz, FontType type) override { return false; }
+        bool SetCurrentFont(void* fontPtr, float sz) override { return false; }
+        void ResetFont() override {}
+
+        ImVec2 GetTextSize(std::string_view text, void* fontPtr, float sz, float wrapWidth = -1.f) override
+        {
+            if (textMeasureFunc) 
+            {
+                return textMeasureFunc(text, fontPtr, sz, wrapWidth);
+            }
+
+            return ImVec2{ static_cast<float>(text.length()) * sz * 0.6f, sz }; // Basic fallback
+        }
+
+        void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f) override
+        {
+            float adjustedY = pos.y + currentFontSizePixels * 0.8f;
+
+            char colorBuf[64];
+            formatColorToSvg(colorBuf, sizeof(colorBuf), color);
+
+            int writtenOffset = snprintf(scratchBuffer, scratchBufferSize,
+                "  <text x=\"%.2f\" y=\"%.2f\" font-family=\"%s\" font-size=\"%.0fpx\" fill=\"%s\">",
+                pos.x, adjustedY, currentFontFamily.c_str(), currentFontSizePixels, colorBuf);
+            if (writtenOffset <= 0) return;
+            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, writtenOffset);
+
+            char escCharBuf[10];
+            for (char c : text) 
+            {
+                const char* escSeq = nullptr;
+                int seqLen = 1;
+                switch (c) 
+                {
+                case '&':  escSeq = "&amp;"; seqLen = 5; break;
+                case '<':  escSeq = "&lt;"; seqLen = 4; break;
+                case '>':  escSeq = "&gt;"; seqLen = 4; break;
+                case '"':  escSeq = "&quot;"; seqLen = 6; break;
+                case '\'': escSeq = "&apos;"; seqLen = 6; break;
+                default:   escCharBuf[0] = c; escCharBuf[1] = '\0'; escSeq = escCharBuf; break;
+                }
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, escSeq, seqLen);
+            }
+
+            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "</text>\n", strlen("</text>\n"));
+        }
+
+        void DrawTooltip(ImVec2 pos, std::string_view text) override
+        {
+            if (text.empty()) return;
+
+            const uint32_t bgColorVal = 0xE0FFFFE0;
+            const uint32_t textColorVal = 0xFF000000;
+            const uint32_t borderColorVal = 0xFFCCCCCC;
+            const float padding = 5.0f;
+            const float defaultTooltipFontSize = 12.0f;
+            const char* defaultTooltipFontFamily = "sans-serif";
+
+            ImVec2 textDim = { 0.0f, 0.0f };
+            if (textMeasureFunc) 
+            {
+                textDim = textMeasureFunc(text, nullptr, defaultTooltipFontSize, -1.f);
+            }
+            else 
+            {
+                textDim = ImVec2{ static_cast<float>(text.length()) * defaultTooltipFontSize * 0.6f, defaultTooltipFontSize };
+            }
+
+            float rectX = pos.x;
+            float rectY = pos.y;
+            float rectW = textDim.x + 2 * padding;
+            float rectH = textDim.y + 2 * padding;
+
+            float textXPos = pos.x + padding;
+            float textYPos = pos.y + padding + textDim.y * 0.8f;
+
+            char bgColorBuf[64], textColorBuf[64], borderColorBuf[64];
+            formatColorToSvg(bgColorBuf, sizeof(bgColorBuf), bgColorVal);
+            formatColorToSvg(textColorBuf, sizeof(textColorBuf), textColorVal);
+            formatColorToSvg(borderColorBuf, sizeof(borderColorBuf), borderColorVal);
+
+            int initialOffset = 0;
+            initialOffset += snprintf(scratchBuffer + initialOffset, scratchBufferSize - initialOffset, "  <g>\n");
+            initialOffset += snprintf(scratchBuffer + initialOffset, scratchBufferSize - initialOffset,
+                "    <rect x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"3\" ry=\"3\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\" />\n",
+                rectX, rectY, rectW, rectH, bgColorBuf, borderColorBuf);
+            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, initialOffset);
+
+            int textPartOffset = snprintf(scratchBuffer, scratchBufferSize,
+                "    <text x=\"%.2f\" y=\"%.2f\" font-family=\"%s\" font-size=\"%.0fpx\" fill=\"%s\">",
+                textXPos, textYPos, defaultTooltipFontFamily, defaultTooltipFontSize, textColorBuf);
+            if (textPartOffset > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, textPartOffset);
+
+            char escCharBuf[10];
+            for (char c : text) 
+            {
+                const char* escSeq = nullptr; int seqLen = 1;
+                switch (c) 
+                {
+                case '&':  escSeq = "&amp;"; seqLen = 5; break; case '<':  escSeq = "&lt;"; seqLen = 4; break;
+                case '>':  escSeq = "&gt;"; seqLen = 4; break; case '"':  escSeq = "&quot;"; seqLen = 6; break;
+                case '\'': escSeq = "&apos;"; seqLen = 6; break; default:   escCharBuf[0] = c; escCharBuf[1] = '\0'; escSeq = escCharBuf; break;
+                }
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, escSeq, seqLen);
+            }
+
+            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "</text>\n  </g>\n", strlen("</text>\n  </g>\n"));
+        }
+
+
+        float EllipsisWidth(void* fontPtr, float sz) override {
+            if (textMeasureFunc) 
+            {
+                return textMeasureFunc("...", fontPtr, sz, -1.f).x;
+            }
+
+            return 3 * sz * 0.6f; // Basic fallback
+        }
+
+        bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override { return true; }
+        void EndOverlay() override {}
+
+        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view svgContentToEmbed, bool fromFile) override
+        {
+            if (fromFile) 
+            {
+                int written = snprintf(scratchBuffer, scratchBufferSize, "  \n", (int)svgContentToEmbed.length(), svgContentToEmbed.data());
+                if (written > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+                return;
+            }
+            if (svgContentToEmbed.empty()) return;
+
+            int writtenOpen = snprintf(scratchBuffer, scratchBufferSize,
+                "  <svg x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\">\n",
+                pos.x, pos.y, size.x, size.y);
+            if (writtenOpen > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, writtenOpen);
+
+            appendStringViewToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, svgContentToEmbed);
+            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "\n  </svg>\n", strlen("\n  </svg>\n"));
+        }
+
+        void DrawImage(ImVec2 pos, ImVec2 size, std::string_view filePathOrDataUri) override
+        {
+            if (size.x <= 0.001f || size.y <= 0.001f || filePathOrDataUri.empty()) return;
+            size.x = std::max(0.0f, size.x); size.y = std::max(0.0f, size.y);
+
+            int written = snprintf(scratchBuffer, scratchBufferSize,
+                "  <image x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" xlink:href=\"%.*s\" />\n",
+                pos.x, pos.y, size.x, size.y,
+                (int)filePathOrDataUri.length(), filePathOrDataUri.data());
+            if (written > 0) 
+            {
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+            }
+        }
+    };
+
+#pragma endregion
+
+    IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc)
+    {
+        static thread_local DeferredRenderer renderer{ tmfunc };
         return &renderer;
     }
 
@@ -952,5 +1844,10 @@ namespace glimmer
     {
         static thread_local ImGuiRenderer renderer{};
         return &renderer;
+    }
+
+    IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
+    {
+        return new SVGRenderer(tmfunc, dimensions);
     }
 }

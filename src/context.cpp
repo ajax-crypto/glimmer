@@ -110,6 +110,16 @@ namespace glimmer
         cols.clear(true);
     }
 
+    void TabBarDescriptor::reset()
+    {
+        id = -1;
+        geometry = 0;
+        sizing = TabBarItemSizing::ShrinkToFit;
+        neighbors = NeighborWidgets{};
+        items.clear(true);
+        newTabButton = false;
+    }
+
     ImVec2 WidgetContextData::NextAdHocPos() const
     {
         const auto& layout = adhocLayout.top();
@@ -455,22 +465,24 @@ namespace glimmer
         memset(maxids, 0, WT_TotalTypes);
         memset(tempids, INT_MAX, WT_TotalTypes);
 
-        gridStates.resize(4);
-        tabStates.resize(8);
-        toggleStates.resize(32);
-        radioStates.resize(32);
-        checkboxStates.resize(32);
-        inputTextStates.resize(32);
-        splitterStates.resize(4);
-        spinnerStates.resize(8);
-        tabBarStates.resize(4);
-        splitterScrollPaneParentIds.resize(32 * GLIMMER_MAX_SPLITTER_REGIONS, -1);
-        dropDownOptions.resize(32);
+        gridStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ItemGrid) : 4);
+        tabStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 8);
+        toggleStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ToggleButton) : 32);
+        radioStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_RadioButton) : 32);
+        checkboxStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Checkbox) : 32);
+        inputTextStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TextInput) : 32);
+        splitterStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Splitter) : 4);
+        spinnerStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Spinner) : 8);
+        tabBarStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 4);
+        splitterScrollPaneParentIds.resize((Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_SplitterScrollRegion) : 32) 
+            * GLIMMER_MAX_SPLITTER_REGIONS, -1);
+        dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
             maxids[idx] = 0;
-            states[idx].resize(32, WidgetStateData{ (WidgetType)idx });
+            states[idx].resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 32, 
+                WidgetStateData{ (WidgetType)idx });
         }
     }
     

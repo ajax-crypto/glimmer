@@ -23,7 +23,7 @@ namespace glimmer
     // STATIC DATA
     // =============================================================================================
 
-    inline WindowConfig Config{};
+    inline UIConfig Config{};
 
     struct AnimationData
     {
@@ -224,10 +224,12 @@ namespace glimmer
         int32_t geometry;
         TabBarItemSizing sizing = TabBarItemSizing::ShrinkToFit;
         NeighborWidgets neighbors;
-        Vector<TabItemDescriptor, int16_t, 8> items;
+        Vector<TabItemDescriptor, int16_t, 16> items;
         bool newTabButton = false;
 
         TabBarDescriptor() {}
+
+        void reset();
     };
 
     struct LayoutDescriptor

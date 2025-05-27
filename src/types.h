@@ -61,7 +61,21 @@ namespace glimmer
 
     struct IRenderer;
 
-    struct WindowConfig
+    enum WidgetType
+    {
+        WT_Invalid = -1,
+        WT_Sublayout = -2,
+        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
+        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
+        WT_Slider, WT_Spinner,
+        WT_TextInput,
+        WT_DropDown,
+        WT_TabBar,
+        WT_ItemGrid,
+        WT_TotalTypes
+    };
+
+    struct UIConfig
     {
         uint32_t bgcolor;
         uint32_t focuscolor;
@@ -80,6 +94,7 @@ namespace glimmer
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
+        int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;
         void* userData = nullptr;
     };
 
@@ -87,24 +102,6 @@ namespace glimmer
     {
         return (color & 0xFF000000) != 0;
     }
-
-    // =============================================================================================
-    // WIDGETS
-    // =============================================================================================
-
-    enum WidgetType
-    {
-        WT_Invalid = -1,
-        WT_Sublayout = -2,
-        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
-        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
-        WT_Slider, WT_Spinner,
-        WT_TextInput,
-        WT_DropDown,
-        WT_TabBar,
-        WT_ItemGrid,
-        WT_TotalTypes
-    };
 
     enum WidgetState : int32_t
     {
@@ -118,11 +115,6 @@ namespace glimmer
         WS_Dragged = 1 << 7,
         WS_Disabled = 1 << 8
     };
-
-    inline void ValidateState(int state)
-    {
-        assert((state % 2 == 0) || (state == 1));
-    }
 
     enum class TextType { PlainText, RichText, SVG };
 

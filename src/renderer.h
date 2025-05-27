@@ -53,8 +53,10 @@ namespace glimmer
     // IMPLEMENTATIONS
     // =============================================================================================
 
+    using TextMeasureFuncT = ImVec2(*)(std::string_view text, void* fontptr, float sz, float wrapWidth);
+
     ImVec2 ImGuiMeasureText(std::string_view text, void* fontptr, float sz, float wrapWidth);
 
-    IRenderer* CreateDeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth));
+    IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc);
     IRenderer* CreateImGuiRenderer();
 }

@@ -790,7 +790,7 @@ namespace glimmer
     }
 
     static int PopulateSegmentStyle(StyleDescriptor& style, CommonWidgetStyleDescriptor& specific,
-        std::string_view stylePropName, std::string_view stylePropVal, WindowConfig& Config)
+        std::string_view stylePropName, std::string_view stylePropVal, UIConfig& Config)
     {
         int prop = NoStyleChange;
 

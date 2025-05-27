@@ -36,7 +36,7 @@ int CALLBACK WinMain(
 int main(int argc, char** argv)
 #endif
 {
-    auto& config = glimmer::GetWindowConfig();
+    auto& config = glimmer::GetUIConfig();
     config.platform = glimmer::GetPlatform();
     
     if (config.platform->CreateWindow({ .size = { 1280.f, 720.f }, .title = "Glimmer Window" }))
@@ -54,8 +54,8 @@ int main(int argc, char** argv)
         desc.sizes.push_back(32.f);
         glimmer::LoadDefaultFonts(&desc);
 
-        glimmer::GetWindowConfig().renderer = glimmer::CreateImGuiRenderer();
-        glimmer::GetWindowConfig().defaultFontSz = 24.f;
+        config.renderer = glimmer::CreateImGuiRenderer();
+        config.defaultFontSz = 24.f;
 
         enum Labels { UPPER, LEFT, LEFT2, CONTENT, BOTTOM, TOGGLE, RADIO, INPUT, 
             DROPDOWN, CHECKBOX, SPLIT1, SPLIT2, GRID, SLIDER, SPINNER, TAB, TOTAL };

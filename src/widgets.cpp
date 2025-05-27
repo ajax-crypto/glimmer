@@ -3525,7 +3525,7 @@ namespace glimmer
 
 #pragma endregion
 
-    WindowConfig& GetWindowConfig()
+    UIConfig& GetUIConfig()
     {
         return Config;
     }
@@ -3953,7 +3953,7 @@ namespace glimmer
         auto& state = context.TabBarState(tab.id);
         state.tabs.resize(tab.items.size());
         auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
-        context.currentTab = TabBarDescriptor{};
+        context.currentTab.reset();
         return result;
     }
 
