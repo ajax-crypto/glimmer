@@ -229,6 +229,11 @@ namespace glimmer
             return mouseButtonStatus[(int)MouseButton::LeftMouseButton] == ButtonStatus::Released;
         }
 
+        bool isRightClicked() const
+        {
+            return mouseButtonStatus[(int)MouseButton::RightMouseButton] == ButtonStatus::Released;
+        }
+
         bool isKeyPressed(Key key) const
         {
             return keyStatus[(int)key] == ButtonStatus::Pressed;

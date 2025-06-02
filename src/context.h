@@ -90,14 +90,188 @@ namespace glimmer
             Vector<int16_t, int16_t> vtol{ 128, -1 };
         };
 
-        Vector<HeaderCellResizeState, int16_t> cols[8];
+        Vector<HeaderCellResizeState, int16_t> cols[4];
         BiDirMap colmap[8];
         HeaderCellDragState drag;
         ScrollBarState scroll;
         ImVec2 totalsz;
         ItemGridCurrentState state = ItemGridCurrentState::Default;
+        
+        struct {
+            int32_t row = -1;
+            int16_t col = -1;
+            int32_t state = WS_Default;
+        } cellstate;
 
-        void swapColumns(int16_t from, int16_t to, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int level);
+        template <typename ContainerT>
+        void swapColumns(int16_t from, int16_t to, Span<ContainerT> headers, int level)
+        {
+            auto lfrom = colmap[level].vtol[from];
+            auto lto = colmap[level].vtol[to];
+            colmap[level].vtol[from] = lto; colmap[level].ltov[lfrom] = to;
+            colmap[level].vtol[to] = lfrom; colmap[level].ltov[lto] = from;
+
+            std::pair<int16_t, int16_t> movingColRangeFrom = { lfrom, lfrom }, nextMovingRangeFrom = { INT16_MAX, -1 };
+            std::pair<int16_t, int16_t> movingColRangeTo = { lto, lto }, nextMovingRangeTo = { INT16_MAX, -1 };
+
+            for (auto l = level + 1; l < (int)headers.size(); ++l)
+            {
+                for (int16_t col = 0; col < (int16_t)headers[l].size(); ++col)
+                {
+                    auto& hdr = headers[l][col];
+                    if (hdr.parent >= movingColRangeFrom.first && hdr.parent <= movingColRangeFrom.second)
+                    {
+                        nextMovingRangeFrom.first = std::min(nextMovingRangeFrom.first, col);
+                        nextMovingRangeFrom.second = std::max(nextMovingRangeFrom.second, col);
+                    }
+                    else if (hdr.parent >= movingColRangeTo.first && hdr.parent <= movingColRangeTo.second)
+                    {
+                        nextMovingRangeTo.first = std::min(nextMovingRangeTo.first, col);
+                        nextMovingRangeTo.second = std::max(nextMovingRangeTo.second, col);
+                    }
+                }
+
+                auto startTo = colmap[l].ltov[nextMovingRangeFrom.first];
+                auto startFrom = colmap[l].ltov[nextMovingRangeTo.first];
+
+                for (auto col = nextMovingRangeTo.first, idx = startTo; col <= nextMovingRangeTo.second; ++col, ++idx)
+                {
+                    colmap[l].ltov[col] = idx;
+                    colmap[l].vtol[idx] = col;
+                }
+
+                for (auto col = nextMovingRangeFrom.first, idx = startFrom; col <= nextMovingRangeFrom.second; ++col, ++idx)
+                {
+                    colmap[l].ltov[col] = idx;
+                    colmap[l].vtol[idx] = col;
+                }
+
+                movingColRangeFrom = nextMovingRangeFrom;
+                movingColRangeTo = nextMovingRangeTo;
+                nextMovingRangeFrom = nextMovingRangeTo = { INT16_MAX, -1 };
+            }
+        }
+    };
+
+    struct WidgetContextData;
+
+    enum class ItemGridConstructPhase
+    {
+        None, Headers, HeaderCells, HeaderPlacement, Rows, Columns
+    };
+
+    enum class UIOperationType
+    {
+        Invalid, Widget, Movement, LayoutBegin, LayoutEnd, PopupBegin, PopupEnd
+    };
+
+    struct ItemGridUIOperation 
+    { 
+        union OpData {
+            struct {
+                int32_t id;
+                int32_t geometry;
+                ImRect bounds;
+                ImRect text;
+                NeighborWidgets neighbors;
+            } widget;
+            
+            struct {
+                Layout layout;
+                int32_t fill;
+                int32_t alignment;
+                ImVec2 spacing;
+                NeighborWidgets neighbors;
+                bool wrap = false;
+            } layoutBegin;
+
+            struct {
+                int depth = 1;
+            } layoutEnd;
+
+            struct {
+                int32_t direction = 0;
+                int32_t hid = -1, vid = -1;
+                ImVec2 amount;
+            } movement;
+
+            struct {
+                int32_t id = -1;
+                ImVec2 origin;
+            } popupBegin;
+
+            OpData() {}
+        } data;
+        UIOperationType type = UIOperationType::Invalid;
+
+        ItemGridUIOperation() {}
+    };
+
+    struct LayoutItemDescriptor;
+    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
+    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom);
+    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction);
+    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap,
+        ImVec2 spacing, const NeighborWidgets& neighbors);
+    void RecordEndLayout(ItemGridUIOperation& el, int depth);
+    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin);
+    void RecordPopupEnd(ItemGridUIOperation& el);
+
+    struct RendererEventIndexRange
+    {
+        std::pair<int, int> primitives;
+        std::pair<int, int> events;
+    };
+
+    struct ColumnProps : public ItemGridState::ColumnConfig
+    {
+        ImRect extent;
+        ImVec2 offset;
+        Vector<ItemGridUIOperation, int16_t, 2> uiops{ true };
+        Vector<StyleDescriptor, int16_t, 2> styles{ false };
+        RendererEventIndexRange range;
+        int32_t alignment = TextAlignCenter;
+    };
+
+    struct CurrentItemGridState
+    {
+        int32_t id = -1;
+        ImVec2 origin;
+        ImVec2 size;
+        WidgetContextData* context = nullptr;
+        int32_t geometry = 0; 
+        int16_t levels = 0;
+        int16_t currlevel = 0;
+        int16_t selectedCol = -1;
+        int16_t depth = 0;
+        std::pair<int16_t, int16_t> movingCols{ -1, -1 };
+        ImVec2 nextpos;
+        ImVec2 maxHeaderExtent;
+        ImVec2 maxCellExtent;
+        ImVec2 totalsz;
+        float cellIndent = 0.f;
+        float headerHeight = 0.f;
+        NeighborWidgets neighbors;
+        ItemGridConstructPhase phase = ItemGridConstructPhase::None;
+        Vector<ColumnProps, int16_t, 32> headers[4 + 1] = {
+            Vector<ColumnProps, int16_t, 32>{ true },
+            Vector<ColumnProps, int16_t, 32>{ false },
+            Vector<ColumnProps, int16_t, 32>{ false },
+            Vector<ColumnProps, int16_t, 32>{ false },
+            Vector<ColumnProps, int16_t, 32>{ false },
+        };
+        float headerHeights[4] = { 0.f, 0.f, 0.f, 0.f };
+        int32_t currRow = 0, currCol = 0;
+        WidgetDrawResult event;
+        bool inRow = true;
+        bool contentInteracted = false;
+        bool addedBounds = false;
+
+        ColumnProps& currentHeader() { return headers[currlevel][currCol]; }
+        void reset();
     };
 
     struct ToggleButtonInternalState
@@ -337,6 +511,17 @@ namespace glimmer
             : type{ type_ }, id{ id_ }, extent{ e }, incbtn{ inc }, decbtn{ dec } {}
     };
 
+    enum class NestedContextSourceType
+    {
+        None, Layout, ItemGrid, // add others...
+    };
+
+    struct NestedContextSource
+    {
+        WidgetContextData* base = nullptr;
+        NestedContextSourceType source = NestedContextSourceType::None;
+    };
+
     // Captures widget states, is stored as a linked-list, each context representing
     // a window or overlay, this enables serialized Id's for nested overlays as well
     struct WidgetContextData
@@ -357,6 +542,11 @@ namespace glimmer
         
         // Tab bars are not nested
         TabBarDescriptor currentTab;
+
+        // Stack of current item grids
+        DynamicStack<CurrentItemGridState, int16_t, 4> itemGrids{ false };
+        DynamicStack<NestedContextSource, int16_t, 16> nestedContextStack{ false };
+        static WidgetContextData* CurrentItemGridContext;
 
         std::vector<WidgetContextData*> nestedContexts[WT_TotalTypes];
         WidgetContextData* parentContext = nullptr;
@@ -417,6 +607,13 @@ namespace glimmer
         ImRect activePopUpRegion;
 
         WidgetStateData& GetState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            auto wtype = (WidgetType)(id >> 16);
+            return states[wtype][index];
+        }
+
+        WidgetStateData const& GetState(int32_t id) const
         {
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
@@ -486,13 +683,14 @@ namespace glimmer
 
         StyleDescriptor& GetStyle(int32_t state);
 
-        void ToggleDeferedRendering(bool defer);
+        void ToggleDeferedRendering(bool defer, bool reset = true);
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
-        WidgetDrawResult HandleEvents(ImVec2 origin);
+        WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
         void ResetLayoutData();
+        void ResetCurrentStyle();
 
         const ImRect& GetGeometry(int32_t id) const;
         float MaximumExtent(Direction dir) const;
@@ -507,4 +705,6 @@ namespace glimmer
     WidgetContextData& GetContext();
     WidgetContextData& PushContext(int32_t id);
     void PopContext();
+
+    inline NestedContextSource InvalidSource{};
 }

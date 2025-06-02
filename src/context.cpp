@@ -28,54 +28,6 @@ namespace glimmer
             timestamp = 0.f;
         }
     }
-     
-    void ItemGridInternalState::swapColumns(int16_t from, int16_t to, std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, int level)
-    {
-        auto lfrom = colmap[level].vtol[from];
-        auto lto = colmap[level].vtol[to];
-        colmap[level].vtol[from] = lto; colmap[level].ltov[lfrom] = to;
-        colmap[level].vtol[to] = lfrom; colmap[level].ltov[lto] = from;
-
-        std::pair<int16_t, int16_t> movingColRangeFrom = { lfrom, lfrom }, nextMovingRangeFrom = { INT16_MAX, -1 };
-        std::pair<int16_t, int16_t> movingColRangeTo = { lto, lto }, nextMovingRangeTo = { INT16_MAX, -1 };
-
-        for (auto l = level + 1; l < (int)headers.size(); ++l)
-        {
-            for (int16_t col = 0; col < (int16_t)headers[l].size(); ++col)
-            {
-                auto& hdr = headers[l][col];
-                if (hdr.parent >= movingColRangeFrom.first && hdr.parent <= movingColRangeFrom.second)
-                {
-                    nextMovingRangeFrom.first = std::min(nextMovingRangeFrom.first, col);
-                    nextMovingRangeFrom.second = std::max(nextMovingRangeFrom.second, col);
-                }
-                else if (hdr.parent >= movingColRangeTo.first && hdr.parent <= movingColRangeTo.second)
-                {
-                    nextMovingRangeTo.first = std::min(nextMovingRangeTo.first, col);
-                    nextMovingRangeTo.second = std::max(nextMovingRangeTo.second, col);
-                }
-            }
-
-            auto startTo = colmap[l].ltov[nextMovingRangeFrom.first];
-            auto startFrom = colmap[l].ltov[nextMovingRangeTo.first];
-
-            for (auto col = nextMovingRangeTo.first, idx = startTo; col <= nextMovingRangeTo.second; ++col, ++idx)
-            {
-                colmap[l].ltov[col] = idx;
-                colmap[l].vtol[idx] = col;
-            }
-
-            for (auto col = nextMovingRangeFrom.first, idx = startFrom; col <= nextMovingRangeFrom.second; ++col, ++idx)
-            {
-                colmap[l].ltov[col] = idx;
-                colmap[l].vtol[idx] = col;
-            }
-
-            movingColRangeFrom = nextMovingRangeFrom;
-            movingColRangeTo = nextMovingRangeTo;
-            nextMovingRangeFrom = nextMovingRangeTo = { INT16_MAX, -1 };
-        }
-    }
 
     void LayoutDescriptor::reset()
     {
@@ -118,6 +70,93 @@ namespace glimmer
         neighbors = NeighborWidgets{};
         items.clear(true);
         newTabButton = false;
+    }
+
+    void CurrentItemGridState::reset()
+    {
+        id = -1;
+        origin = size = nextpos = maxHeaderExtent = maxCellExtent = totalsz = ImVec2{};
+        geometry = 0;
+        levels = currlevel = depth = 0;
+        selectedCol = -1;
+        movingCols = std::make_pair<int16_t, int16_t>(-1, -1);
+        phase = ItemGridConstructPhase::None;
+        headers[0].clear(true); headers[1].clear(true); headers[2].clear(true); headers[3].clear(true);
+        headers[4].clear(true);
+        headerHeights[0] = headerHeights[1] = headerHeights[2] = headerHeights[3] = headerHeight = 0.f;
+        currRow = currCol = 0;
+        event = WidgetDrawResult{};
+        inRow = contentInteracted = addedBounds = false;
+    }
+
+    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        el.type = UIOperationType::Widget;
+        el.data.widget.id = id; el.data.widget.geometry = geometry; el.data.widget.neighbors = neighbors;
+    }
+
+    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        el.type = UIOperationType::Widget;
+        el.data.widget.id = id; el.data.widget.geometry = geometry; el.data.widget.neighbors = neighbors;
+        el.data.widget.bounds = item.margin; el.data.widget.text = item.text;
+    }
+
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction)
+    {
+        el.type = UIOperationType::Movement;
+        el.data.movement.direction = direction;
+    }
+
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction)
+    {
+        el.type = UIOperationType::Movement;
+        el.data.movement.hid = id;
+        el.data.movement.direction = direction;
+    }
+
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom)
+    {
+        el.type = UIOperationType::Movement;
+        el.data.movement.direction = toRight ? ToRight : ToLeft;
+        el.data.movement.direction |= toBottom ? ToBottom : ToTop;
+        el.data.movement.hid = hid; el.data.movement.vid = vid;
+    }
+
+    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction)
+    {
+        el.type = UIOperationType::Movement;
+        el.data.movement.direction = direction;
+        el.data.movement.amount = amount;
+    }
+
+    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap, ImVec2 spacing, const NeighborWidgets& neighbors)
+    {
+        el.type = UIOperationType::LayoutBegin;
+        el.data.layoutBegin.layout = layout;
+        el.data.layoutBegin.fill = fill;
+        el.data.layoutBegin.alignment = alignment;
+        el.data.layoutBegin.wrap = wrap;
+        el.data.layoutBegin.spacing = spacing;
+        el.data.layoutBegin.neighbors = neighbors;
+    }
+
+    void RecordEndLayout(ItemGridUIOperation& el, int depth)
+    {
+        el.type = UIOperationType::LayoutEnd;
+        el.data.layoutEnd.depth = depth;
+    }
+
+    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin)
+    {
+        el.type = UIOperationType::PopupBegin;
+        el.data.popupBegin.id = id;
+        el.data.popupBegin.origin = origin;
+    }
+
+    void RecordPopupEnd(ItemGridUIOperation& el)
+    {
+        el.type = UIOperationType::PopupEnd;
     }
 
     ImVec2 WidgetContextData::NextAdHocPos() const
@@ -215,21 +254,20 @@ namespace glimmer
         return res;
     }
 
-    void WidgetContextData::ToggleDeferedRendering(bool defer)
+    void WidgetContextData::ToggleDeferedRendering(bool defer, bool reset)
     {
         usingDeferred = defer;
 
         if (defer)
         {
             auto renderer = CreateDeferredRenderer(&ImGuiMeasureText);
-            renderer->Reset();
+            if (reset) { renderer->Reset(); adhocLayout.push(); }
             deferedRenderer = renderer;
-            adhocLayout.push();
         }
-        else
+        else if (reset)
         {
-            adhocLayout.pop(1, true);
-            deferedRenderer = nullptr;
+            if (adhocLayout.size() > 1) adhocLayout.pop(1, true);
+            deferedRenderer->Reset();
         }
     }
 
@@ -310,14 +348,17 @@ namespace glimmer
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
 
-    WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin)
+    WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
         auto io = Config.platform->CurrentIO();
         auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
         WidgetDrawResult result;
+        to = to == -1 ? deferedEvents.size() : to;
 
-        for (auto ev : deferedEvents)
+        for (auto idx = from; idx < to; ++idx)
         {
+            auto ev = deferedEvents[idx];
+
             switch (ev.type)
             {
             case WT_Label: 
@@ -384,7 +425,7 @@ namespace glimmer
             }
         }
 
-        deferedEvents.clear(true);
+        if (to == -1) deferedEvents.clear(true);
         return result;
     }
 
@@ -395,6 +436,12 @@ namespace glimmer
 
         layouts.clear(false);
         layoutItems.clear(true);
+    }
+
+    void WidgetContextData::ResetCurrentStyle()
+    {
+        currStyleStates = 0;
+        for (auto idx = 0; idx < WSI_Total; ++idx) currStyle[idx] = StyleDescriptor{};
     }
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
@@ -411,8 +458,16 @@ namespace glimmer
             auto id = containerStack.top();
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
-            return dir == DIR_Horizontal ? itemGeometries[wtype][index].GetWidth() : 
-                itemGeometries[wtype][index].GetHeight();
+
+            if (wtype != WT_ItemGrid)
+                return dir == DIR_Horizontal ? itemGeometries[wtype][index].GetWidth() :
+                    itemGeometries[wtype][index].GetHeight();
+            else
+            {
+                auto& grid = CurrentItemGridContext->itemGrids.top();
+                auto extent = grid.headers[grid.currlevel][grid.currCol].extent;
+                return dir == DIR_Horizontal ? extent.GetWidth() : extent.GetHeight();
+            }
         }
         else
         {
@@ -428,8 +483,15 @@ namespace glimmer
             auto id = containerStack.top();
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
-            return ImVec2{ itemGeometries[wtype][index].GetWidth(),
-                itemGeometries[wtype][index].GetHeight() };
+
+            if (wtype != WT_ItemGrid)
+                return itemGeometries[wtype][index].GetSize();
+            else
+            {
+                auto& grid = CurrentItemGridContext->itemGrids.top();
+                auto extent = grid.headers[grid.currlevel][grid.currCol].extent;
+                return extent.GetSize();
+            }
         }
         else
         {
@@ -445,7 +507,16 @@ namespace glimmer
             auto id = containerStack.top();
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
-            return itemGeometries[wtype][index].Max;
+
+            if (wtype != WT_ItemGrid)
+                return itemGeometries[wtype][index].Max;
+            else
+            {
+                auto& grid = CurrentItemGridContext->itemGrids.top();
+                const auto& config = CurrentItemGridContext->GetState(id).state.grid;
+                auto max = grid.headers[grid.currlevel][grid.currCol].extent.Max - config.cellpadding;
+                return max;
+            }
         }
         else
         {
@@ -562,13 +633,19 @@ namespace glimmer
             {
                 auto& ctx = WidgetContexts.emplace_back();
                 ctx.parentContext = CurrentContext;
+                ctx.InsideFrame = CurrentContext->InsideFrame;
 
                 auto& children = CurrentContext->nestedContexts[wtype];
                 if (children.empty()) children.resize(32, nullptr);
                 children[index] = &ctx;
+
+                auto& layout = ctx.adhocLayout.push();
+                layout.nextpos = CurrentContext->adhocLayout.top().nextpos;
             }
 
             CurrentContext = CurrentContext->nestedContexts[wtype][index];
+            
+            for (auto idx = 0; idx < WT_TotalTypes; ++idx) CurrentContext->maxids[idx] = 0;
         }
 
         return *CurrentContext;
@@ -583,6 +660,7 @@ namespace glimmer
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
     StyleDescriptor WidgetContextData::currStyle[WSI_Total];
     int32_t WidgetContextData::currStyleStates = 0;
+    WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
     DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];

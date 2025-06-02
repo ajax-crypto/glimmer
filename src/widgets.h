@@ -20,7 +20,7 @@ namespace glimmer
     WidgetDrawResult Slider(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult TextInput(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult ItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -38,11 +38,12 @@ namespace glimmer
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     WidgetDrawResult EndTabBar(bool canAddTab);
 
-    bool StartItemGrid();
-    bool StartItemGridHeader();
-    void AddHeader();
+    bool StartItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool StartItemGridHeader(int levels = 1);
+    void AddHeaderColumn(const ItemGridState::ColumnConfig& config);
+    void CategorizeColumns();
+    void AddColumnCategory(const ItemGridState::ColumnConfig& config, int16_t from, int16_t to);
     WidgetDrawResult EndItemGridHeader();
-    void AddColumn();
-    void AddRow();
-    WidgetDrawResult EndItemGrid();
+    void PopulateItemGrid(bool byRows);
+    WidgetDrawResult EndItemGrid(int totalRows);
 }

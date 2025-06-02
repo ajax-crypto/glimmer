@@ -46,7 +46,7 @@ int main(int argc, char** argv)
         names.Monospace.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         //names.Proportional.Files[glimmer::FT_Normal] = "IosevkaFixed-Regular.ttf";
         glimmer::FontDescriptor desc;
-        desc.flags = glimmer::FLT_Proportional | glimmer::FLT_Antialias | glimmer::FLT_Hinting;
+        desc.flags = glimmer::FLT_Proportional | glimmer::FLT_Antialias;
         //desc.names = names;
         desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
@@ -147,7 +147,49 @@ int main(int argc, char** argv)
 
         auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
         auto& grid = glimmer::GetWidgetState(gridid).state.grid;
-        grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
+        grid.celldata = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) {
+            static char buffer[128];
+            auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
+
+            auto id = glimmer::GetNextId(glimmer::WT_Label);
+            glimmer::GetWidgetState(id).state.label.text = std::string_view{ buffer, (size_t)sz };
+            auto result = glimmer::Label(id);
+            
+            glimmer::Move(glimmer::FD_Horizontal);
+            id = glimmer::GetNextId(glimmer::WT_Checkbox);
+            glimmer::GetWidgetState(id);
+            result = glimmer::Checkbox(id);
+
+            return result;
+        };
+        grid.cellprops = [](int16_t row, int16_t) {
+            glimmer::ItemGridItemProps props;
+            row % 2 ? glimmer::SetNextStyle("background-color: white") :
+                glimmer::SetNextStyle("background-color: rgb(200, 200, 200)");
+            return props;
+        };
+        grid.header = [](ImVec2, float, int16_t level, int16_t col, int16_t) {
+            glimmer::WidgetDrawResult result;
+            auto id = glimmer::GetNextId(glimmer::WT_Label);
+            if (level == 0)
+            {
+                if (col == 0) glimmer::GetWidgetState(id).state.label.text = "Header#1";
+                else glimmer::GetWidgetState(id).state.label.text = "Header#2";
+            }
+            else
+            {
+                switch (col)
+                {
+                case 0: glimmer::GetWidgetState(id).state.label.text = "Header#1.1"; break;
+                case 1: glimmer::GetWidgetState(id).state.label.text = "Header#1.2"; break;
+                case 2: glimmer::GetWidgetState(id).state.label.text = "Header#2.1"; break;
+                case 3: glimmer::GetWidgetState(id).state.label.text = "Header#2.2"; break;
+                }
+            }
+            result = glimmer::Label(id);
+            return result;
+        };
+       /* grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
             static glimmer::ItemGridState::CellData data;
             static char buffer[128];
             auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
@@ -155,10 +197,10 @@ int main(int argc, char** argv)
                 glimmer::SetNextStyle("background-color: rgb(200, 200, 200)");
             data.state.label.text = std::string_view{ buffer, (size_t)sz };
             return data;
-            };
+            };*/
         widgets[GRID] = gridid;
 
-        auto& root = grid.config.headers.emplace_back();
+        /*auto& root = grid.config.headers.emplace_back();
         root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerdede#1" });
         root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerfefe#2" });
 
@@ -171,7 +213,7 @@ int main(int argc, char** argv)
         grid.config.rows = 32;
         grid.uniformRowHeights = true;
         grid.setColumnResizable(-1, true);
-        grid.setColumnProps(-1, glimmer::COL_Moveable, true);
+        grid.setColumnProps(-1, glimmer::COL_Moveable, true);*/
         void* data = widgets;
 
         config.platform->PollEvents([](ImVec2, void* data) {
@@ -243,8 +285,23 @@ int main(int argc, char** argv)
                 EndLayout();
 
                 Move(widgets[LEFT], widgets[TAB], true, true);
-                PushStyle("background-color: white; padding: 5px;");
-                ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
+                PushStyle("background-color: white; padding: 5px; border: none;");
+                //ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
+
+                StartItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
+                StartItemGridHeader(2);
+                AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+                AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+                AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+                AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+
+                CategorizeColumns();
+                AddColumnCategory(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 0, 1);
+                AddColumnCategory(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
+                
+                EndItemGridHeader();
+                PopulateItemGrid(false);
+                EndItemGrid(32);
             }
 
             EndSplitRegion();

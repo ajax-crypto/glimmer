@@ -45,7 +45,8 @@ namespace glimmer
         virtual void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) {}
         virtual void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) {}
 
-        virtual void Render(IRenderer& renderer, ImVec2 offset) {}
+        virtual void Render(IRenderer& renderer, ImVec2 offset, int from = 0, int to = -1) {}
+        virtual int TotalEnqueued() const { return 0; }
         virtual void Reset() {}
     };
 

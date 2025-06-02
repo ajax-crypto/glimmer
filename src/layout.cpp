@@ -41,6 +41,7 @@ namespace glimmer
     void EndScrollableImpl(int32_t id, IRenderer& renderer);
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
         IRenderer& renderer);
+    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem);
 
 #pragma region Layout functions
 
@@ -115,6 +116,59 @@ namespace glimmer
         auto totalsz = context.MaximumAbsExtent();
         auto nextpos = context.NextAdHocPos();
         auto offset = !context.layouts.empty() ? context.layouts.top().nextpos : ImVec2{ 0, 0 };
+
+        if (width <= 0.f) width = clamp(totalsz.x - nextpos.x - offset.x, style.mindim.x, style.maxdim.x);
+        if (height <= 0.f) height = clamp(totalsz.y - nextpos.y - offset.y, style.mindim.y, style.maxdim.y);
+
+        layoutItem.margin.Min = nextpos;
+        layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+        layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+        layoutItem.content.Min = layoutItem.padding.Min + ImVec2{ style.padding.left, style.padding.top };
+
+        if (style.specified & StyleWidth)
+        {
+            auto w = ImClamp(style.dimension.x, style.mindim.x, style.maxdim.x);
+            layoutItem.content.Max.x = layoutItem.content.Min.x + w;
+            layoutItem.padding.Max.x = layoutItem.content.Max.x + style.padding.right;
+            layoutItem.border.Max.x = layoutItem.padding.Max.x + style.border.right.thickness;
+            layoutItem.margin.Max.x = layoutItem.border.Max.x + style.margin.right;
+        }
+        else
+        {
+            if (neighbors.right != -1) layoutItem.margin.Max.x = context.GetGeometry(neighbors.right).Min.x;
+            else layoutItem.margin.Max.x = layoutItem.margin.Min.x + width;
+
+            layoutItem.border.Max.x = layoutItem.margin.Max.x - style.margin.right;
+            layoutItem.padding.Max.x = layoutItem.border.Max.x - style.border.right.thickness;
+            layoutItem.content.Max.x = layoutItem.padding.Max.x - style.padding.right;
+        }
+
+        if (style.specified & StyleHeight)
+        {
+            auto h = ImClamp(style.dimension.y, style.mindim.x, style.maxdim.x);
+            layoutItem.content.Max.y = layoutItem.content.Min.y + h;
+            layoutItem.padding.Max.y = layoutItem.content.Max.y + style.padding.bottom;
+            layoutItem.border.Max.y = layoutItem.padding.Max.y + style.border.bottom.thickness;
+            layoutItem.margin.Max.y = layoutItem.border.Max.y + style.margin.bottom;
+        }
+        else
+        {
+            if (neighbors.bottom != -1) layoutItem.margin.Max.y = context.GetGeometry(neighbors.bottom).Min.y;
+            else layoutItem.margin.Max.y = layoutItem.margin.Min.y + height;
+
+            layoutItem.border.Max.y = layoutItem.margin.Max.y - style.margin.bottom;
+            layoutItem.padding.Max.y = layoutItem.border.Max.y - style.border.bottom.thickness;
+            layoutItem.content.Max.y = layoutItem.padding.Max.y - style.padding.bottom;
+        }
+    }
+
+    void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
+        ImVec2 size, ImVec2 totalsz)
+    {
+        auto& context = GetContext();
+        auto nextpos = context.NextAdHocPos();
+        auto offset = !context.layouts.empty() ? context.layouts.top().nextpos : ImVec2{ 0, 0 };
+        auto [width, height] = size;
 
         if (width <= 0.f) width = clamp(totalsz.x - nextpos.x - offset.x, style.mindim.x, style.maxdim.x);
         if (height <= 0.f) height = clamp(totalsz.y - nextpos.y - offset.y, style.mindim.y, style.maxdim.y);
@@ -583,6 +637,8 @@ namespace glimmer
         auto& layout = context.layouts.push();
         const auto& style = context.currStyleStates == 0 ? context.StyleStack[WSI_Default].top() : context.currStyle[WSI_Default];
 
+        auto& el = context.nestedContextStack.push();
+        el.source = NestedContextSourceType::Layout;
         layout.id = (WT_Layout << 16) | context.maxids[WT_Layout];
         context.maxids[WT_Layout]++;
 
@@ -765,8 +821,6 @@ namespace glimmer
         auto wtype = (WidgetType)(item.id >> 16);
         auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         renderer.SetClipRect(bbox.Min, bbox.Max);
-        
-        //LOG("Rendering widget at (%f, %f) to (%f, %f)\n", bbox.Min.x, bbox.Min.y, bbox.Max.x, bbox.Max.y);
 
         switch (wtype)
         {
@@ -777,6 +831,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_Button: {
@@ -786,6 +842,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_RadioButton: {
@@ -794,6 +852,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_ToggleButton: {
@@ -802,6 +862,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_Checkbox: {
@@ -810,6 +872,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case WT_Spinner: {
@@ -818,6 +882,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_Slider: {
@@ -826,6 +892,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SliderImpl(item.id, state, style, item.border, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_TextInput: {
@@ -834,6 +902,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = TextInputImpl(item.id, state, style, item.margin, item.content, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_DropDown: {
@@ -842,6 +912,8 @@ namespace glimmer
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case glimmer::WT_ItemGrid: {
@@ -859,6 +931,8 @@ namespace glimmer
                 const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, WS_Default);
                 StartScrollableImpl(item.id, item.hscroll, item.vscroll, style, item.border, item.content, renderer);
             }
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         case WT_TabBar: {
@@ -867,6 +941,8 @@ namespace glimmer
             context.AddItemGeometry(item.id, bbox);
             context.currentTab = layout.tabbars[item.id];
             result = TabBarImpl(item.id, item.content, style, io, renderer);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
             break;
         }
         default:
@@ -1020,6 +1096,7 @@ namespace glimmer
             --depth;
             layout.reset();
             context.layouts.pop(1, false);
+            context.nestedContextStack.pop(1, true);
         }
 
         if (context.layouts.empty())

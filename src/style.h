@@ -6,11 +6,6 @@ namespace glimmer
 {
     struct LayoutDescriptor;
 
-    [[nodiscard]] uint32_t ToRGBA(int r, int g, int b, int a = 255);
-    [[nodiscard]] uint32_t ToRGBA(float r, float g, float b, float a = 1.f);
-    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int, int>& color);
-    [[nodiscard]] uint32_t ToRGBA(const std::tuple<int, int, int>& color);
-    [[nodiscard]] std::tuple<int, int, int, int> DecomposeColor(uint32_t color);
     [[nodiscard]] uint32_t GetColor(const char* name, void*);
 
     struct ColorStop

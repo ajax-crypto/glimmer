@@ -21,6 +21,42 @@ namespace glimmer
     // =============================================================================================
     // STYLING
     // =============================================================================================
+
+    [[nodiscard]] inline uint32_t ToRGBA(int r, int g, int b, int a = 255)
+    {
+        return (((uint32_t)(a) << 24) |
+            ((uint32_t)(b) << 16) |
+            ((uint32_t)(g) << 8) |
+            ((uint32_t)(r) << 0));
+    }
+
+    [[nodiscard]] inline uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
+    {
+        return ToRGBA(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
+    }
+
+    [[nodiscard]] inline std::tuple<int, int, int, int> DecomposeColor(uint32_t color)
+    {
+        return { color & 0xff, (color & 0xff00) >> 8, (color & 0xff0000) >> 16, (color & 0xff000000) >> 24 };
+    }
+
+    [[nodiscard]] inline uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
+    {
+        return ToRGBA(std::get<0>(rgba), std::get<1>(rgba), std::get<2>(rgba), std::get<3>(rgba));
+    }
+
+    [[nodiscard]] inline uint32_t ToRGBA(float r, float g, float b, float a)
+    {
+        return ToRGBA((int)(r * 255.f), (int)(g * 255.f), (int)(b * 255.f), (int)(a * 255.f));
+    }
+
+    [[nodiscard]] inline uint32_t DarkenColor(uint32_t rgba)
+    {
+        auto [r, g, b, a] = DecomposeColor(rgba);
+        r = r / 2; g = g / 2; b = b / 2;
+        return ToRGBA(r, g, b, a);
+    }
+
     enum Direction
     {
         DIR_Horizontal = 1,
@@ -257,6 +293,50 @@ namespace glimmer
         COL_Moveable = 1 << 7,
     };
 
+    enum TextAlignment
+    {
+        TextAlignLeft = 1,
+        TextAlignRight = 1 << 1,
+        TextAlignHCenter = 1 << 2,
+        TextAlignTop = 1 << 3,
+        TextAlignBottom = 1 << 4,
+        TextAlignVCenter = 1 << 5,
+        TextAlignJustify = 1 << 6,
+        TextAlignCenter = TextAlignHCenter | TextAlignVCenter,
+        TextAlignLeading = TextAlignLeft | TextAlignVCenter
+    };
+
+    enum class ItemDescendentVisualState
+    {
+        NoDescendent, Collapsed, Expanded
+    };
+
+    struct ItemGridItemProps
+    {
+        int16_t rowsdpan = 1, colspan = 1;
+        int16_t children = 0;
+        ItemDescendentVisualState vstate = ItemDescendentVisualState::NoDescendent;
+        int32_t alignment = TextAlignCenter;
+    };
+
+    enum class WidgetEvent
+    {
+        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited, Selected
+    };
+
+    struct WidgetDrawResult
+    {
+        int32_t id = -1;
+        WidgetEvent event = WidgetEvent::None;
+        int32_t row = -1;
+        int16_t col = -1;
+        int16_t depth = -1;
+        int16_t tabclosed = -1;
+        int16_t tabidx = -1;
+        ImRect geometry, content;
+        bool newTab = false;
+    };
+
     struct ItemGridState : public CommonWidgetData
     {
         struct CellData
@@ -295,35 +375,23 @@ namespace glimmer
         {
             std::vector<std::vector<ColumnConfig>> headers;
             int32_t rows = 0;
+            float indent = 10.f;
         } config;
 
         CellData& (*cell)(int32_t, int16_t, int16_t) = nullptr;
-        int32_t currow = -1;
-        int16_t currcol = -1;
+        ImVec2 cellpadding{ 5.f, 5.f };
+        float gridwidth = 1.f;
+        uint32_t gridcolor = ToRGBA(100, 100, 100);
         int16_t sortedcol = -1;
         int16_t coldrag = -1;
         bool uniformRowHeights = false;
 
+        ItemGridItemProps (*cellprops)(int16_t, int16_t) = nullptr;
+        WidgetDrawResult (*celldata)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
+        WidgetDrawResult (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
+
         void setColumnResizable(int16_t col, bool resizable);
         void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);
-    };
-
-    enum class WidgetEvent
-    {
-        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited, Selected
-    };
-
-    struct WidgetDrawResult
-    {
-        int32_t id = -1;
-        WidgetEvent event = WidgetEvent::None;
-        int32_t row = -1;
-        int16_t col = -1;
-        int16_t depth = -1;
-        int16_t tabclosed = -1;
-        int16_t tabidx = -1;
-        ImRect geometry, content;
-        bool newTab = false;
     };
 
     struct WidgetStateData
@@ -378,19 +446,6 @@ namespace glimmer
     constexpr float SHRINK_SZ = -2.f;
 
     enum class OverflowMode { Clip, Wrap, Scroll };
-
-    enum TextAlignment
-    {
-        TextAlignLeft = 1,
-        TextAlignRight = 1 << 1,
-        TextAlignHCenter = 1 << 2,
-        TextAlignTop = 1 << 3,
-        TextAlignBottom = 1 << 4,
-        TextAlignVCenter = 1 << 5,
-        TextAlignJustify = 1 << 6,
-        TextAlignCenter = TextAlignHCenter | TextAlignVCenter,
-        TextAlignLeading = TextAlignLeft | TextAlignVCenter
-    };
 
     enum FontStyleFlag : int32_t
     {

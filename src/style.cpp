@@ -172,34 +172,6 @@ namespace glimmer
         return result * scale;
     }
 
-    uint32_t ToRGBA(int r, int g, int b, int a)
-    {
-        return (((uint32_t)(a) << 24) |
-            ((uint32_t)(b) << 16) |
-            ((uint32_t)(g) << 8) |
-            ((uint32_t)(r) << 0));
-    }
-
-    uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
-    {
-        return ToRGBA(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
-    }
-
-    std::tuple<int, int, int, int> DecomposeColor(uint32_t color)
-    {
-        return { color & 0xff, (color & 0xff00) >> 8, (color & 0xff0000) >> 16, (color & 0xff000000) >> 24 };
-    }
-
-    uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
-    {
-        return ToRGBA(std::get<0>(rgba), std::get<1>(rgba), std::get<2>(rgba), std::get<3>(rgba));
-    }
-
-    uint32_t ToRGBA(float r, float g, float b, float a)
-    {
-        return ToRGBA((int)(r * 255.f), (int)(g * 255.f), (int)(b * 255.f), (int)(a * 255.f));
-    }
-
 #ifndef IM_RICHTEXT_TARGET_IMGUI
     static void ColorConvertHSVtoRGB(float h, float s, float v, float& out_r, float& out_g, float& out_b)
     {

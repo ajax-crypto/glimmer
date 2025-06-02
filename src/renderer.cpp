@@ -722,13 +722,18 @@ namespace glimmer
             : TextMeasure{ tm } {
         }
 
-        void Render(IRenderer& renderer, ImVec2 offset) override
+        int TotalEnqueued() const override { return queue.size(); }
+
+        void Render(IRenderer& renderer, ImVec2 offset, int from, int to) override
         {
             auto prevdl = renderer.UserData;
             renderer.UserData = ImGui::GetWindowDrawList();
+            to = to == -1 ? queue.size() : to;
 
-            for (const auto& entry : queue)
+            for (auto idx = from; idx < to; ++idx)
             {
+                const auto& entry = queue[idx];
+
                 switch (entry.first)
                 {
                 case DrawingOps::Line:

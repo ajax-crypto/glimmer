@@ -20,34 +20,6 @@
 namespace glimmer
 {
     template <typename T>
-    struct Span
-    {
-        T const* source = nullptr;
-        int sz = 0;
-
-        template <typename ItrT>
-        Span(ItrT start, ItrT end)
-            : source{ &(*start) }, sz{ (int)(end - start) }
-        {
-        }
-
-        Span(T const* from, int size) : source{ from }, sz{ size } {}
-
-        explicit Span(T const& el) : source{ &el }, sz{ 1 } {}
-
-        T const* begin() const { return source; }
-        T const* end() const { return source + sz; }
-
-        const T& front() const { return *source; }
-        const T& back() const { return *(source + sz - 1); }
-
-        const T& operator[](int idx) const { return source[idx]; }
-    };
-
-    template <typename T> Span(T* from, int size) -> Span<T>;
-    template <typename T> Span(T&) -> Span<T>;
-
-    template <typename T>
     T clamp(T val, T min, T max)
     {
         return val > max ? max : val < min ? min : val;
@@ -393,8 +365,8 @@ namespace glimmer
         {
         }
 
-        template <typename T>
-        DynamicStack(T param)
+        template <typename Ty>
+        DynamicStack(Ty param)
             : _data{ param }
         {
         }
@@ -497,4 +469,45 @@ namespace glimmer
 
         bool empty() const { return total == 0; }
     };
+
+    template <typename T>
+    struct Span
+    {
+        T* source = nullptr;
+        int sz = 0;
+
+        template <typename ItrT>
+        Span(ItrT start, ItrT end)
+            : source{ &(*start) }, sz{ (int)(end - start) }
+        {
+        }
+
+        template <size_t size>
+        Span(T(&array)[size])
+            : source{ array }, sz{ size }
+        {
+        }
+
+        template <typename SzT, SzT v>
+        Span(Vector<T, SzT, v>& vec)
+            : source{ vec.data() }, sz{ vec.size() }
+        {
+        }
+
+        Span(T* from, int size) : source{ from }, sz{ size } {}
+
+        T* begin() { return source; }
+        T* end() { return source + sz; }
+
+        T& front() { return *source; }
+        T& back() { return *(source + sz - 1); }
+
+        T& operator[](int idx) { return source[idx]; }
+
+        int size() const { return sz; }
+        T* data() { return source; }
+    };
+
+    template <typename ItrT>
+    Span(ItrT start, ItrT end) -> Span<std::decay_t<decltype(*start)>>;
 }

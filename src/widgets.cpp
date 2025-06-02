@@ -16,6 +16,8 @@ namespace glimmer
     // This is required, as for some widgets, double clicking leads to a editor, and hence a text input widget
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content,
         IRenderer& renderer, const IODescriptor& io);
+    void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
+        ImVec2 size, ImVec2 totalsz);
 
     WidgetStateData::WidgetStateData(WidgetType ty)
         : type{ ty }
@@ -1239,13 +1241,6 @@ namespace glimmer
             context.deferedEvents.emplace_back(WT_Spinner, id, extent, incbtn, decbtn);
     }
 
-    uint32_t DarkenColor(uint32_t rgba)
-    {
-        auto [r, g, b, a] = DecomposeColor(rgba);
-        r = r / 2; g = g / 2; b = b / 2;
-        return ToRGBA(r, g, b, a);
-    }
-
     WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, 
         const ImRect& extent, const IODescriptor& io, IRenderer& renderer)
     {
@@ -1980,7 +1975,8 @@ namespace glimmer
             auto [fr, fg, fb, fa] = DecomposeColor(phstyle.fgcolor);
             fa = 150;
             phstyle.fgcolor = ToRGBA(fr, fg, fb, fa);
-            DrawText(content.Min, content.Max, { content.Min, content.Min }, state.placeholder, state.state & WS_Disabled,
+            auto sz = renderer.GetTextSize(state.placeholder, style.font.font, style.font.size);
+            DrawText(content.Min, content.Max, { content.Min, content.Min + sz }, state.placeholder, state.state & WS_Disabled,
                 phstyle, renderer, FontStyleOverflowMarquee);
         }
         else
@@ -2479,9 +2475,41 @@ namespace glimmer
         return result;
     }
 
+    bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.emplace_back();
+        tab.id = context.layouts.empty() ? id : (int32_t)(context.layouts.top().tabbars.size() - 1);
+        tab.geometry = geometry; tab.neighbors = neighbors;
+
+        const auto& config = context.GetState(id).state.tab;
+        tab.sizing = config.sizing;
+        tab.newTabButton = config.createNewTabs;
+        return true;
+    }
+
+    void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        tab.items.emplace_back(name, tooltip, flags);
+    }
+
+    WidgetDrawResult EndTabBar(bool canAddTab)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        tab.newTabButton = canAddTab;
+        auto& state = context.TabBarState(tab.id);
+        state.tabs.resize(tab.items.size());
+        auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
+        context.currentTab.reset();
+        return result;
+    }
+
 #pragma endregion
 
-#pragma region ItemGrid
+#pragma region Static ItemGrid
 
     void ItemGridState::setColumnResizable(int16_t col, bool resizable)
     {
@@ -2509,7 +2537,8 @@ namespace glimmer
         }
     }
 
-    static bool UpdateSubHeadersResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
+    template <typename ContainerT>
+    static bool UpdateSubHeadersResize(Span<ContainerT> headers, ItemGridInternalState& gridstate,
         const ImRect& rect, int parent, int chlevel, bool mouseDown)
     {
         if (chlevel >= (int)headers.size()) return true;
@@ -2545,7 +2574,8 @@ namespace glimmer
         return chcount > 0;
     }
 
-    static void HandleColumnResize(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridState::ColumnConfig& hdr,
+    template <typename ContainerT, typename ColumnT>
+    static void HandleColumnResize(Span<ContainerT> headers, ColumnT& hdr,
         ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
@@ -2595,7 +2625,8 @@ namespace glimmer
         }
     }
 
-    static void HandleColumnReorder(std::vector<std::vector<ItemGridState::ColumnConfig>>& headers, ItemGridInternalState& gridstate,
+    template <typename ContainerT>
+    static void HandleColumnReorder(Span<ContainerT> headers, ItemGridInternalState& gridstate,
         ImVec2 mousepos, int level, int vcol, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ReorderingColumns) return;
@@ -2798,423 +2829,430 @@ namespace glimmer
 
         auto& headers = state.config.headers;
 
-        // Determine header geometry
-        for (auto level = (int)headers.size() - 1; level >= 0; --level)
+        if (state.cell)
         {
-            // If this is last level headers, it represents leaves, the upper levels
-            // represent grouping of the headers, whose width is determined by the 
-            // lower levels, hence start with bottom most levels.
-            // We compute the local x-coordinate of each "header cell" and local
-            // "text position" for text content. 
-            // The y-coordinate will be assigned while actual rendering, which will 
-            // start from highest level i.e. root to leaves.
-            if (level == ((int)headers.size() - 1))
+            // Determine header geometry
+            for (auto level = (int)headers.size() - 1; level >= 0; --level)
             {
-                auto sum = 0.f;
-                auto totalEx = 0;
-                auto height = 0.f;
-
-                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
+                // If this is last level headers, it represents leaves, the upper levels
+                // represent grouping of the headers, whose width is determined by the 
+                // lower levels, hence start with bottom most levels.
+                // We compute the local x-coordinate of each "header cell" and local
+                // "text position" for text content. 
+                // The y-coordinate will be assigned while actual rendering, which will 
+                // start from highest level i.e. root to leaves.
+                if (level == ((int)headers.size() - 1))
                 {
-                    if (gridstate.cols[level].empty())
-                        gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
+                    auto sum = 0.f;
+                    auto totalEx = 0;
+                    auto height = 0.f;
 
-                    if (gridstate.colmap[level].vtol[vcol] == -1)
+                    for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
                     {
-                        gridstate.colmap[level].ltov[vcol] = vcol;
-                        gridstate.colmap[level].vtol[vcol] = vcol;
-                    }
+                        if (gridstate.cols[level].empty())
+                            gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
 
-                    auto col = gridstate.colmap[level].vtol[vcol];
-                    auto& hdr = headers[level][col];
-
-                    static char buffer[256];
-                    memset(buffer, ' ', 255);
-                    buffer[255] = 0;
-
-                    auto colwidth = hdr.props & COL_WidthAbsolute ? (float)hdr.width :
-                        renderer.GetTextSize(std::string_view{ buffer, buffer + hdr.width },
-                            style.font.font, style.font.size).x;
-                    auto hasWidth = colwidth > 0.f;
-                    colwidth += gridstate.cols[level][col].modified;
-
-                    auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
-                    auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
-                    hdr.content.Min.x = sum;
-                    hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
-                    hdr.textrect.Max.x = hdr.textrect.Min.x + textsz.x;
-                    hdr.textrect.Min.y = style.padding.top;
-                    hdr.textrect.Max.y = textsz.y;
-                    hdr.content.Max.x = hdr.content.Min.x + (hasWidth ? colwidth : colwidth +
-                        textsz.x + style.padding.h());
-
-                    if (hdr.content.GetWidth() - style.padding.h() > textsz.x)
-                    {
-                        auto hdiff = (hdr.content.GetWidth() - textsz.x - style.padding.h()) * 0.5f;
-                        hdr.textrect.TranslateX(hdiff);
-                    }
-
-                    hdr.content.Max.y = textsz.y + style.padding.v();
-                    sum += hdr.content.GetWidth();
-                    height = std::max(height, hdr.content.GetHeight());
-
-                    // If user has resized column, do not expand it
-                    if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
-                }
-
-                if (totalEx > 0)
-                {
-                    auto extra = (content.GetWidth() - sum) / (float)totalEx;
-                    sum = 0.f;
-
-                    if (extra > 0.f)
-                        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                        if (gridstate.colmap[level].vtol[vcol] == -1)
                         {
-                            auto& hdr = headers[level][col];
-                            auto width = hdr.content.Min.x;
-                            auto isColExpandable = ((hdr.props & COL_Expandable) &&
-                                gridstate.cols[level][col].modified == 0.f);
-                            hdr.content.Min.x = sum;
-                            hdr.content.Max.x = hdr.content.Max.x +
-                                isColExpandable ? extra : 0.f;
-                            if (!(hdr.props & COL_WrapHeader) && hdr.textrect.GetWidth() <
-                                (hdr.content.GetWidth() - style.padding.h()))
-                            {
-                                auto diff = (hdr.content.GetWidth() - style.padding.h() - hdr.textrect.GetWidth()) * 0.5f;
-                                hdr.textrect.TranslateX(diff);
-                            }
-                            sum = hdr.content.Max.x;
-
-                            hdr.content.Max.y = height;
-                            auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
-                            if (vdiff > 0.f)
-                                hdr.textrect.TranslateY(vdiff);
+                            gridstate.colmap[level].ltov[vcol] = vcol;
+                            gridstate.colmap[level].vtol[vcol] = vcol;
                         }
+
+                        auto col = gridstate.colmap[level].vtol[vcol];
+                        auto& hdr = headers[level][col];
+
+                        static char buffer[256];
+                        memset(buffer, ' ', 255);
+                        buffer[255] = 0;
+
+                        auto colwidth = hdr.props & COL_WidthAbsolute ? (float)hdr.width :
+                            renderer.GetTextSize(std::string_view{ buffer, buffer + hdr.width },
+                                style.font.font, style.font.size).x;
+                        auto hasWidth = colwidth > 0.f;
+                        colwidth += gridstate.cols[level][col].modified;
+
+                        auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
+                        auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
+                        hdr.content.Min.x = sum;
+                        hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
+                        hdr.textrect.Max.x = hdr.textrect.Min.x + textsz.x;
+                        hdr.textrect.Min.y = style.padding.top;
+                        hdr.textrect.Max.y = textsz.y;
+                        hdr.content.Max.x = hdr.content.Min.x + (hasWidth ? colwidth : colwidth +
+                            textsz.x + style.padding.h());
+
+                        if (hdr.content.GetWidth() - style.padding.h() > textsz.x)
+                        {
+                            auto hdiff = (hdr.content.GetWidth() - textsz.x - style.padding.h()) * 0.5f;
+                            hdr.textrect.TranslateX(hdiff);
+                        }
+
+                        hdr.content.Max.y = textsz.y + style.padding.v();
+                        sum += hdr.content.GetWidth();
+                        height = std::max(height, hdr.content.GetHeight());
+
+                        // If user has resized column, do not expand it
+                        if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
+                    }
+
+                    if (totalEx > 0)
+                    {
+                        auto extra = (content.GetWidth() - sum) / (float)totalEx;
+                        sum = 0.f;
+
+                        if (extra > 0.f)
+                            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                            {
+                                auto& hdr = headers[level][col];
+                                auto width = hdr.content.Min.x;
+                                auto isColExpandable = ((hdr.props & COL_Expandable) &&
+                                    gridstate.cols[level][col].modified == 0.f);
+                                hdr.content.Min.x = sum;
+                                hdr.content.Max.x = hdr.content.Max.x +
+                                    isColExpandable ? extra : 0.f;
+                                if (!(hdr.props & COL_WrapHeader) && hdr.textrect.GetWidth() <
+                                    (hdr.content.GetWidth() - style.padding.h()))
+                                {
+                                    auto diff = (hdr.content.GetWidth() - style.padding.h() - hdr.textrect.GetWidth()) * 0.5f;
+                                    hdr.textrect.TranslateX(diff);
+                                }
+                                sum = hdr.content.Max.x;
+
+                                hdr.content.Max.y = height;
+                                auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
+                                if (vdiff > 0.f)
+                                    hdr.textrect.TranslateY(vdiff);
+                            }
+                        else AlignVCenter(height, level, state, style);
+                    }
                     else AlignVCenter(height, level, state, style);
-                }
-                else AlignVCenter(height, level, state, style);
-            }
-            else
-            {
-                float lastx = 0.f, height = 0.f;
-                if (gridstate.cols[level].empty())
-                    gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
-
-                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
-                {
-                    float sum = 0.f;
-                    if (gridstate.colmap[level].vtol[vcol] == -1)
-                    {
-                        gridstate.colmap[level].ltov[vcol] = vcol;
-                        gridstate.colmap[level].vtol[vcol] = vcol;
-                    }
-
-                    auto col = gridstate.colmap[level].vtol[vcol];
-                    auto& hdr = headers[level][col];
-                    hdr.content.Min.x = lastx;
-
-                    // Find sum of all descendant headers, which will be this headers width
-                    for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
-                        if (headers[level + 1][chcol].parent == col)
-                            sum += headers[level + 1][chcol].content.GetWidth();
-
-                    auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
-                    auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
-
-                    // The available horizontal size is fixed by sum of descendant widths
-                    // The height of the current level of headers is decided by the max height across all
-                    hdr.content.Max.x = hdr.content.Min.x + sum;
-                    hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
-                    hdr.textrect.Min.y = hdr.content.Min.y + style.padding.top;
-                    hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x);
-
-                    if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - style.padding.h()))
-                    {
-                        auto diff = (sum - style.padding.h() - textsz.x) * 0.5f;
-                        hdr.textrect.TranslateX(diff);
-                    }
-
-                    hdr.textrect.Max.y = hdr.textrect.Min.y + textsz.y;
-                    hdr.content.Max.y = hdr.content.Min.y + textsz.y + style.padding.v();
-                    height = std::max(height, hdr.content.GetHeight());
-                    lastx += sum;
-                }
-
-                AlignVCenter(height, level, state, style);
-            }
-        }
-
-        // Draw Headers
-        auto posy = content.Min.y;
-        auto totalh = 0.f;
-        auto width = headers.back().back().content.Max.x - headers.back().front().content.Min.x;
-        auto hshift = -gridstate.scroll.pos.x;
-        std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
-
-        for (auto level = 0; level < (int)headers.size(); ++level)
-        {
-            auto maxh = 0.f, posx = content.Min.x + hshift;
-
-            for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
-            {
-                auto col = gridstate.colmap[level].vtol[vcol];
-                auto& hdr = headers[level][col];
-                auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
-
-                if (isBeingMoved)
-                {
-                    auto movex = mousepos.x - gridstate.drag.startPos.x;
-                    gridstate.drag.config = hdr;
-                    auto& cfg = gridstate.drag.config;
-
-                    cfg.content.TranslateY(posy);
-                    cfg.textrect.TranslateY(posy);
-                    cfg.content.TranslateX(posx + movex);
-                    cfg.textrect.TranslateX(posx + movex);
-
-                    maxh = std::max(maxh, hdr.content.GetHeight());
-                    nextMovingRange = { col, col };
-                }
-                else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
-                {
-                    // The parent column is being moved in this case, record the range of child columns mapped to that parent range
-                    auto movex = mousepos.x - gridstate.drag.startPos.x;
-                    auto& cfg = gridstate.drag.config;
-
-                    hdr.content.TranslateY(posy);
-                    hdr.textrect.TranslateY(posy);
-                    hdr.content.TranslateX(posx + movex);
-                    hdr.textrect.TranslateX(posx + movex);
-
-                    maxh = std::max(maxh, hdr.content.GetHeight());
-                    nextMovingRange.first = std::min(nextMovingRange.first, col);
-                    nextMovingRange.second = std::max(nextMovingRange.second, col);
                 }
                 else
                 {
-                    hdr.content.TranslateY(posy);
-                    hdr.textrect.TranslateY(posy);
-                    hdr.content.TranslateX(posx);
-                    hdr.textrect.TranslateX(posx);
-                    renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+                    float lastx = 0.f, height = 0.f;
+                    if (gridstate.cols[level].empty())
+                        gridstate.cols[level].fill(ItemGridInternalState::HeaderCellResizeState{});
 
-                    ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                    DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
-                    maxh = std::max(maxh, hdr.content.GetHeight());
-                }
-
-                if (vcol > 0)
-                {
-                    auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
-                    if (headers[level][prevcol].props & COL_Resizable)
-                        HandleColumnResize(headers, hdr, gridstate, mousepos, level, col, io);
-                }
-
-                if (hdr.props & COL_Moveable)
-                    HandleColumnReorder(headers, gridstate, mousepos, level, vcol, io);
-            }
-
-            posy += maxh;
-            totalh += maxh;
-            movingColRange = nextMovingRange;
-            nextMovingRange = { INT16_MAX, -1 };
-        }
-
-        float height = 0.f;
-
-        if (!state.uniformRowHeights)
-        {
-            // As each cell's height may be different, capture cell heights first,
-            // then determine row height as max cell height, align and draw contents
-            //ImVec2 cellGeometries[128];
-            //ItemGridState::CellData data[128];
-
-            //for (auto row = 0; row < state.config.rows; ++row)
-            //{
-            //    auto height = 0.f;
-            //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
-            //    {
-            //        auto& hdr = headers.back()[col];
-            //        data[col] = state.cell(row, col, 0);
-
-            //        switch (data[col].wtype)
-            //        {
-            //        case WT_Label:
-            //        {
-            //            auto& itemstyle = context.GetStyle(data[col].state.label.state);
-            //            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
-            //                itemstyle.font.size, FT_Normal);
-            //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.content.GetWidth();
-            //            auto textsz = renderer.GetTextSize(data[col].state.label.text, itemstyle.font.font,
-            //                itemstyle.font.size, wrap);
-            //            cellGeometries[col] = textsz;
-            //            height = std::max(height, textsz.y + style.padding.v());
-            //            break;
-            //        }
-            //        default:
-            //            break;
-            //        }
-            //    }
-
-            //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
-            //    {
-            //        auto& hdr = headers.back()[col];
-            //        auto content = hdr.content;
-            //        content.Max.y = height;
-            //        ImVec2 textstart{ content.Min.x + style.padding.left,
-            //            content.Min.y + style.padding.top };
-
-            //        if (cellGeometries[col].y < height)
-            //        {
-            //            auto vdiff = (height - cellGeometries[col].y) * 0.5f;
-            //            textstart.y += vdiff;
-            //        }
-
-            //        if (cellGeometries[col].x < content.GetWidth())
-            //        {
-            //            auto hdiff = (content.GetWidth() - cellGeometries[col].x) * 0.5f;
-            //            textstart.x += hdiff;
-            //        }
-
-            //        auto textend = content.Max - ImVec2{ style.padding.right, style.padding.bottom };
-            //        renderer.DrawRect(content.Min, content.Max, ToRGBA(100, 100, 100), false);
-            //        
-            //        switch (data[col].wtype)
-            //        {
-            //        case WT_Label:
-            //        {
-            //            const auto& itemstyle = context.GetStyle(data[col].state.label.state);
-            //            DrawText(textstart, textend, { textstart, textstart + cellGeometries[col] }, data[col].state.label.text,
-            //                data[col].state.label.state& WS_Disabled, itemstyle, renderer);
-            //            break;
-            //        }
-            //        }
-
-            //        if (content.Contains(mousepos))
-            //        {
-            //            result.col = col;
-            //            result.row = row;
-            //            // ... add depth
-            //        }
-            //    }
-
-            //    posy += height;
-            //}
-        }
-        else
-        {
-            // Populate column wise for uniform row heights
-            ImVec2 startpos{};
-            startpos.y = -gridstate.scroll.pos.y;
-            renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
-            auto maxlevel = (int)headers.size() - 1;
-
-            for (int16_t vcol = 0; vcol < (int16_t)headers.back().size(); ++vcol)
-            {
-                height = 0.f;
-                auto col = gridstate.colmap[maxlevel].vtol[vcol];
-
-                for (auto row = 0; row < state.config.rows; ++row)
-                {
-                    if (col < movingColRange.first || col > movingColRange.second)
+                    for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
                     {
-                        auto starty = height + posy + startpos.y;
-                        auto itemrect = DrawCells(state, headers, row, col, starty, style, renderer);
-                        height += itemrect.GetHeight();
-
-                        if (itemrect.Contains(mousepos))
+                        float sum = 0.f;
+                        if (gridstate.colmap[level].vtol[vcol] == -1)
                         {
-                            result.col = col;
-                            result.row = row;
-                            // ... add depth
+                            gridstate.colmap[level].ltov[vcol] = vcol;
+                            gridstate.colmap[level].vtol[vcol] = vcol;
                         }
 
-                        //if (height + posy >= content.Max.y) break; 
-                    }
-                }
-            }
-
-            renderer.ResetClipRect();
-        }
-
-        totalh += height;
-
-        if (gridstate.drag.column != -1 && gridstate.drag.level != -1)
-        {
-            const auto& cfg = gridstate.drag.config;
-            LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.content.Min.x, cfg.content.Max.x);
-
-            renderer.DrawRectGradient(cfg.content.Min + ImVec2{ -10.f, 0.f }, { cfg.content.Min.x, content.Max.y },
-                ToRGBA(0, 0, 0, 0), ToRGBA(100, 100, 100), Direction::DIR_Horizontal);
-            renderer.DrawRectGradient({ cfg.content.Max.x, cfg.content.Min.y }, ImVec2{ cfg.content.Max.x + 10.f, content.Max.y },
-                ToRGBA(100, 100, 100), ToRGBA(0, 0, 0, 0), Direction::DIR_Horizontal);
-
-            renderer.DrawRect(cfg.content.Min, cfg.content.Max, ToRGBA(100, 100, 100), false);
-            ImVec2 textend{ cfg.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-            DrawText(cfg.textrect.Min, textend, cfg.textrect, cfg.name, false, style, renderer);
-
-            auto level = gridstate.drag.level + 1;
-
-            if (level < (int16_t)headers.size())
-            {
-                auto movex = mousepos.x - gridstate.drag.lastPos.x;
-                auto lcol = gridstate.colmap[level - 1].vtol[gridstate.drag.column];
-                std::pair<int16_t, int16_t> movingColRange = { lcol, lcol }, nextMovingRange = { INT16_MAX, -1 };
-
-                for (; level < (int16_t)headers.size(); ++level)
-                {
-                    for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-                    {
+                        auto col = gridstate.colmap[level].vtol[vcol];
                         auto& hdr = headers[level][col];
+                        hdr.content.Min.x = lastx;
 
-                        if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                        // Find sum of all descendant headers, which will be this headers width
+                        for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
+                            if (headers[level + 1][chcol].parent == col)
+                                sum += headers[level + 1][chcol].content.GetWidth();
+
+                        auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
+                        auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
+
+                        // The available horizontal size is fixed by sum of descendant widths
+                        // The height of the current level of headers is decided by the max height across all
+                        hdr.content.Max.x = hdr.content.Min.x + sum;
+                        hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
+                        hdr.textrect.Min.y = hdr.content.Min.y + style.padding.top;
+                        hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x);
+
+                        if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - style.padding.h()))
                         {
-                            hdr.content.TranslateX(movex);
-                            hdr.textrect.TranslateX(movex);
-
-                            renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
-                            ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                            DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
-
-                            nextMovingRange.first = std::min(nextMovingRange.first, col);
-                            nextMovingRange.second = std::max(nextMovingRange.second, col);
+                            auto diff = (sum - style.padding.h() - textsz.x) * 0.5f;
+                            hdr.textrect.TranslateX(diff);
                         }
+
+                        hdr.textrect.Max.y = hdr.textrect.Min.y + textsz.y;
+                        hdr.content.Max.y = hdr.content.Min.y + textsz.y + style.padding.v();
+                        height = std::max(height, hdr.content.GetHeight());
+                        lastx += sum;
                     }
 
-                    movingColRange = nextMovingRange;
-                    nextMovingRange = { INT16_MAX, -1 };
+                    AlignVCenter(height, level, state, style);
                 }
             }
 
-            ImVec2 startpos{};
-            startpos.y = -gridstate.scroll.pos.y;
-            renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+            // Draw Headers
+            auto posy = content.Min.y;
+            auto totalh = 0.f;
+            auto width = headers.back().back().content.Max.x - headers.back().front().content.Min.x;
+            auto hshift = -gridstate.scroll.pos.x;
+            std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
 
-            for (int16_t col = movingColRange.first; col <= movingColRange.second; ++col)
+            for (auto level = 0; level < (int)headers.size(); ++level)
             {
-                height = 0.f;
+                auto maxh = 0.f, posx = content.Min.x + hshift;
 
-                for (auto row = 0; row < state.config.rows; ++row)
+                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
                 {
-                    if (col >= movingColRange.first && col <= movingColRange.second)
-                    {
-                        auto itemrect = DrawCells(state, headers, row, col, height + posy + startpos.y, style, renderer);
-                        height += itemrect.GetHeight();
+                    auto col = gridstate.colmap[level].vtol[vcol];
+                    auto& hdr = headers[level][col];
+                    auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
 
-                        if (itemrect.Contains(mousepos))
+                    if (isBeingMoved)
+                    {
+                        auto movex = mousepos.x - gridstate.drag.startPos.x;
+                        gridstate.drag.config = hdr;
+                        auto& cfg = gridstate.drag.config;
+
+                        cfg.content.TranslateY(posy);
+                        cfg.textrect.TranslateY(posy);
+                        cfg.content.TranslateX(posx + movex);
+                        cfg.textrect.TranslateX(posx + movex);
+
+                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        nextMovingRange = { col, col };
+                    }
+                    else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                    {
+                        // The parent column is being moved in this case, record the range of child columns mapped to that parent range
+                        auto movex = mousepos.x - gridstate.drag.startPos.x;
+                        auto& cfg = gridstate.drag.config;
+
+                        hdr.content.TranslateY(posy);
+                        hdr.textrect.TranslateY(posy);
+                        hdr.content.TranslateX(posx + movex);
+                        hdr.textrect.TranslateX(posx + movex);
+
+                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        nextMovingRange.first = std::min(nextMovingRange.first, col);
+                        nextMovingRange.second = std::max(nextMovingRange.second, col);
+                    }
+                    else
+                    {
+                        hdr.content.TranslateY(posy);
+                        hdr.textrect.TranslateY(posy);
+                        hdr.content.TranslateX(posx);
+                        hdr.textrect.TranslateX(posx);
+                        renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+
+                        ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                        DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
+                        maxh = std::max(maxh, hdr.content.GetHeight());
+                    }
+
+                    if (vcol > 0)
+                    {
+                        auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
+                        if (headers[level][prevcol].props & COL_Resizable)
+                            HandleColumnResize(Span{ headers.begin(), headers.end() }, hdr, gridstate, mousepos, level, col, io);
+                    }
+
+                    if (hdr.props & COL_Moveable)
+                        HandleColumnReorder(Span{ headers.begin(), headers.end() }, gridstate, mousepos, level, vcol, io);
+                }
+
+                posy += maxh;
+                totalh += maxh;
+                movingColRange = nextMovingRange;
+                nextMovingRange = { INT16_MAX, -1 };
+            }
+
+            float height = 0.f;
+
+            if (!state.uniformRowHeights)
+            {
+                // As each cell's height may be different, capture cell heights first,
+                // then determine row height as max cell height, align and draw contents
+                //ImVec2 cellGeometries[128];
+                //ItemGridState::CellData data[128];
+
+                //for (auto row = 0; row < state.config.rows; ++row)
+                //{
+                //    auto height = 0.f;
+                //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+                //    {
+                //        auto& hdr = headers.back()[col];
+                //        data[col] = state.cell(row, col, 0);
+
+                //        switch (data[col].wtype)
+                //        {
+                //        case WT_Label:
+                //        {
+                //            auto& itemstyle = context.GetStyle(data[col].state.label.state);
+                //            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
+                //                itemstyle.font.size, FT_Normal);
+                //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.content.GetWidth();
+                //            auto textsz = renderer.GetTextSize(data[col].state.label.text, itemstyle.font.font,
+                //                itemstyle.font.size, wrap);
+                //            cellGeometries[col] = textsz;
+                //            height = std::max(height, textsz.y + style.padding.v());
+                //            break;
+                //        }
+                //        default:
+                //            break;
+                //        }
+                //    }
+
+                //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
+                //    {
+                //        auto& hdr = headers.back()[col];
+                //        auto content = hdr.content;
+                //        content.Max.y = height;
+                //        ImVec2 textstart{ content.Min.x + style.padding.left,
+                //            content.Min.y + style.padding.top };
+
+                //        if (cellGeometries[col].y < height)
+                //        {
+                //            auto vdiff = (height - cellGeometries[col].y) * 0.5f;
+                //            textstart.y += vdiff;
+                //        }
+
+                //        if (cellGeometries[col].x < content.GetWidth())
+                //        {
+                //            auto hdiff = (content.GetWidth() - cellGeometries[col].x) * 0.5f;
+                //            textstart.x += hdiff;
+                //        }
+
+                //        auto textend = content.Max - ImVec2{ style.padding.right, style.padding.bottom };
+                //        renderer.DrawRect(content.Min, content.Max, ToRGBA(100, 100, 100), false);
+                //        
+                //        switch (data[col].wtype)
+                //        {
+                //        case WT_Label:
+                //        {
+                //            const auto& itemstyle = context.GetStyle(data[col].state.label.state);
+                //            DrawText(textstart, textend, { textstart, textstart + cellGeometries[col] }, data[col].state.label.text,
+                //                data[col].state.label.state& WS_Disabled, itemstyle, renderer);
+                //            break;
+                //        }
+                //        }
+
+                //        if (content.Contains(mousepos))
+                //        {
+                //            result.col = col;
+                //            result.row = row;
+                //            // ... add depth
+                //        }
+                //    }
+
+                //    posy += height;
+                //}
+            }
+            else
+            {
+                // Populate column wise for uniform row heights
+                ImVec2 startpos{};
+                startpos.y = -gridstate.scroll.pos.y;
+                renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+                auto maxlevel = (int)headers.size() - 1;
+
+                for (int16_t vcol = 0; vcol < (int16_t)headers.back().size(); ++vcol)
+                {
+                    height = 0.f;
+                    auto col = gridstate.colmap[maxlevel].vtol[vcol];
+
+                    for (auto row = 0; row < state.config.rows; ++row)
+                    {
+                        if (col < movingColRange.first || col > movingColRange.second)
                         {
-                            result.col = col;
-                            result.row = row;
-                            // ... add depth
+                            auto starty = height + posy + startpos.y;
+                            auto itemrect = DrawCells(state, headers, row, col, starty, style, renderer);
+                            height += itemrect.GetHeight();
+
+                            if (itemrect.Contains(mousepos))
+                            {
+                                result.col = col;
+                                result.row = row;
+                                // ... add depth
+                            }
+
+                            //if (height + posy >= content.Max.y) break; 
+                        }
+                    }
+                }
+
+                renderer.ResetClipRect();
+            }
+
+            totalh += height;
+
+            if (gridstate.drag.column != -1 && gridstate.drag.level != -1)
+            {
+                const auto& cfg = gridstate.drag.config;
+                LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.content.Min.x, cfg.content.Max.x);
+
+                renderer.DrawRectGradient(cfg.content.Min + ImVec2{ -10.f, 0.f }, { cfg.content.Min.x, content.Max.y },
+                    ToRGBA(0, 0, 0, 0), ToRGBA(100, 100, 100), Direction::DIR_Horizontal);
+                renderer.DrawRectGradient({ cfg.content.Max.x, cfg.content.Min.y }, ImVec2{ cfg.content.Max.x + 10.f, content.Max.y },
+                    ToRGBA(100, 100, 100), ToRGBA(0, 0, 0, 0), Direction::DIR_Horizontal);
+
+                renderer.DrawRect(cfg.content.Min, cfg.content.Max, ToRGBA(100, 100, 100), false);
+                ImVec2 textend{ cfg.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                DrawText(cfg.textrect.Min, textend, cfg.textrect, cfg.name, false, style, renderer);
+
+                auto level = gridstate.drag.level + 1;
+
+                if (level < (int16_t)headers.size())
+                {
+                    auto movex = mousepos.x - gridstate.drag.lastPos.x;
+                    auto lcol = gridstate.colmap[level - 1].vtol[gridstate.drag.column];
+                    std::pair<int16_t, int16_t> movingColRange = { lcol, lcol }, nextMovingRange = { INT16_MAX, -1 };
+
+                    for (; level < (int16_t)headers.size(); ++level)
+                    {
+                        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
+                        {
+                            auto& hdr = headers[level][col];
+
+                            if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                            {
+                                hdr.content.TranslateX(movex);
+                                hdr.textrect.TranslateX(movex);
+
+                                renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+                                ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                                DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
+
+                                nextMovingRange.first = std::min(nextMovingRange.first, col);
+                                nextMovingRange.second = std::max(nextMovingRange.second, col);
+                            }
+                        }
+
+                        movingColRange = nextMovingRange;
+                        nextMovingRange = { INT16_MAX, -1 };
+                    }
+                }
+
+                ImVec2 startpos{};
+                startpos.y = -gridstate.scroll.pos.y;
+                renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
+
+                for (int16_t col = movingColRange.first; col <= movingColRange.second; ++col)
+                {
+                    height = 0.f;
+
+                    for (auto row = 0; row < state.config.rows; ++row)
+                    {
+                        if (col >= movingColRange.first && col <= movingColRange.second)
+                        {
+                            auto itemrect = DrawCells(state, headers, row, col, height + posy + startpos.y, style, renderer);
+                            height += itemrect.GetHeight();
+
+                            if (itemrect.Contains(mousepos))
+                            {
+                                result.col = col;
+                                result.row = row;
+                                // ... add depth
+                            }
                         }
                     }
                 }
             }
-        }
 
-        gridstate.totalsz.y = totalh;
-        gridstate.totalsz.x = width;
-        HandleItemGridEvent(id, padding, content, io, renderer, result);
+            gridstate.totalsz.y = totalh;
+            gridstate.totalsz.x = width;
+            HandleItemGridEvent(id, padding, content, io, renderer, result);
+        }
+        else if (state.celldata && state.cellprops && state.header)
+        {
+            assert(false); // Use StartItemGrid/EndItemGrid instead
+        }
 
         result.geometry = margin;
         return result;
@@ -3525,32 +3563,778 @@ namespace glimmer
 
 #pragma endregion
 
-    UIConfig& GetUIConfig()
-    {
-        return Config;
-    }
+#pragma region Dynamic ItemGrid
 
-    int32_t GetNextId(WidgetType type)
-    {
-        int32_t id = GetNextCount(type);
-        id = id | (type << 16);
-        return id;
-    }
-
-    int16_t GetNextCount(WidgetType type)
+    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem)
     {
         auto& context = GetContext();
-        auto id = context.maxids[type]; 
-        if (type == WT_SplitterScrollRegion) context.maxids[type]++;
-        return id;
+
+        if (context.CurrentItemGridContext != nullptr)
+        {
+            auto& grid = context.CurrentItemGridContext->itemGrids.top();
+            if (grid.phase == ItemGridConstructPhase::HeaderCells)
+            {
+                grid.maxHeaderExtent.x = std::max(grid.maxHeaderExtent.x, layoutItem.margin.Max.x);
+                grid.maxHeaderExtent.y = std::max(grid.maxHeaderExtent.y, layoutItem.margin.Max.y);
+            }
+            else
+            {
+                grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
+                grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
+            }
+        }
     }
 
+    bool StartItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.itemGrids.push();
+        const auto& style = context.GetStyle(WS_Default);
+
+        state.id = id;
+        state.geometry = geometry;
+        state.neighbors = neighbors;
+        state.origin = context.NextAdHocPos() + ImVec2{ style.margin.left + style.border.left.thickness + style.padding.left,
+            style.margin.top + style.border.top.thickness + style.padding.top };
+        state.nextpos = state.origin;
+
+        LayoutItemDescriptor item;
+        AddExtent(item, style, neighbors);
+        state.size = item.content.GetSize();
+
+        context.CurrentItemGridContext = &context;
+        auto& ctx = PushContext(id);
+        auto& el = ctx.nestedContextStack.push();
+        el.base = &context;
+        el.source = NestedContextSourceType::ItemGrid;
+
+        return true;
+    }
+
+    bool StartItemGridHeader(int levels)
+    {
+        assert(levels > 0 && levels <= 4);
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& itemcfg = context.GetState(state.id).state.grid;
+
+        state.phase = ItemGridConstructPhase::Headers;
+        state.levels = levels;
+        state.currlevel = state.levels - 1;
+        state.currCol = 0;
+        state.nextpos = state.origin + ImVec2{ itemcfg.gridwidth, itemcfg.gridwidth };
+
+        auto& ctx = GetContext();
+        ctx.ToggleDeferedRendering(true, false);
+        ctx.deferEvents = true;
+
+        return true;
+    }
+
+    static void AddUserColumnResize(WidgetContextData& context, CurrentItemGridState& state, ColumnProps& header)
+    {
+        auto& gridstate = context.GridState(state.id);
+        if (gridstate.cols[state.currlevel].empty())
+            gridstate.cols[state.currlevel].fill(ItemGridInternalState::HeaderCellResizeState{});
+        if (gridstate.cols[state.currlevel].size() <= state.currCol)
+            gridstate.cols[state.currlevel].expand(128, true);
+        auto modified = gridstate.cols[state.currlevel][state.currCol].modified;
+        header.extent.Max.x += modified;
+    }
+
+    // Only compute bounds, position them in header end (for visual order)
+    // Integrate layout mechanism, add max computation?
+    void StartHeaderColumn(const ItemGridState::ColumnConfig& config)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& header = state.headers[state.currlevel].emplace_back(config);
+        auto& itemcfg = context.GetState(state.id).state.grid;
+        auto& renderer = GetContext().usingDeferred ? *GetContext().deferedRenderer : *Config.renderer;
+        const auto& style = context.GetStyle(itemcfg.state);
+
+        state.phase = ItemGridConstructPhase::HeaderCells;
+        header.extent.Min = state.nextpos;
+        header.content.Min = header.extent.Min + itemcfg.cellpadding;
+        static char buffer[256] = { 0 };
+
+        if (state.currlevel == (state.levels - 1))
+        {
+            memset(buffer, ' ', 255);
+
+            auto width = (config.props & COL_WidthAbsolute) ? config.width :
+                config.width > 0.f ? renderer.GetTextSize(std::string_view{ buffer, (size_t)config.width },
+                    style.font.font, style.font.size).x : FLT_MAX;
+
+            header.content.Max.x = header.content.Min.x + width;
+            header.extent.Max.x = width == FLT_MAX ? FLT_MAX : header.content.Max.x + itemcfg.cellpadding.x;
+            if (width != FLT_MAX) AddUserColumnResize(context, state, header);
+        }
+        else assert(false); // For higher levels, use column category APIs
+
+        if (config.width != 0.f)
+        {
+            auto& ctx = GetContext();
+            auto& id = ctx.containerStack.push();
+            id = state.id;
+            state.addedBounds = true;
+        }
+
+        GetContext().adhocLayout.top().nextpos = state.nextpos;
+    }
+
+    void EndHeaderColumn()
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        const auto& itemcfg = context.GetState(state.id).state.grid;
+        const auto& header = state.currentHeader();
+
+        state.phase = ItemGridConstructPhase::Headers;
+        state.headerHeights[state.currlevel] = std::max(state.headerHeights[state.currlevel], header.extent.GetHeight());
+        state.currCol++;
+        state.maxHeaderExtent = ImVec2{};
+        state.nextpos.x = header.extent.Max.x + itemcfg.gridwidth;
+        GetContext().adhocLayout.top().nextpos = state.nextpos;
+
+        if (state.addedBounds)
+        {
+            auto& ctx = GetContext();
+            ctx.containerStack.pop(1, true);
+            state.addedBounds = false;
+        }
+    }
+
+    void AddHeaderColumn(const ItemGridState::ColumnConfig& config)
+    {
+        StartHeaderColumn(config);
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& itemcfg = context.GetState(state.id).state.grid;
+        auto& renderer = *GetContext().deferedRenderer;
+        const auto& style = context.GetStyle(itemcfg.state);
+        auto& header = state.currentHeader();
+
+        header.range.primitives.first = renderer.TotalEnqueued();
+        header.range.events.first = GetContext().deferedEvents.size();
+        auto res = itemcfg.header(header.content.Min, header.content.GetWidth(),
+            state.currlevel, state.currCol, config.parent);
+        if (res.event != WidgetEvent::None) state.event = res;
+        header.range.primitives.second = renderer.TotalEnqueued();
+        header.range.events.second = GetContext().deferedEvents.size();
+
+        if (config.width == 0.f)
+        {
+            header.content.Max = state.maxHeaderExtent;
+            header.extent.Max.x = header.content.Max.x + itemcfg.cellpadding.x;
+            AddUserColumnResize(context, state, header);
+        }
+        else
+            header.content.Max.y = state.maxHeaderExtent.y;
+
+        header.extent.Max.y = header.content.Max.y + itemcfg.cellpadding.y;
+        EndHeaderColumn();
+    }
+
+    void CategorizeColumns()
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& itemcfg = context.GetState(state.id).state.grid;
+
+        state.nextpos.x = state.origin.x + itemcfg.gridwidth;
+        state.nextpos.y = state.origin.y + itemcfg.gridwidth;
+        state.maxHeaderExtent = ImVec2{};
+        state.currlevel--;
+        state.currCol = 0;
+    }
+
+    void AddColumnCategory(const ItemGridState::ColumnConfig& config, int16_t from, int16_t to)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& renderer = *GetContext().deferedRenderer;
+        auto& itemcfg = context.GetState(state.id).state.grid;
+
+        auto parent = state.headers[state.currlevel].size() - 1;
+        auto width = 0.f;
+        for (auto idx = from; idx <= to; ++idx)
+        {
+            state.headers[state.currlevel + 1][idx].parent = parent;
+            width += state.headers[state.currlevel + 1][idx].extent.GetWidth();
+        }
+
+        //width -= 2.f * itemcfg.cellpadding.x;
+        auto& header = state.headers[state.currlevel].emplace_back(config);
+
+        state.phase = ItemGridConstructPhase::HeaderCells;
+        header.extent.Min = state.nextpos;
+        header.content.Min = header.extent.Min + itemcfg.cellpadding;
+        header.extent.Max.x = header.extent.Min.x + width;
+        GetContext().adhocLayout.top().nextpos = header.content.Min;
+        AddUserColumnResize(context, state, header);
+
+        if (header.content.GetWidth() > 0.f)
+        {
+            auto& ctx = GetContext();
+            auto& id = ctx.containerStack.push();
+            id = state.id;
+            state.addedBounds = true;
+        }
+
+        header.range.primitives.first = renderer.TotalEnqueued();
+        header.range.events.first = GetContext().deferedEvents.size();
+        auto res = itemcfg.header(header.content.Min, header.content.GetWidth(),
+            state.currlevel, state.currCol, config.parent);
+        if (res.event != WidgetEvent::None) state.event = res;
+        header.range.primitives.second = renderer.TotalEnqueued();
+        header.range.events.second = GetContext().deferedEvents.size();
+
+        header.content.Max = state.maxHeaderExtent;
+        header.extent.Max.y = header.content.Max.y + itemcfg.cellpadding.y;
+        state.nextpos = ImVec2{ itemcfg.gridwidth + header.extent.Max.x, header.extent.Min.y };
+
+        EndHeaderColumn();
+    }
+
+    WidgetDrawResult EndItemGridHeader()
+    {
+        WidgetDrawResult result;
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& gridstate = context.GridState(state.id);
+        auto& config = context.GetState(state.id).state.grid;
+        auto& headers = state.headers;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        const auto& style = context.GetStyle(config.state);
+        auto io = Config.platform->CurrentIO();
+
+        CategorizeColumns();
+        assert(state.currlevel < 0);
+
+        // Center align header contents
+        auto ypos = state.origin.y + config.gridwidth;
+
+        for (auto level = 0; level < state.levels; ++level)
+        {
+            auto totalw = 0.f;
+
+            for (auto col = 0; col < state.headers[level].size(); ++col)
+            {
+                if (gridstate.colmap[level].ltov[col] == -1)
+                {
+                    gridstate.colmap[level].ltov[col] = col;
+                    gridstate.colmap[level].vtol[col] = col;
+                }
+
+                auto& header = state.headers[level][col];
+                auto hdiff = header.extent.GetWidth() - header.content.GetWidth() - (2.f * config.cellpadding.x);
+                auto vdiff = state.headerHeights[level] - header.content.GetHeight() - (2.f * config.cellpadding.y);
+
+                header.offset = header.content.Min;
+
+                auto height = header.extent.GetHeight();
+                header.extent.Min.y = ypos;
+                header.extent.Max.y = header.extent.Min.y + height;
+
+                height = header.content.GetHeight();
+                header.content.Min.y = ypos;
+                header.content.Max.y = header.content.Min.y + height;
+
+                if (hdiff >= 2.f) header.content.TranslateX(hdiff * 0.5f);
+                if (vdiff >= 2.f) header.content.TranslateY(vdiff * 0.5f);
+
+                header.offset.x = header.content.Min.x - header.offset.x;
+                header.offset.y = header.content.Min.y - header.offset.y;
+
+                if (level == 0 && ((state.headers[level].size() - 1) == col))
+                    state.size.x = header.extent.Max.x - state.origin.x + config.gridwidth;
+            }
+
+            ypos += state.headerHeights[level] + config.gridwidth;
+            state.headerHeight += state.headerHeights[level] + config.gridwidth;
+        }
+
+        auto hshift = -gridstate.scroll.pos.x;
+        auto& ctx = GetContext();
+        state.phase = ItemGridConstructPhase::HeaderPlacement;
+        std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
+        ctx.ToggleDeferedRendering(false, false);
+        ctx.deferEvents = false;
+
+        for (auto level = 0; level < state.levels; ++level)
+        {
+            for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
+            {
+                auto col = gridstate.colmap[level].vtol[vcol];
+
+                auto& hdr = headers[level][col];
+                auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
+                state.currCol = col;
+
+                if (isBeingMoved)
+                {
+                    auto movex = io.mousepos.x - gridstate.drag.startPos.x;
+                    hdr.extent.TranslateX(movex);
+                    hdr.content.TranslateX(movex);
+                    nextMovingRange = { col, col };
+                }
+                else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
+                {
+                    auto movex = io.mousepos.x - gridstate.drag.startPos.x;
+                    hdr.extent.TranslateX(movex);
+                    hdr.content.TranslateX(movex);
+                    nextMovingRange.first = std::min(nextMovingRange.first, col);
+                    nextMovingRange.second = std::max(nextMovingRange.second, col);
+
+                    if (level == state.levels - 1)
+                        state.movingCols = nextMovingRange;
+                }
+                else
+                {
+                    Config.renderer->DrawRect(hdr.extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
+                        hdr.extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
+                        config.gridwidth);
+                    renderer.SetClipRect(hdr.extent.Min, hdr.extent.Max);
+                    ctx.deferedRenderer->Render(*Config.renderer, hdr.offset + ImVec2{ hshift, 0.f },
+                        hdr.range.primitives.first, hdr.range.primitives.second);
+                    auto res = ctx.HandleEvents(hdr.offset, hdr.range.events.first, hdr.range.events.second);
+                    auto interacted = res.event != WidgetEvent::None;
+                    renderer.ResetClipRect();
+
+                    if (!interacted)
+                    {
+                        if (vcol > 0)
+                        {
+                            auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
+                            if (headers[level][prevcol].props & COL_Resizable)
+                                HandleColumnResize(Span{ state.headers }, hdr, gridstate, io.mousepos, level, col, io);
+                        }
+
+                        if (hdr.props & COL_Moveable)
+                            HandleColumnReorder(Span{ headers }, gridstate, io.mousepos, level, vcol, io);
+
+                        if (hdr.extent.Contains(io.mousepos) && io.clicked() && (hdr.props & COL_Sortable))
+                        {
+                            result.event = WidgetEvent::Clicked;
+                            result.col = col;
+                        }
+                    }
+                }
+            }
+        }
+
+        state.nextpos.y = ypos - gridstate.scroll.pos.y;
+        state.nextpos.x = state.origin.x + hshift;
+        state.phase = ItemGridConstructPhase::Headers;
+        state.currlevel = state.levels - 1;
+        ctx.ToggleDeferedRendering(false, false);
+        ctx.deferEvents = false;
+        return result;
+    }
+
+    void PopulateItemGrid(bool byRows)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        state.inRow = byRows;
+    }
+
+    static void DrawItemDescendentSymbol(WidgetContextData& context, CurrentItemGridState& state,
+        ItemDescendentVisualState descendents)
+    {
+        if (state.currCol == 0)
+        {
+            ImVec2 start = state.nextpos;
+            const auto& style = context.GetStyle(WS_Default);
+            ImVec2 end = start + ImVec2{ style.font.size, style.font.size };
+
+            if (descendents != ItemDescendentVisualState::NoDescendent)
+            {
+                auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+                const auto& style = context.GetStyle(WS_Default);
+                renderer.SetClipRect(start, end);
+                DrawSymbol(start, end, { 2.f, 2.f }, descendents == ItemDescendentVisualState::Collapsed ?
+                    SymbolIcon::RightTriangle : SymbolIcon::DownTriangle, style.fgcolor, style.fgcolor, 1.f,
+                    renderer);
+                renderer.ResetClipRect();
+            }
+
+            state.nextpos.x = end.x;
+        }
+    }
+
+    static WidgetDrawResult PopulateData(int totalRows);
+
+    static float HAlignCellContent(CurrentItemGridState& state, const ItemGridState& config, int16_t col, float width)
+    {
+        auto alignment = state.headers[state.levels - 1][col].alignment;
+        auto hdiff = 0.f;
+
+        if (alignment & TextAlignHCenter)
+        {
+            auto totalw = state.headers[state.currlevel][col].extent.GetWidth() - (2.f * config.cellpadding.x);
+            hdiff = std::max(0.f, totalw - width) * 0.5f;
+        }
+        else if (alignment & TextAlignRight)
+        {
+            auto totalw = state.headers[state.currlevel][col].extent.GetWidth() - (2.f * config.cellpadding.x);
+            hdiff = std::max(0.f, totalw - width);
+        }
+
+        return hdiff;
+    }
+
+    static float VAlignCellContent(CurrentItemGridState& state, const ItemGridState& config, int16_t col,
+        float maxh, float height)
+    {
+        auto alignment = state.headers[state.levels - 1][col].alignment;
+        auto vdiff = 0.f;
+
+        if (alignment & TextAlignVCenter)
+        {
+            vdiff = std::max(0.f, maxh - height) * 0.5f;
+        }
+        else if (alignment & TextAlignBottom)
+        {
+            vdiff = std::max(0.f, maxh - height);
+        }
+
+        return vdiff;
+    }
+
+    static void AddRowData(WidgetContextData& context, CurrentItemGridState& state,
+        ItemGridInternalState& gridstate, const ItemGridState& config, WidgetDrawResult& result,
+        int totalRows)
+    {
+        auto row = 0;
+        state.phase = ItemGridConstructPhase::Rows;
+
+        while (totalRows > 0)
+        {
+            auto coloffset = 1;
+            auto maxh = 0.f;
+
+            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+
+                if (col < state.movingCols.first || col > state.movingCols.second)
+                {
+                    auto [rowspan, colspan, children, vstate, align] = config.cellprops(row, col);
+                    state.currCol = col;
+                    state.currRow = row;
+
+                    context.ToggleDeferedRendering(true, false);
+                    context.deferEvents = true;
+                    std::pair<float, float> bounds;
+                    bounds.first = state.headers[state.levels - 1][col].extent.Min.x;
+                    bounds.second = state.headers[state.levels - 1][col + coloffset - 1].extent.Max.x;
+                    state.headers[state.levels][col].range.events.first = context.deferedEvents.size();
+                    state.headers[state.levels][col].range.primitives.first = context.deferedRenderer->TotalEnqueued();
+
+                    if (vstate != ItemDescendentVisualState::NoDescendent)
+                        DrawItemDescendentSymbol(context, state, vstate);
+
+                    GetContext().adhocLayout.top().nextpos.x = state.nextpos.x = bounds.first;
+                    auto res = config.celldata(bounds, row, col, state.depth);
+                    if (res.event != WidgetEvent::None) result = res;
+                    auto height = state.maxCellExtent.y - state.headers[state.levels - 1][col].content.Min.y;
+                    maxh = std::max(maxh, height);
+
+                    auto& extent = state.headers[state.levels - 1][col].extent;
+                    extent.Min = ImVec2{ bounds.first, state.nextpos.y };
+                    extent.Max = ImVec2{ bounds.second, height + state.nextpos.y };
+                    state.headers[state.levels][col].alignment = align;
+                    state.headers[state.levels][col].range.events.second = context.deferedEvents.size();
+                    state.headers[state.levels][col].range.primitives.second = context.deferedRenderer->TotalEnqueued();
+
+                    if (vstate == ItemDescendentVisualState::Expanded && children > 0)
+                    {
+                        state.cellIndent += config.config.indent;
+                        state.depth++;
+                        auto res = PopulateData(children);
+                        if (res.event != WidgetEvent::None) result = res;
+                        state.cellIndent -= config.config.indent;
+                        state.depth--;
+                    }
+
+                    coloffset = colspan;
+                    state.maxCellExtent = ImVec2{};
+                }
+            }
+
+            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+
+                if (col < state.movingCols.first || col > state.movingCols.second)
+                {
+                    auto& extent = state.headers[state.levels - 1][col].extent;
+                    auto hdiff = HAlignCellContent(state, config, col, extent.GetWidth());
+                    auto vdiff = VAlignCellContent(state, config, col, maxh, extent.GetHeight());
+                    const auto& range = state.headers[state.levels][col].range;
+
+                    context.ToggleDeferedRendering(false, false);
+                    context.deferEvents = false;
+                    Config.renderer->DrawRect(extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
+                        extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
+                        config.gridwidth);
+                    context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, vdiff },
+                        range.primitives.first, range.primitives.second);
+                    auto res = context.HandleEvents(ImVec2{ hdiff, vdiff }, range.events.first, range.events.second);
+                    if (res.event != WidgetEvent::None) state.event = res;
+                }
+            }
+
+            state.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
+            GetContext().adhocLayout.top().nextpos.y = state.nextpos.y;
+            --totalRows;
+            ++row;
+        }
+
+        state.totalsz = state.nextpos;
+    }
+
+    static void AddColumnData(WidgetContextData& context, CurrentItemGridState& state,
+        ItemGridInternalState& gridstate, const ItemGridState& config, WidgetDrawResult& result,
+        const IODescriptor& io, int totalRows, int col)
+    {
+        std::pair<float, float> bounds;
+        auto extent = state.headers[state.levels - 1][col].extent;
+        const auto totalw = extent.GetWidth() - (2.f * config.cellpadding.x);
+        bounds.first = extent.Min.x + config.cellpadding.x;
+        bounds.second = extent.Max.x - config.cellpadding.x;
+
+        for (auto row = 0; row < totalRows; ++row)
+        {
+            auto [rowspan, colspan, children, vstate, alignment] = config.cellprops(row, col);
+            state.currCol = col;
+            state.currRow = row;
+            state.nextpos.y += config.cellpadding.y;
+            context.adhocLayout.top().nextpos = state.nextpos;
+
+            if (vstate != ItemDescendentVisualState::NoDescendent)
+                DrawItemDescendentSymbol(context, state, vstate);
+
+            int32_t ws = WS_Default;
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+                if (gridstate.cellstate.row == row && gridstate.cellstate.col == col)
+                {
+                    ws = gridstate.cellstate.state; break;
+                }
+
+            auto style = WidgetContextData::CurrentItemGridContext->GetStyle(ws);
+
+            context.ToggleDeferedRendering(true, false);
+            context.deferEvents = true;
+            RendererEventIndexRange range;
+            range.events.first = context.deferedEvents.size();
+            range.primitives.first = context.deferedRenderer->TotalEnqueued();
+            auto res = config.celldata(bounds, row, col, state.depth);
+            if (res.event != WidgetEvent::None) result = res;
+            range.events.second = context.deferedEvents.size();
+            range.primitives.second = context.deferedRenderer->TotalEnqueued();
+
+            auto hdiff = HAlignCellContent(state, config, col, state.maxCellExtent.x - bounds.first);
+            context.ToggleDeferedRendering(false, false);
+            context.deferEvents = false;
+            extent.Min.y = state.nextpos.y;
+            extent.Max.y = state.maxCellExtent.y;
+            Config.renderer->DrawRect(extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
+                extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
+                config.gridwidth);
+
+            DrawBackground(extent.Min, extent.Max, style, *Config.renderer);
+            context.ResetCurrentStyle();
+
+            Config.renderer->SetClipRect(extent.Min, extent.Max);
+            context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, 0.f }, range.primitives.first,
+                range.primitives.second);
+            res = context.HandleEvents(ImVec2{ hdiff, 0.f }, range.events.first, range.events.second);
+            if (res.event != WidgetEvent::None) state.event = res;
+            Config.renderer->ResetClipRect();
+
+            if (vstate == ItemDescendentVisualState::Expanded && children > 0)
+            {
+                state.cellIndent += config.config.indent;
+                state.depth++;
+                res = PopulateData(children);
+                if (res.event != WidgetEvent::None) result = res;
+                state.cellIndent -= config.config.indent;
+                state.depth--;
+            }
+
+            if (extent.Contains(io.mousepos))
+            {
+                gridstate.cellstate.state = WS_Hovered;
+                gridstate.cellstate.row = row;
+                gridstate.cellstate.col = col;
+            }
+            else
+            {
+                gridstate.cellstate.state = WS_Default;
+                gridstate.cellstate.row = -1;
+                gridstate.cellstate.col = -1;
+            }
+
+            state.nextpos.y += extent.GetHeight() + config.cellpadding.y + config.gridwidth;
+            state.maxCellExtent = ImVec2{};
+        }
+
+        state.totalsz.y = state.nextpos.y;
+    }
+
+    static WidgetDrawResult PopulateData(int totalRows)
+    {
+        WidgetDrawResult result;
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& gridstate = context.GridState(state.id);
+        auto& config = context.GetState(state.id).state.grid;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto io = Config.platform->CurrentIO();
+        auto& ctx = GetContext();
+
+        if (state.inRow) AddRowData(ctx, state, gridstate, config, result, totalRows);
+        else
+        {
+            state.phase = ItemGridConstructPhase::Columns;
+            state.nextpos.x += config.cellpadding.x + config.gridwidth;
+            Config.renderer->SetClipRect({ state.origin.x, state.origin.y + state.headerHeight }, 
+                state.origin + state.size);
+
+            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol++)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+                auto ystart = state.nextpos.y;
+                if (col < state.movingCols.first || col > state.movingCols.second)
+                    AddColumnData(ctx, state, gridstate, config, result, io, totalRows, col);
+                state.nextpos.y = ystart;
+                state.nextpos.x += state.headers[state.levels - 1][col].extent.GetWidth() +
+                    config.gridwidth - config.cellpadding.x;
+                ctx.adhocLayout.top().nextpos = state.nextpos;
+            }
+
+            state.totalsz.x = state.nextpos.x;
+            Config.renderer->ResetClipRect();
+        }
+
+        if (gridstate.drag.column != -1)
+        {
+            auto col = gridstate.colmap[state.levels - 1].vtol[gridstate.drag.column];
+            auto hshift = -gridstate.scroll.pos.x;
+            auto hdrheight = 0.f;
+
+            state.phase = ItemGridConstructPhase::HeaderPlacement;
+            std::pair<int16_t, int16_t> nextMovingRange = { INT16_MAX, -1 };
+
+            for (auto level = 0; level < state.levels; ++level)
+            {
+                auto maxh = 0.f, posx = state.origin.x + hshift;
+
+                for (int16_t vcol = 0; vcol < (int16_t)state.headers[level].size(); ++vcol)
+                {
+                    auto& hdr = state.headers[level][col];
+                    auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
+                    auto render = false;
+                    state.currCol = col;
+
+                    if (isBeingMoved)
+                    {
+                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        nextMovingRange = { col, col };
+                        render = true;
+                    }
+                    else if (hdr.parent >= nextMovingRange.first && hdr.parent <= nextMovingRange.second)
+                    {
+                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        nextMovingRange.first = std::min(nextMovingRange.first, col);
+                        nextMovingRange.second = std::max(nextMovingRange.second, col);
+                        render = true;
+                    }
+
+                    if (render)
+                    {
+                        renderer.SetClipRect(hdr.extent.Min, hdr.extent.Max);
+                        state.phase = ItemGridConstructPhase::HeaderPlacement;
+                        ctx.deferedRenderer->Render(*Config.renderer, hdr.offset + ImVec2{ hshift, 0.f },
+                            hdr.range.primitives.first, hdr.range.primitives.second);
+                        auto res = ctx.HandleEvents(hdr.offset, hdr.range.events.first, hdr.range.events.second);
+                        auto interacted = res.event != WidgetEvent::None;
+                        renderer.ResetClipRect();
+                    }
+
+                    maxh = std::max(maxh, hdr.extent.GetHeight());
+                }
+
+                hdrheight += maxh;
+            }
+
+            state.phase = ItemGridConstructPhase::Columns;
+
+            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol++)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+                if (col >= state.movingCols.first && col <= state.movingCols.second)
+                    AddColumnData(context, state, gridstate, config, result, io, totalRows, col);
+            }
+        }
+
+        ctx.ToggleDeferedRendering(false, true);
+        ctx.deferedEvents.clear(true);
+        return result;
+    }
+
+    WidgetDrawResult EndItemGrid(int totalRows)
+    {
+        WidgetDrawResult result;
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& state = context.itemGrids.top();
+        auto& gridstate = context.GridState(state.id);
+        const auto& config = context.GetState(state.id).state.grid;
+        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto io = Config.platform->CurrentIO();
+
+        renderer.SetClipRect(state.origin, state.origin + state.size);
+        result = PopulateData(totalRows);
+        state.phase = ItemGridConstructPhase::None;
+        HandleScrollBars(gridstate.scroll, renderer, io.mousepos, { state.origin, state.origin + state.size },
+            state.totalsz - state.origin, io);
+        renderer.ResetClipRect();
+        result = state.event;
+        context.adhocLayout.top().nextpos = state.origin;
+        context.adhocLayout.top().lastItemId = state.id;
+        context.AddItemGeometry(state.id, { state.origin, state.origin + state.size });
+
+        state.reset();
+        context.itemGrids.pop(1, false);
+        context.nestedContextStack.pop(1, true);
+        if (context.itemGrids.empty()) WidgetContextData::CurrentItemGridContext = nullptr;
+
+        for (const auto& nested : context.nestedContextStack)
+            if (nested.source == NestedContextSourceType::ItemGrid)
+            {
+                context.CurrentItemGridContext = nested.base;
+                break;
+            }
+
+        PopContext();
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Public APIs
+    // Widget rendering are of three types:
+    // 1. Capture only the bounds to add to a layout
+    // 2. Capture only bounds to add to item grid widget
+    // 3. Render immediately
     WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         assert((id & 0xffff) <= (int)context.states[type].size());
         WidgetDrawResult result;
-
         auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         auto& platform = *Config.platform;
         LayoutItemDescriptor layoutItem;
@@ -3561,6 +4345,15 @@ namespace glimmer
         auto wid = (type << 16) | id;
         auto maxxy = context.MaximumAbsExtent();
         auto io = Config.platform->CurrentIO();
+        auto& nestedCtx = !context.nestedContextStack.empty() ? context.nestedContextStack.top() : 
+            InvalidSource;
+
+        if (WidgetContextData::CurrentItemGridContext != nullptr)
+        {
+            auto& grid = WidgetContextData::CurrentItemGridContext->itemGrids.top();
+            auto& extent = grid.headers[grid.currlevel][grid.currCol].content;
+            maxxy.x = extent.Max.x; // Bounded in x direction, y is from content
+        }
 
         switch (type)
         {
@@ -3569,7 +4362,7 @@ namespace glimmer
             CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
             auto& style = context.GetStyle(state.state);
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
@@ -3582,11 +4375,14 @@ namespace glimmer
             }
             else
             {
+                auto pos = context.NextAdHocPos();
                 std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(
-                    context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    pos, style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 auto flags = ToTextFlags(state.type);
-                result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io, flags);
+                result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                    layoutItem.content, layoutItem.text, renderer, io, flags);
+                RecordItemGeometry(layoutItem);
             }
             break;
         }
@@ -3595,7 +4391,7 @@ namespace glimmer
             CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
             auto& style = context.GetStyle(state.state);
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
@@ -3607,21 +4403,25 @@ namespace glimmer
             }
             else
             {
+                auto pos = context.NextAdHocPos();
                 std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(
-                    context.NextAdHocPos(), style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
+                    pos, style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                 context.AddItemGeometry(wid, layoutItem.margin);
-                result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content, layoutItem.text, renderer, io);
+                result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content,
+                    layoutItem.text, renderer, io);
+                RecordItemGeometry(layoutItem);
             }
+
             break;
         }
         case WT_RadioButton: {
             auto& state = context.GetState(wid).state.radio;
             auto& style = context.GetStyle(state.state);
             CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, style.font.size, style.font.size);
+            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto bounds = RadioButtonBounds(state, layoutItem.margin);
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 AddItemToLayout(layout, layoutItem);
@@ -3632,14 +4432,16 @@ namespace glimmer
                 result = RadioButtonImpl(wid, state, style, bounds, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
+
             break;
         }
         case WT_ToggleButton: {
             auto& state = context.GetState(wid).state.toggle;
             auto& style = context.GetStyle(state.state);
             CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, style.font.size, style.font.size);
+            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto [bounds, textsz] = ToggleButtonBounds(state, layoutItem.content, renderer);
 
             if (bounds.GetArea() != layoutItem.margin.GetArea())
@@ -3648,7 +4450,7 @@ namespace glimmer
             layoutItem.text.Min = layoutItem.margin.Min;
             layoutItem.text.Max = layoutItem.text.Min + textsz;
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 AddItemToLayout(layout, layoutItem);
@@ -3659,6 +4461,7 @@ namespace glimmer
                 result = ToggleButtonImpl(wid, state, style, bounds, textsz, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
             
             break;
@@ -3667,7 +4470,7 @@ namespace glimmer
             auto& state = context.GetState(wid).state.checkbox;
             auto& style = context.GetStyle(state.state);
             CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, style.font.size, style.font.size);
+            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto bounds = CheckboxBounds(state, layoutItem.margin);
 
             if (bounds.GetArea() != layoutItem.margin.GetArea())
@@ -3680,7 +4483,7 @@ namespace glimmer
                 layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
             }
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 AddItemToLayout(layout, layoutItem);
@@ -3691,6 +4494,7 @@ namespace glimmer
                 result = CheckboxImpl(wid, state, style, layoutItem.margin, layoutItem.padding, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
             
             break;
@@ -3699,14 +4503,15 @@ namespace glimmer
             auto& state = context.GetState(wid).state.spinner;
             auto& style = context.GetStyle(state.state);
             CopyStyle(context.GetStyle(WS_Default), style);
-            AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v());
+            AddExtent(layoutItem, style, neighbors, { 
+                0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v() }, maxxy);
             auto bounds = SpinnerBounds(wid, state, renderer, layoutItem.padding);
 
             layoutItem.border.Max = bounds.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
             layoutItem.margin.Max = layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom };
             layoutItem.content = layoutItem.padding = bounds;
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 AddItemToLayout(layout, layoutItem);
@@ -3717,6 +4522,7 @@ namespace glimmer
                 result = SpinnerImpl(wid, state, style, layoutItem.padding, io, renderer);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
 
             break;
@@ -3727,8 +4533,8 @@ namespace glimmer
             CopyStyle(context.GetStyle(WS_Default), style);
             auto deltav = style.margin.v() + style.border.v() + style.padding.v();
             auto deltah = style.margin.h() + style.border.h() + style.padding.h();
-            AddExtent(layoutItem, style, neighbors, state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah, 
-                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav);
+            AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
+                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
             auto bounds = SliderBounds(wid, layoutItem.margin);
 
             if (bounds.GetArea() != layoutItem.margin.GetArea())
@@ -3743,7 +4549,7 @@ namespace glimmer
 
             layoutItem.content = layoutItem.padding;
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
@@ -3757,6 +4563,7 @@ namespace glimmer
                 result = SliderImpl(wid, state, style, layoutItem.border, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
 
             break;
@@ -3767,9 +4574,9 @@ namespace glimmer
             
             CopyStyle(context.GetStyle(WS_Default), style);
             auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
-            AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + vdelta);
+            AddExtent(layoutItem, style, neighbors, { 0.f, style.font.size + vdelta }, maxxy);
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
@@ -3783,6 +4590,7 @@ namespace glimmer
                 result = TextInputImpl(wid, state, style, layoutItem.border, layoutItem.content, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
             
             break;
@@ -3793,7 +4601,7 @@ namespace glimmer
             
             CopyStyle(context.GetStyle(WS_Default), style);
             auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
-            AddExtent(layoutItem, style, neighbors, 0.f, style.font.size + vdelta);
+            AddExtent(layoutItem, style, neighbors, { 0.f, style.font.size + vdelta }, maxxy);
             auto [bounds, textrect] = DropDownBounds(id, state, layoutItem.content, renderer);
 
             if (textrect.GetWidth() < layoutItem.content.GetWidth())
@@ -3804,7 +4612,7 @@ namespace glimmer
                 layoutItem.margin.Max.x = layoutItem.border.Max.x + style.margin.right;
             }
 
-            if (!context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
@@ -3819,6 +4627,7 @@ namespace glimmer
                     layoutItem.content, textrect, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
             }
             
             break;
@@ -3826,25 +4635,27 @@ namespace glimmer
         case WT_TabBar: {
             const auto& style = context.GetStyle(WS_Default);
 
-            if (context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
-                AddExtent(layoutItem, style, context.currentTab.neighbors, 0.f, 0.f);
+                auto& layout = context.layouts.top();
+                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                AddExtent(layoutItem, style, context.currentTab.neighbors, { 0.f, 0.f }, maxxy);
+                auto bounds = TabBarBounds(context.currentTab.id, layoutItem.padding, renderer);
+                bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
+                layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
+                AddItemToLayout(layout, layoutItem);
+            }
+            else
+            {
+                AddExtent(layoutItem, style, context.currentTab.neighbors, { 0.f, 0.f }, maxxy);
                 auto bounds = TabBarBounds(context.currentTab.id, layoutItem.border, renderer);
                 bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
 
                 result = TabBarImpl(wid, bounds, style, io, renderer);
                 context.AddItemGeometry(wid, bounds);
+                RecordItemGeometry(layoutItem);
             }
-            else
-            {
-                auto& layout = context.layouts.top();
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                 AddExtent(layoutItem, style, context.currentTab.neighbors, 0.f, 0.f);
-                 auto bounds = TabBarBounds(context.currentTab.id, layoutItem.padding, renderer);
-                 bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
-                 layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
-                 AddItemToLayout(layout, layoutItem);
-            }
+
             break;
         }
         case WT_ItemGrid: {
@@ -3853,15 +4664,7 @@ namespace glimmer
             CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors);
 
-            if (!context.layouts.empty())
-            {
-                auto& layout = context.layouts.top();
-                auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
-            }
-            else
+            if (context.nestedContextStack.empty())
             {
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
                 result = ItemGridImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
@@ -3869,14 +4672,25 @@ namespace glimmer
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
             }
+            else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                AddItemToLayout(layout, layoutItem);
+            }
+            else if (nestedCtx.source == NestedContextSourceType::ItemGrid && !nestedCtx.base->itemGrids.empty())
+            {
+                assert(false); // Nested item grid not implemented yet...
+            }
             
             break;
         }
         default: break;
         }
 
-        context.currStyleStates = 0;
-        for (auto idx = 0; idx < WSI_Total; ++idx) context.currStyle[idx] = StyleDescriptor{};
+        context.ResetCurrentStyle();
         return result;
     }
 
@@ -3925,41 +4739,44 @@ namespace glimmer
         return Widget(id, WT_DropDown, geometry, neighbors);
     }
 
-    bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.emplace_back();
-        tab.id = context.layouts.empty() ? id : (int32_t)(context.layouts.top().tabbars.size() - 1); 
-        tab.geometry = geometry; tab.neighbors = neighbors;
-
-        const auto& config = context.GetState(id).state.tab;
-        tab.sizing = config.sizing;
-        tab.newTabButton = config.createNewTabs;
-        return true;
-    }
-
-    void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
-    {
-        auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
-        tab.items.emplace_back(name, tooltip, flags);
-    }
-
-    WidgetDrawResult EndTabBar(bool canAddTab)
-    {
-        auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
-        tab.newTabButton = canAddTab;
-        auto& state = context.TabBarState(tab.id);
-        state.tabs.resize(tab.items.size());
-        auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
-        context.currentTab.reset();
-        return result;
-    }
-
-    WidgetDrawResult ItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_ItemGrid, geometry, neighbors);
+    }
+
+    UIConfig& GetUIConfig()
+    {
+        return Config;
+    }
+
+    int32_t GetNextId(WidgetType type)
+    {
+        int32_t id = GetNextCount(type);
+        id = id | (type << 16);
+        return id;
+    }
+
+    int16_t GetNextCount(WidgetType type)
+    {
+        auto& context = GetContext();
+        auto id = context.maxids[type];
+        if (type == WT_SplitterScrollRegion) context.maxids[type]++;
+        else if (id == context.states[type].size())
+        {
+            context.states[type].reserve(context.states[type].size() + 32);
+            for (auto idx = 0; idx < 32; ++idx)
+                context.states[type].emplace_back(WidgetStateData{ type });
+            switch (type)
+            {
+            case WT_Checkbox: {
+                context.checkboxStates.reserve(context.checkboxStates.size() + 32);
+                for (auto idx = 0; idx < 32; ++idx)
+                    context.checkboxStates.emplace_back();
+                break;
+            }
+            }
+        }
+        return id;
     }
 
     WidgetStateData& GetWidgetState(WidgetType type, int16_t id)
@@ -3980,4 +4797,6 @@ namespace glimmer
         auto wtype = (WidgetType)(id >> 16);
         return GetWidgetState(wtype, (int16_t)(id & 0xffff));
     }
+
+#pragma endregion
 }
