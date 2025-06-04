@@ -81,8 +81,24 @@ namespace glimmer
         selectedCol = -1;
         movingCols = std::make_pair<int16_t, int16_t>(-1, -1);
         phase = ItemGridConstructPhase::None;
-        headers[0].clear(true); headers[1].clear(true); headers[2].clear(true); headers[3].clear(true);
-        headers[4].clear(true);
+
+        for (auto idx = 0; idx < 5; ++idx)
+        {
+            for (auto hidx = 0; hidx < headers[idx].size(); ++hidx)
+            {
+                headers[idx][hidx].styles.clear(true);
+                headers[idx][hidx].uiops.clear(true);
+                headers[idx][hidx].content = headers[idx][hidx].extent = ImRect{};
+                headers[idx][hidx].range = RendererEventIndexRange{};
+                headers[idx][hidx].alignment = TextAlignCenter;
+                headers[idx][hidx].offset = ImVec2{};
+                headers[idx][hidx].parent = -1;
+                headers[idx][hidx].props = 0;
+            }
+
+            headers[idx].clear(false);
+        }
+
         headerHeights[0] = headerHeights[1] = headerHeights[2] = headerHeights[3] = headerHeight = 0.f;
         currRow = currCol = 0;
         event = WidgetDrawResult{};
@@ -254,7 +270,7 @@ namespace glimmer
         return res;
     }
 
-    void WidgetContextData::ToggleDeferedRendering(bool defer, bool reset)
+    IRenderer& WidgetContextData::ToggleDeferedRendering(bool defer, bool reset)
     {
         usingDeferred = defer;
 
@@ -263,11 +279,13 @@ namespace glimmer
             auto renderer = CreateDeferredRenderer(&ImGuiMeasureText);
             if (reset) { renderer->Reset(); adhocLayout.push(); }
             deferedRenderer = renderer;
+            return *deferedRenderer;
         }
         else if (reset)
         {
             if (adhocLayout.size() > 1) adhocLayout.pop(1, true);
             deferedRenderer->Reset();
+            return *Config.renderer;
         }
     }
 
@@ -315,7 +333,20 @@ namespace glimmer
             {
                 const auto& splitter = splitterStack.top();
                 auto& state = SplitterState(splitter.id);
-                state.scrolldata[state.current].max = ImMax(state.scrolldata[state.current].max, geometry.Max);
+                state.scrolldata[state.current].extent = ImMax(state.scrolldata[state.current].extent, geometry.Max);
+            }
+            else if (wtype == WT_Scrollable)
+            {
+                index = id & 0xffff;
+                auto& region = states[wtype][index].state.scroll;
+                region.content.x = std::max(region.content.x, geometry.Max.x);
+                region.content.y = std::max(region.content.y, geometry.Max.y);
+            }
+            else if (wtype == WT_Accordion)
+            {
+                auto& accordion = accordions.top();
+                accordion.extent.x = std::max(accordion.extent.x, geometry.Max.x);
+                accordion.extent.y = std::max(accordion.extent.y, geometry.Max.y);
             }
         }
 
@@ -347,6 +378,7 @@ namespace glimmer
     void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleAccordionEvent(int32_t id, const ImRect& region, const IODescriptor& io, WidgetDrawResult& result);
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
@@ -420,6 +452,10 @@ namespace glimmer
                 ev.extent.Translate(origin);
                 HandleTabBarEvent(ev.id, ev.extent, io, renderer, result);
                 break;
+            case WT_Accordion:
+                ev.extent.Translate(origin);
+                HandleAccordionEvent(ev.id, ev.extent, io, result);
+                break;
             default:
                 break;
             }
@@ -451,31 +487,6 @@ namespace glimmer
         return itemGeometries[wtype][index];
     }
 
-    float WidgetContextData::MaximumExtent(Direction dir) const
-    {
-        if (!containerStack.empty())
-        {
-            auto id = containerStack.top();
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
-
-            if (wtype != WT_ItemGrid)
-                return dir == DIR_Horizontal ? itemGeometries[wtype][index].GetWidth() :
-                    itemGeometries[wtype][index].GetHeight();
-            else
-            {
-                auto& grid = CurrentItemGridContext->itemGrids.top();
-                auto extent = grid.headers[grid.currlevel][grid.currCol].extent;
-                return dir == DIR_Horizontal ? extent.GetWidth() : extent.GetHeight();
-            }
-        }
-        else
-        {
-            auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
-            return dir == DIR_Horizontal ? rect.GetWidth() : rect.GetHeight();
-        }
-    }
-
     ImVec2 WidgetContextData::MaximumExtent() const
     {
         if (!containerStack.empty())
@@ -484,13 +495,29 @@ namespace glimmer
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
 
-            if (wtype != WT_ItemGrid)
-                return itemGeometries[wtype][index].GetSize();
-            else
+            if (wtype == WT_ItemGrid)
             {
                 auto& grid = CurrentItemGridContext->itemGrids.top();
                 auto extent = grid.headers[grid.currlevel][grid.currCol].extent;
                 return extent.GetSize();
+            }
+            else if (wtype == WT_Scrollable)
+            {
+                auto index = id & 0xffff;
+                auto type = id >> 16;
+                auto& region = states[type][index].state.scroll;
+                return ImVec2{ region.enabled.first ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
+                    region.enabled.second ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+            }
+            else if (wtype == WT_Accordion)
+            {
+                auto& accordion = accordions.top();
+                return ImVec2{ accordion.hscroll ? accordion.extent.x : accordion.size.x,
+                    accordion.vscroll ? accordion.extent.y : accordion.size.y };
+            }
+            else
+            {
+                return itemGeometries[wtype][index].GetSize();
             }
         }
         else
@@ -508,14 +535,30 @@ namespace glimmer
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
 
-            if (wtype != WT_ItemGrid)
-                return itemGeometries[wtype][index].Max;
-            else
+            if (wtype == WT_ItemGrid)
             {
                 auto& grid = CurrentItemGridContext->itemGrids.top();
                 const auto& config = CurrentItemGridContext->GetState(id).state.grid;
                 auto max = grid.headers[grid.currlevel][grid.currCol].extent.Max - config.cellpadding;
                 return max;
+            }
+            else if (wtype == WT_Scrollable)
+            {
+                auto index = id & 0xffff;
+                auto type = id >> 16;
+                auto& region = states[type][index].state.scroll;
+                return ImVec2{ region.enabled.first ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
+                    region.enabled.second ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+            }
+            else if (wtype == WT_Accordion)
+            {
+                auto& accordion = accordions.top();
+                return accordion.origin + ImVec2{ accordion.hscroll ? accordion.extent.x : accordion.size.x,
+                    accordion.vscroll ? accordion.extent.y : accordion.size.y };
+            }
+            else
+            {
+                return itemGeometries[wtype][index].Max;
             }
         }
         else
@@ -545,6 +588,7 @@ namespace glimmer
         splitterStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Splitter) : 4);
         spinnerStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Spinner) : 8);
         tabBarStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 4);
+        accordionStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Accordion) : 4);
         splitterScrollPaneParentIds.resize((Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_SplitterScrollRegion) : 32) 
             * GLIMMER_MAX_SPLITTER_REGIONS, -1);
         dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);

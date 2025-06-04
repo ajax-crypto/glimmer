@@ -379,8 +379,8 @@ namespace glimmer
         T& push()
         {
             auto nextidx = _data.size() + (Sz)1;
-            if (nextidx < _max) _data._size++;
-            T& el = nextidx < _max ? _data[nextidx - (Sz)1] : _data.emplace_back();
+            if (nextidx <= _max) _data._size++;
+            T& el = nextidx <= _max ? _data[nextidx - (Sz)1] : _data.emplace_back();
             _max = std::max(_max, _data.size());
             return el;
         }

@@ -102,7 +102,7 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
-        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion,
+        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion, WT_Accordion,
         WT_Slider, WT_Spinner,
         WT_TextInput,
         WT_DropDown,
@@ -217,16 +217,12 @@ namespace glimmer
         bool mouseDownOnHGrip = false;
     };
 
-    struct LayoutRegion
-    {
-        ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
-        ImVec2 max; // maximum coordinates of the widgets inside region
-        //Vector<int32_t, int16_t> widgets; // widget ids for defered rendering
-    };
-
-    struct ScrollableRegion : public LayoutRegion
+    struct ScrollableRegion
     {
         std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
+        ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
+        ImVec2 content; // maximum coordinates of the widgets inside region
+        ImVec2 extent; // ttoal available space inside the scroll region, default is infinite if scroll enabled
         ScrollBarState state;
     };
 
@@ -363,9 +359,9 @@ namespace glimmer
 
         struct ColumnConfig
         {
-            std::string_view name;
+            ImRect extent;
             ImRect content;
-            ImRect textrect;
+            std::string_view name;
             int32_t props = COL_Resizable;
             int16_t width = 0;
             int16_t parent = -1;

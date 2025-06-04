@@ -36,7 +36,7 @@ namespace glimmer
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, const StyleDescriptor& style,
+    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, ImVec2 maxsz, const StyleDescriptor& style,
         const ImRect& border, const ImRect& content, IRenderer& renderer);
     void EndScrollableImpl(int32_t id, IRenderer& renderer);
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
@@ -929,7 +929,7 @@ namespace glimmer
             else 
             {
                 const auto& style = GetStyle(StyleStack, currStyle, currStyleStates, WS_Default);
-                StartScrollableImpl(item.id, item.hscroll, item.vscroll, style, item.border, item.content, renderer);
+                StartScrollableImpl(item.id, item.hscroll, item.vscroll, item.extent, style, item.border, item.content, renderer);
             }
             if (!context.nestedContextStack.empty())
                 RecordItemGeometry(item);

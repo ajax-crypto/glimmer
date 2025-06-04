@@ -380,7 +380,7 @@ namespace glimmer
         return false;
     }
 
-    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, const StyleDescriptor& style, 
+    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, ImVec2 maxsz, const StyleDescriptor& style, 
         const ImRect& border, const ImRect& content, IRenderer& renderer)
     {
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
@@ -389,12 +389,13 @@ namespace glimmer
         auto& region = context.ScrollRegion(id);
         region.viewport = content;
         region.enabled = { hscroll, vscroll };
+        region.extent = maxsz;
         renderer.SetClipRect(content.Min, content.Max);
         context.AddItemGeometry(id, region.viewport);
         context.containerStack.push() = id;
     }
 
-    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors)
+    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry, const NeighborWidgets& neighbors, ImVec2 maxsz)
     {
         auto& context = GetContext();
 
@@ -407,6 +408,7 @@ namespace glimmer
             layoutItem.id = id;
             layoutItem.vscroll = vscroll;
             layoutItem.hscroll = hscroll;
+            layoutItem.extent = maxsz;
             AddExtent(layoutItem, style, neighbors);
             AddItemToLayout(layout, layoutItem);
             layout.containerStack.push() = id;
@@ -421,7 +423,7 @@ namespace glimmer
             layoutItem.wtype = WT_Scrollable;
             layoutItem.id = id;
             AddExtent(layoutItem, style, neighbors);
-            StartScrollableImpl(id, hscroll, vscroll, style, layoutItem.border, layoutItem.content, renderer);
+            StartScrollableImpl(id, hscroll, vscroll, maxsz, style, layoutItem.border, layoutItem.content, renderer);
         }
     }
 
@@ -434,15 +436,15 @@ namespace glimmer
         auto hasHScroll = false;
         auto io = Config.platform->CurrentIO();
         auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        if (region.viewport.Max.x < region.content.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
+            HandleHScroll(region.state, region.content.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
-        if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
+        if (region.viewport.Max.y < region.content.y && region.enabled.second)
+            HandleVScroll(region.state, region.content.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
         context.containerStack.pop(1, true);
@@ -2509,6 +2511,163 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Accordion
+
+    bool StartAccordion(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.push();
+        auto& state = context.AccordionState(id);
+        accordion.id = id;
+        accordion.style = context.GetStyle(state.state);
+        
+        LayoutItemDescriptor item;
+        item.id = id;
+        item.sizing = geometry;
+        item.wtype = WT_Accordion;
+        AddExtent(item, accordion.style, neighbors);
+        accordion.origin = item.margin.Min;
+        accordion.size = item.margin.GetSize();
+        accordion.nextpos = item.content.Min;
+
+        return true;
+    }
+
+    bool StartAccordionHeader()
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        accordion.prevpos = accordion.nextpos;
+        return true;
+    }
+
+    void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        accordion.icon[0] = res;
+        accordion.svgOrImage[0] = svgOrImage;
+        accordion.isPath[0] = isPath;
+    }
+
+    void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        accordion.icon[1] = res;
+        accordion.svgOrImage[1] = svgOrImage;
+        accordion.isPath[1] = isPath;
+    }
+
+    void AddAccordionHeaderText(std::string_view content, bool isRichText)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        const auto& style = accordion.style;
+        auto haswrap = !(style.font.flags & FontStyleNoWrap) && !(style.font.flags & FontStyleOverflowEllipsis) &&
+            !(style.font.flags & FontStyleOverflowMarquee);
+        accordion.textsz = Config.renderer->GetTextSize(content, style.font.font, style.font.size, 
+            haswrap ? accordion.content.GetWidth() : -1.f);
+        accordion.headerHeight = accordion.textsz.y;
+        accordion.text = content;
+        accordion.isRichText = isRichText;
+    }
+
+    void HandleAccordionEvent(int32_t id, const ImRect& region, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+
+        if (!context.deferEvents)
+        {
+            auto& state = context.AccordionState(accordion.id);
+            auto contains = region.Contains(io.mousepos);
+
+            if (contains && io.isLeftMouseDown()) state.state = WS_Hovered | WS_Pressed;
+            else if (contains) state.state = WS_Hovered;
+            else state.state = WS_Default;
+
+            if (contains && io.clicked())
+            {
+                state.opened = accordion.totalRegions;
+                result.event = WidgetEvent::Clicked;
+            }
+        }
+        else
+            context.deferedEvents.emplace_back(WT_Accordion, accordion.id, region);
+    }
+
+    void EndAccordionHeader(std::optional<bool> expanded)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        auto& state = context.AccordionState(accordion.id);
+        const auto& style = accordion.style;
+        auto& renderer = *Config.renderer;
+        auto isExpanded = expanded.has_value() ? expanded : state.opened == accordion.totalRegions;
+        if (isExpanded) state.opened = accordion.totalRegions;
+        auto iconidx = isExpanded ? 1 : 0;
+
+        ImRect bg{ accordion.nextpos - ImVec2{ style.padding.left, style.padding.top }, 
+            accordion.nextpos + ImVec2{ accordion.content.GetWidth() + style.padding.right,
+            accordion.headerHeight + style.padding.bottom } };
+        DrawBackground(bg.Min, bg.Max, style, renderer);
+        if (!accordion.icon[iconidx].empty())
+        {
+            accordion.svgOrImage[iconidx] ? renderer.DrawSVG(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, style.fgcolor,
+                accordion.icon[iconidx], accordion.isPath[iconidx]) :
+                renderer.DrawImage(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, accordion.icon[iconidx]);
+        }
+        else
+            DrawSymbol(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, {}, expanded ? SymbolIcon::DownTriangle : SymbolIcon::RightTriangle,
+                style.fgcolor, style.fgcolor, 1.f, renderer);
+        DrawText(accordion.nextpos, accordion.nextpos + ImVec2{ accordion.size.x, accordion.headerHeight }, ImRect{ accordion.nextpos, accordion.nextpos + accordion.textsz },
+            accordion.text, false, style, renderer, ToTextFlags(accordion.isRichText ? TextType::RichText : TextType::PlainText));
+
+        auto io = Config.platform->CurrentIO();
+        HandleAccordionEvent(accordion.id, bg, io, accordion.event);
+    }
+
+    bool StartAccordionContent(bool hscroll, bool vscroll, ImVec2 maxsz)
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        auto& state = context.AccordionState(accordion.id);
+        auto& cont = context.containerStack.push();
+        cont = accordion.id;
+        state.scrolls[accordion.totalRegions].enabled.first = hscroll;
+        state.scrolls[accordion.totalRegions].enabled.second = vscroll;
+        state.scrolls[accordion.totalRegions].extent = maxsz;
+        return state.opened == accordion.totalRegions;
+    }
+
+    void EndAccordionContent()
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        accordion.totalRegions++;
+
+        const auto& style = accordion.style;
+        auto& renderer = *Config.renderer;
+        ImRect border{ { accordion.prevpos.x - style.padding.left, accordion.prevpos.y - style.padding.top }, 
+            { accordion.origin.x + accordion.size.x, accordion.nextpos.y + style.padding.bottom } };
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        context.containerStack.pop(1, true);
+    }
+
+    WidgetDrawResult EndAccordion()
+    {
+        auto& context = GetContext();
+        auto& accordion = context.accordions.top();
+        auto res = accordion.event;
+
+        context.AddItemGeometry(accordion.id, { accordion.origin, accordion.origin + accordion.size });
+        context.accordions.pop(1, true);
+        return res;
+    }
+
+#pragma endregion
+
 #pragma region Static ItemGrid
 
     void ItemGridState::setColumnResizable(int16_t col, bool resizable)
@@ -2558,30 +2717,29 @@ namespace glimmer
         {
             auto hdiff = rect.GetWidth() / (float)chcount;
 
-            while (startch < (int)headers[chlevel].size())
+            while (startch < cchcol)
             {
                 auto& hdr = headers[chlevel][startch];
-                if (hdr.parent == parent)
+                if ((hdr.parent == parent) && (hdr.props & COL_Resizable))
                 {
                     auto& props = gridstate.cols[chlevel][startch];
                     props.modified += hdiff;
                     startch++;
                 }
-                else break;
             }
         }
 
         return chcount > 0;
     }
 
-    template <typename ContainerT, typename ColumnT>
-    static void HandleColumnResize(Span<ContainerT> headers, ColumnT& hdr,
+    template <typename ContainerT>
+    static void HandleColumnResize(Span<ContainerT> headers, const ImRect& content,
         ItemGridInternalState& gridstate, ImVec2 mousepos, int level, int col, const IODescriptor& io)
     {
         if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
 
-        auto isMouseNearColDrag = IsBetween(mousepos.x, hdr.content.Min.x, hdr.content.Min.x, 5.f) &&
-            IsBetween(mousepos.y, hdr.content.Min.y, hdr.content.Max.y);
+        auto isMouseNearColDrag = IsBetween(mousepos.x, content.Min.x, content.Min.x, 5.f) &&
+            IsBetween(mousepos.y, content.Min.y, content.Max.y);
         auto& evprop = gridstate.cols[level][col - 1];
 
         if (!evprop.mouseDown && isMouseNearColDrag)
@@ -2634,7 +2792,7 @@ namespace glimmer
         auto col = gridstate.colmap[level].vtol[vcol];
         auto& hdr = headers[level][col];
         auto isMouseDown = io.isLeftMouseDown();
-        ImRect moveTriggerRect{ hdr.content.Min + ImVec2{ 5.5f, 0.f }, hdr.content.Max - ImVec2{ 5.5f, 0.f } };
+        ImRect moveTriggerRect{ hdr.extent.Min + ImVec2{ 5.5f, 0.f }, hdr.extent.Max - ImVec2{ 5.5f, 0.f } };
 
         if (isMouseDown && moveTriggerRect.Contains(mousepos) && !gridstate.drag.mouseDown)
         {
@@ -2683,14 +2841,14 @@ namespace glimmer
                 auto ncol = gridstate.colmap[level].vtol[vcol + 1];
                 auto& next = headers[level][ncol];
 
-                if ((mousepos.x - gridstate.drag.startPos.x) >= next.content.GetWidth())
+                if ((mousepos.x - gridstate.drag.startPos.x) >= next.extent.GetWidth())
                     gridstate.swapColumns(vcol, vcol + 1, headers, level);
             }
             else if (diff < 0.f && (col - 1) >= 0)
             {
                 auto& prev = headers[level][col - 1];
 
-                if ((gridstate.drag.startPos.x - mousepos.x) >= prev.content.GetWidth())
+                if ((gridstate.drag.startPos.x - mousepos.x) >= prev.extent.GetWidth())
                     gridstate.swapColumns(col - 1, col, headers, level);
             }
 
@@ -2734,7 +2892,7 @@ namespace glimmer
                 {
                     auto& hdr = headers[level][col];
                     hdr.content = ImRect{};
-                    hdr.textrect = ImRect{};
+                    hdr.extent = ImRect{};
                 }
             }
 
@@ -2755,9 +2913,9 @@ namespace glimmer
             auto& hdr = headers[level][col];
             hdr.content.Max.y = height;
 
-            auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
+            auto vdiff = (height - hdr.content.GetHeight() - style.padding.v()) * 0.5f;
             if (vdiff > 0.f)
-                hdr.textrect.TranslateY(vdiff);
+                hdr.content.TranslateY(vdiff);
         }
     }
 
@@ -2873,23 +3031,23 @@ namespace glimmer
 
                         auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
                         auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
-                        hdr.content.Min.x = sum;
-                        hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
-                        hdr.textrect.Max.x = hdr.textrect.Min.x + textsz.x;
-                        hdr.textrect.Min.y = style.padding.top;
-                        hdr.textrect.Max.y = textsz.y;
-                        hdr.content.Max.x = hdr.content.Min.x + (hasWidth ? colwidth : colwidth +
+                        hdr.extent.Min.x = sum;
+                        hdr.content.Min.x = hdr.extent.Min.x + style.padding.left;
+                        hdr.content.Max.x = hdr.content.Min.x + textsz.x;
+                        hdr.content.Min.y = style.padding.top;
+                        hdr.content.Max.y = textsz.y;
+                        hdr.extent.Max.x = hdr.extent.Min.x + (hasWidth ? colwidth : colwidth +
                             textsz.x + style.padding.h());
 
-                        if (hdr.content.GetWidth() - style.padding.h() > textsz.x)
+                        if (hdr.extent.GetWidth() - style.padding.h() > textsz.x)
                         {
-                            auto hdiff = (hdr.content.GetWidth() - textsz.x - style.padding.h()) * 0.5f;
-                            hdr.textrect.TranslateX(hdiff);
+                            auto hdiff = (hdr.extent.GetWidth() - textsz.x - style.padding.h()) * 0.5f;
+                            hdr.content.TranslateX(hdiff);
                         }
 
-                        hdr.content.Max.y = textsz.y + style.padding.v();
-                        sum += hdr.content.GetWidth();
-                        height = std::max(height, hdr.content.GetHeight());
+                        hdr.extent.Max.y = textsz.y + style.padding.v();
+                        sum += hdr.extent.GetWidth();
+                        height = std::max(height, hdr.extent.GetHeight());
 
                         // If user has resized column, do not expand it
                         if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
@@ -2904,24 +3062,24 @@ namespace glimmer
                             for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
                             {
                                 auto& hdr = headers[level][col];
-                                auto width = hdr.content.Min.x;
+                                auto width = hdr.extent.Min.x;
                                 auto isColExpandable = ((hdr.props & COL_Expandable) &&
                                     gridstate.cols[level][col].modified == 0.f);
-                                hdr.content.Min.x = sum;
-                                hdr.content.Max.x = hdr.content.Max.x +
+                                hdr.extent.Min.x = sum;
+                                hdr.extent.Max.x = hdr.extent.Max.x +
                                     isColExpandable ? extra : 0.f;
-                                if (!(hdr.props & COL_WrapHeader) && hdr.textrect.GetWidth() <
-                                    (hdr.content.GetWidth() - style.padding.h()))
+                                if (!(hdr.props & COL_WrapHeader) && hdr.content.GetWidth() <
+                                    (hdr.extent.GetWidth() - style.padding.h()))
                                 {
-                                    auto diff = (hdr.content.GetWidth() - style.padding.h() - hdr.textrect.GetWidth()) * 0.5f;
-                                    hdr.textrect.TranslateX(diff);
+                                    auto diff = (hdr.extent.GetWidth() - style.padding.h() - hdr.content.GetWidth()) * 0.5f;
+                                    hdr.content.TranslateX(diff);
                                 }
-                                sum = hdr.content.Max.x;
+                                sum = hdr.extent.Max.x;
 
-                                hdr.content.Max.y = height;
-                                auto vdiff = (height - hdr.textrect.GetHeight() - style.padding.v()) * 0.5f;
+                                hdr.extent.Max.y = height;
+                                auto vdiff = (height - hdr.content.GetHeight() - style.padding.v()) * 0.5f;
                                 if (vdiff > 0.f)
-                                    hdr.textrect.TranslateY(vdiff);
+                                    hdr.content.TranslateY(vdiff);
                             }
                         else AlignVCenter(height, level, state, style);
                     }
@@ -2944,32 +3102,32 @@ namespace glimmer
 
                         auto col = gridstate.colmap[level].vtol[vcol];
                         auto& hdr = headers[level][col];
-                        hdr.content.Min.x = lastx;
+                        hdr.extent.Min.x = lastx;
 
                         // Find sum of all descendant headers, which will be this headers width
                         for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
                             if (headers[level + 1][chcol].parent == col)
-                                sum += headers[level + 1][chcol].content.GetWidth();
+                                sum += headers[level + 1][chcol].extent.GetWidth();
 
                         auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
                         auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
 
                         // The available horizontal size is fixed by sum of descendant widths
                         // The height of the current level of headers is decided by the max height across all
-                        hdr.content.Max.x = hdr.content.Min.x + sum;
-                        hdr.textrect.Min.x = hdr.content.Min.x + style.padding.left;
-                        hdr.textrect.Min.y = hdr.content.Min.y + style.padding.top;
-                        hdr.textrect.Max.x = hdr.textrect.Min.x + std::min(sum, textsz.x);
+                        hdr.extent.Max.x = hdr.extent.Min.x + sum;
+                        hdr.content.Min.x = hdr.extent.Min.x + style.padding.left;
+                        hdr.content.Min.y = hdr.extent.Min.y + style.padding.top;
+                        hdr.content.Max.x = hdr.content.Min.x + std::min(sum, textsz.x);
 
                         if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - style.padding.h()))
                         {
                             auto diff = (sum - style.padding.h() - textsz.x) * 0.5f;
-                            hdr.textrect.TranslateX(diff);
+                            hdr.content.TranslateX(diff);
                         }
 
-                        hdr.textrect.Max.y = hdr.textrect.Min.y + textsz.y;
-                        hdr.content.Max.y = hdr.content.Min.y + textsz.y + style.padding.v();
-                        height = std::max(height, hdr.content.GetHeight());
+                        hdr.content.Max.y = hdr.content.Min.y + textsz.y;
+                        hdr.extent.Max.y = hdr.extent.Min.y + textsz.y + style.padding.v();
+                        height = std::max(height, hdr.extent.GetHeight());
                         lastx += sum;
                     }
 
@@ -2980,7 +3138,7 @@ namespace glimmer
             // Draw Headers
             auto posy = content.Min.y;
             auto totalh = 0.f;
-            auto width = headers.back().back().content.Max.x - headers.back().front().content.Min.x;
+            auto width = headers.back().back().extent.Max.x - headers.back().front().extent.Min.x;
             auto hshift = -gridstate.scroll.pos.x;
             std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
 
@@ -3000,12 +3158,12 @@ namespace glimmer
                         gridstate.drag.config = hdr;
                         auto& cfg = gridstate.drag.config;
 
+                        cfg.extent.TranslateY(posy);
                         cfg.content.TranslateY(posy);
-                        cfg.textrect.TranslateY(posy);
+                        cfg.extent.TranslateX(posx + movex);
                         cfg.content.TranslateX(posx + movex);
-                        cfg.textrect.TranslateX(posx + movex);
 
-                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        maxh = std::max(maxh, hdr.extent.GetHeight());
                         nextMovingRange = { col, col };
                     }
                     else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
@@ -3014,33 +3172,33 @@ namespace glimmer
                         auto movex = mousepos.x - gridstate.drag.startPos.x;
                         auto& cfg = gridstate.drag.config;
 
+                        hdr.extent.TranslateY(posy);
                         hdr.content.TranslateY(posy);
-                        hdr.textrect.TranslateY(posy);
+                        hdr.extent.TranslateX(posx + movex);
                         hdr.content.TranslateX(posx + movex);
-                        hdr.textrect.TranslateX(posx + movex);
 
-                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        maxh = std::max(maxh, hdr.extent.GetHeight());
                         nextMovingRange.first = std::min(nextMovingRange.first, col);
                         nextMovingRange.second = std::max(nextMovingRange.second, col);
                     }
                     else
                     {
+                        hdr.extent.TranslateY(posy);
                         hdr.content.TranslateY(posy);
-                        hdr.textrect.TranslateY(posy);
+                        hdr.extent.TranslateX(posx);
                         hdr.content.TranslateX(posx);
-                        hdr.textrect.TranslateX(posx);
-                        renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
+                        renderer.DrawRect(hdr.extent.Min, hdr.extent.Max, ToRGBA(100, 100, 100), false);
 
-                        ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                        DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
-                        maxh = std::max(maxh, hdr.content.GetHeight());
+                        ImVec2 textend{ hdr.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                        DrawText(hdr.content.Min, textend, hdr.content, hdr.name, false, style, renderer);
+                        maxh = std::max(maxh, hdr.extent.GetHeight());
                     }
 
                     if (vcol > 0)
                     {
                         auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
                         if (headers[level][prevcol].props & COL_Resizable)
-                            HandleColumnResize(Span{ headers.begin(), headers.end() }, hdr, gridstate, mousepos, level, col, io);
+                            HandleColumnResize(Span{ headers.begin(), headers.end() }, hdr.extent, gridstate, mousepos, level, col, io);
                     }
 
                     if (hdr.props & COL_Moveable)
@@ -3077,7 +3235,7 @@ namespace glimmer
                 //            auto& itemstyle = context.GetStyle(data[col].state.label.state);
                 //            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
                 //                itemstyle.font.size, FT_Normal);
-                //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.content.GetWidth();
+                //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.extent.GetWidth();
                 //            auto textsz = renderer.GetTextSize(data[col].state.label.text, itemstyle.font.font,
                 //                itemstyle.font.size, wrap);
                 //            cellGeometries[col] = textsz;
@@ -3092,7 +3250,7 @@ namespace glimmer
                 //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
                 //    {
                 //        auto& hdr = headers.back()[col];
-                //        auto content = hdr.content;
+                //        auto content = hdr.extent;
                 //        content.Max.y = height;
                 //        ImVec2 textstart{ content.Min.x + style.padding.left,
                 //            content.Min.y + style.padding.top };
@@ -3175,16 +3333,16 @@ namespace glimmer
             if (gridstate.drag.column != -1 && gridstate.drag.level != -1)
             {
                 const auto& cfg = gridstate.drag.config;
-                LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.content.Min.x, cfg.content.Max.x);
+                LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.extent.Min.x, cfg.extent.Max.x);
 
-                renderer.DrawRectGradient(cfg.content.Min + ImVec2{ -10.f, 0.f }, { cfg.content.Min.x, content.Max.y },
+                renderer.DrawRectGradient(cfg.extent.Min + ImVec2{ -10.f, 0.f }, { cfg.extent.Min.x, content.Max.y },
                     ToRGBA(0, 0, 0, 0), ToRGBA(100, 100, 100), Direction::DIR_Horizontal);
-                renderer.DrawRectGradient({ cfg.content.Max.x, cfg.content.Min.y }, ImVec2{ cfg.content.Max.x + 10.f, content.Max.y },
+                renderer.DrawRectGradient({ cfg.extent.Max.x, cfg.extent.Min.y }, ImVec2{ cfg.extent.Max.x + 10.f, content.Max.y },
                     ToRGBA(100, 100, 100), ToRGBA(0, 0, 0, 0), Direction::DIR_Horizontal);
 
-                renderer.DrawRect(cfg.content.Min, cfg.content.Max, ToRGBA(100, 100, 100), false);
-                ImVec2 textend{ cfg.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                DrawText(cfg.textrect.Min, textend, cfg.textrect, cfg.name, false, style, renderer);
+                renderer.DrawRect(cfg.extent.Min, cfg.extent.Max, ToRGBA(100, 100, 100), false);
+                ImVec2 textend{ cfg.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                DrawText(cfg.content.Min, textend, cfg.content, cfg.name, false, style, renderer);
 
                 auto level = gridstate.drag.level + 1;
 
@@ -3202,12 +3360,12 @@ namespace glimmer
 
                             if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
                             {
+                                hdr.extent.TranslateX(movex);
                                 hdr.content.TranslateX(movex);
-                                hdr.textrect.TranslateX(movex);
 
-                                renderer.DrawRect(hdr.content.Min, hdr.content.Max, ToRGBA(100, 100, 100), false);
-                                ImVec2 textend{ hdr.content.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                                DrawText(hdr.textrect.Min, textend, hdr.textrect, hdr.name, false, style, renderer);
+                                renderer.DrawRect(hdr.extent.Min, hdr.extent.Max, ToRGBA(100, 100, 100), false);
+                                ImVec2 textend{ hdr.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
+                                DrawText(hdr.content.Min, textend, hdr.content, hdr.name, false, style, renderer);
 
                                 nextMovingRange.first = std::min(nextMovingRange.first, col);
                                 nextMovingRange.second = std::max(nextMovingRange.second, col);
@@ -3291,15 +3449,15 @@ namespace glimmer
         auto hasHScroll = false;
         auto io = Config.platform->CurrentIO();
         auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.max.x && region.enabled.first)
+        if (region.viewport.Max.x < region.content.x && region.enabled.first)
         {
             hasHScroll = true;
-            HandleHScroll(region.state, region.max.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
+            HandleHScroll(region.state, region.content.x - region.viewport.Min.x, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz);
         }
 
-        if (region.viewport.Max.y < region.max.y && region.enabled.second)
-            HandleVScroll(region.state, region.max.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
+        if (region.viewport.Max.y < region.content.y && region.enabled.second)
+            HandleVScroll(region.state, region.content.y - region.viewport.Min.y, region.viewport, mousepos, renderer, io,
                 Config.scrollbarSz, hasHScroll);
 
         context.PopContainer(id);
@@ -3631,13 +3789,19 @@ namespace glimmer
         return true;
     }
 
-    static void AddUserColumnResize(WidgetContextData& context, CurrentItemGridState& state, ColumnProps& header)
+    static void InitColumnResizeData(WidgetContextData& context, CurrentItemGridState& state, ColumnProps& header)
     {
         auto& gridstate = context.GridState(state.id);
         if (gridstate.cols[state.currlevel].empty())
             gridstate.cols[state.currlevel].fill(ItemGridInternalState::HeaderCellResizeState{});
         if (gridstate.cols[state.currlevel].size() <= state.currCol)
             gridstate.cols[state.currlevel].expand(128, true);
+    }
+
+    static void AddUserColumnResize(WidgetContextData& context, CurrentItemGridState& state, ColumnProps& header)
+    {
+        auto& gridstate = context.GridState(state.id);
+        InitColumnResizeData(context, state, header);
         auto modified = gridstate.cols[state.currlevel][state.currCol].modified;
         header.extent.Max.x += modified;
     }
@@ -3755,24 +3919,25 @@ namespace glimmer
         auto& state = context.itemGrids.top();
         auto& renderer = *GetContext().deferedRenderer;
         auto& itemcfg = context.GetState(state.id).state.grid;
+        auto& header = state.headers[state.currlevel].emplace_back(config);
 
         auto parent = state.headers[state.currlevel].size() - 1;
         auto width = 0.f;
+
         for (auto idx = from; idx <= to; ++idx)
         {
             state.headers[state.currlevel + 1][idx].parent = parent;
             width += state.headers[state.currlevel + 1][idx].extent.GetWidth();
         }
 
-        //width -= 2.f * itemcfg.cellpadding.x;
-        auto& header = state.headers[state.currlevel].emplace_back(config);
+        width += (float)(to - from) * itemcfg.gridwidth;
 
         state.phase = ItemGridConstructPhase::HeaderCells;
         header.extent.Min = state.nextpos;
         header.content.Min = header.extent.Min + itemcfg.cellpadding;
         header.extent.Max.x = header.extent.Min.x + width;
         GetContext().adhocLayout.top().nextpos = header.content.Min;
-        AddUserColumnResize(context, state, header);
+        InitColumnResizeData(context, state, header);
 
         if (header.content.GetWidth() > 0.f)
         {
@@ -3908,11 +4073,11 @@ namespace glimmer
                         {
                             auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
                             if (headers[level][prevcol].props & COL_Resizable)
-                                HandleColumnResize(Span{ state.headers }, hdr, gridstate, io.mousepos, level, col, io);
+                                HandleColumnResize(Span{ headers, headers + 4 }, hdr.extent, gridstate, io.mousepos, level, col, io);
                         }
 
                         if (hdr.props & COL_Moveable)
-                            HandleColumnReorder(Span{ headers }, gridstate, io.mousepos, level, vcol, io);
+                            HandleColumnReorder(Span{ headers, headers + 4 }, gridstate, io.mousepos, level, vcol, io);
 
                         if (hdr.extent.Contains(io.mousepos) && io.clicked() && (hdr.props & COL_Sortable))
                         {
@@ -4139,8 +4304,8 @@ namespace glimmer
             auto hdiff = HAlignCellContent(state, config, col, state.maxCellExtent.x - bounds.first);
             context.ToggleDeferedRendering(false, false);
             context.deferEvents = false;
-            extent.Min.y = state.nextpos.y;
-            extent.Max.y = state.maxCellExtent.y;
+            extent.Min.y = state.nextpos.y - config.cellpadding.y;
+            extent.Max.y = state.maxCellExtent.y + config.cellpadding.y;
             Config.renderer->DrawRect(extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
                 extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
                 config.gridwidth);
@@ -4178,7 +4343,7 @@ namespace glimmer
                 gridstate.cellstate.col = -1;
             }
 
-            state.nextpos.y += extent.GetHeight() + config.cellpadding.y + config.gridwidth;
+            state.nextpos.y += extent.GetHeight() - config.cellpadding.y + config.gridwidth;
             state.maxCellExtent = ImVec2{};
         }
 
@@ -4296,12 +4461,15 @@ namespace glimmer
         auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
         auto io = Config.platform->CurrentIO();
 
-        renderer.SetClipRect(state.origin, state.origin + state.size);
+        ImRect viewport{ state.origin + ImVec2{ 0.f, state.headerHeight }, state.origin + state.size };
+        renderer.SetClipRect(viewport.Min, viewport.Max);
         result = PopulateData(totalRows);
         state.phase = ItemGridConstructPhase::None;
-        HandleScrollBars(gridstate.scroll, renderer, io.mousepos, { state.origin, state.origin + state.size },
-            state.totalsz - state.origin, io);
+        HandleScrollBars(gridstate.scroll, renderer, io.mousepos, viewport,
+            state.totalsz - state.origin - ImVec2{ 0.f, state.headerHeight }, io);
         renderer.ResetClipRect();
+        renderer.DrawLine(viewport.Min, { viewport.Min.x, viewport.Max.y }, config.gridcolor, config.gridwidth);
+        renderer.DrawLine({ viewport.Max.x, viewport.Min.y }, viewport.Max, config.gridcolor, config.gridwidth);
         result = state.event;
         context.adhocLayout.top().nextpos = state.origin;
         context.adhocLayout.top().lastItemId = state.id;

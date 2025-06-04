@@ -31,12 +31,22 @@ namespace glimmer
     WidgetDrawResult EndPopUp();
 
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
-        const NeighborWidgets& neighbors = NeighborWidgets{});
+        const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { -1.f, -1.f });
     void EndScrollableRegion();
 
     bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     WidgetDrawResult EndTabBar(bool canAddTab);
+
+    bool StartAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool StartAccordionHeader();
+    void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath);
+    void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath);
+    void AddAccordionHeaderText(std::string_view content, bool isRichText);
+    void EndAccordionHeader(std::optional<bool> expanded);
+    bool StartAccordionContent(bool hscroll, bool vscroll, ImVec2 maxsz = {});
+    void EndAccordionContent();
+    WidgetDrawResult EndAccordion();
 
     bool StartItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool StartItemGridHeader(int levels = 1);

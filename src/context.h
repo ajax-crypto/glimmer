@@ -222,13 +222,12 @@ namespace glimmer
 
     struct RendererEventIndexRange
     {
-        std::pair<int, int> primitives;
-        std::pair<int, int> events;
+        std::pair<int, int> primitives{ -1, -1 };
+        std::pair<int, int> events{ -1, -1 };
     };
 
     struct ColumnProps : public ItemGridState::ColumnConfig
     {
-        ImRect extent;
         ImVec2 offset;
         Vector<ItemGridUIOperation, int16_t, 2> uiops{ true };
         Vector<StyleDescriptor, int16_t, 2> styles{ false };
@@ -374,6 +373,7 @@ namespace glimmer
         int32_t id = -1;
         ImRect margin, border, padding, content, text;
         ImVec2 relative;
+        ImVec2 extent;
         int32_t sizing = 0;
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
@@ -460,6 +460,33 @@ namespace glimmer
         ScrollableRegion scroll;
     };
 
+    struct AccordionBuilder
+    {
+        int32_t id = 0;
+        ImVec2 origin;
+        ImVec2 size;
+        ImVec2 nextpos, prevpos;
+        ImRect content;
+        ImVec2 textsz, extent;
+        float headerHeight = 0.f;
+        int16_t totalRegions = 0;
+        std::string_view icon[2];
+        std::string_view text;
+        StyleDescriptor style;
+        WidgetDrawResult event;
+        bool svgOrImage[2] = { false, false };
+        bool isPath[2] = { false, false };
+        bool isRichText = false;
+        bool hscroll = false, vscroll = false;
+    };
+
+    struct AccordionInternalState
+    {
+        int16_t opened = -1;
+        int32_t state = WS_Default;
+        Vector<ScrollableRegion, int16_t, 8> scrolls;
+    };
+
     ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
 
     // Determine extent of layout/splitter/other containers
@@ -537,6 +564,7 @@ namespace glimmer
         std::vector<SplitterInternalState> splitterStates;
         std::vector<SpinnerInternalState> spinnerStates;
         std::vector<TabBarInternalState> tabBarStates;
+        std::vector<AccordionInternalState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
         
@@ -583,10 +611,12 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true } };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
         FixedSizeStack<LayoutDescriptor, GLIMMER_MAX_LAYOUT_NESTING> layouts;
+        FixedSizeStack<AccordionBuilder, 4> accordions;
         FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
         FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
         DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
@@ -674,6 +704,12 @@ namespace glimmer
             return tabBarStates[index];
         }
 
+        AccordionInternalState& AccordionState(int32_t id)
+        {
+            auto index = id & 0xffff;
+            return accordionStates[index];
+        }
+
         ScrollableRegion& ScrollRegion(int32_t id)
         {
             auto index = id & 0xffff;
@@ -683,7 +719,7 @@ namespace glimmer
 
         StyleDescriptor& GetStyle(int32_t state);
 
-        void ToggleDeferedRendering(bool defer, bool reset = true);
+        IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
@@ -693,7 +729,6 @@ namespace glimmer
         void ResetCurrentStyle();
 
         const ImRect& GetGeometry(int32_t id) const;
-        float MaximumExtent(Direction dir) const;
         ImVec2 MaximumExtent() const;
         ImVec2 MaximumAbsExtent() const;
         ImVec2 WindowSize() const;
