@@ -1200,8 +1200,9 @@ namespace glimmer
         if (idx == WSI_Default)
             if (!stack[idx].empty())
             {
+                auto parent = stack[idx].top();
                 auto& style = stack[idx].push();
-                style = stack[idx].top();
+                style = parent;
                 style.bgcolor = IM_COL32_BLACK_TRANS;
                 style.From(css);
             }
@@ -1293,7 +1294,6 @@ namespace glimmer
                 if (style != WSI_Default)
                 {
                     context.currStyle[style] = GetCurrentStyle(WS_Default);
-                    context.currStyle[style].bgcolor = IM_COL32_BLACK_TRANS;
                 }
 
                 context.currStyle[style].From(css[style]);

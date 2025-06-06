@@ -421,6 +421,7 @@ namespace glimmer
         ImVec2 spacing{ 0.f, 0.f };
         ImVec2 maxdim{ 0.f, 0.f };
         ImVec2 cumulative{ 0.f, 0.f };
+        ImRect extent{};
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
         OverflowMode hofmode = OverflowMode::Scroll;
@@ -462,29 +463,43 @@ namespace glimmer
 
     struct AccordionBuilder
     {
+        struct RegionDescriptor
+        {
+            RendererEventIndexRange hrange;
+            RendererEventIndexRange crange;
+            ImVec2 header;
+            ImVec2 content;
+        };
+
         int32_t id = 0;
+        int32_t geometry = 0;
         ImVec2 origin;
-        ImVec2 size;
-        ImVec2 nextpos, prevpos;
+        ImVec2 size, totalsz;
         ImRect content;
         ImVec2 textsz, extent;
         float headerHeight = 0.f;
         int16_t totalRegions = 0;
         std::string_view icon[2];
         std::string_view text;
-        StyleDescriptor style;
         WidgetDrawResult event;
+        Vector<RegionDescriptor, int16_t, 8> regions;
+        FourSidedBorder border;
+        FourSidedMeasure spacing;
+        uint32_t bgcolor;
         bool svgOrImage[2] = { false, false };
         bool isPath[2] = { false, false };
         bool isRichText = false;
         bool hscroll = false, vscroll = false;
+
+        AccordionBuilder() {}
+        void reset();
     };
 
     struct AccordionInternalState
     {
         int16_t opened = -1;
-        int32_t state = WS_Default;
         Vector<ScrollableRegion, int16_t, 8> scrolls;
+        Vector<int32_t, int16_t, 8> hstates;
     };
 
     ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
@@ -513,6 +528,7 @@ namespace glimmer
         ImRect decbtn, incbtn;
         ImVec2 center;
         float maxrad;
+        int ridx;
 
         EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& m, const ImRect& b, const ImRect& p, 
             const ImRect& c, const ImRect& t)
@@ -530,6 +546,9 @@ namespace glimmer
 
         EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e)
             : type{ type_ }, id{ id_ }, extent{ e } {}
+
+        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, int idx)
+            : type{ type_ }, id{ id_ }, extent{ e }, ridx{ idx } {}
 
         EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& p, const ImRect& c)
             : type{ type_ }, id{ id_ }, padding{ p }, content{ c } {}
@@ -710,6 +729,12 @@ namespace glimmer
             return accordionStates[index];
         }
 
+        const AccordionInternalState& AccordionState(int32_t id) const
+        {
+            auto index = id & 0xffff;
+            return accordionStates[index];
+        }
+
         ScrollableRegion& ScrollRegion(int32_t id)
         {
             auto index = id & 0xffff;
@@ -720,6 +745,7 @@ namespace glimmer
         StyleDescriptor& GetStyle(int32_t state);
 
         IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
+        IRenderer& GetRenderer();
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
@@ -729,6 +755,8 @@ namespace glimmer
         void ResetCurrentStyle();
 
         const ImRect& GetGeometry(int32_t id) const;
+        ImRect GetLayoutSize() const;
+        void RecordDeferRange(RendererEventIndexRange& range, bool start) const;
         ImVec2 MaximumExtent() const;
         ImVec2 MaximumAbsExtent() const;
         ImVec2 WindowSize() const;

@@ -222,7 +222,7 @@ namespace glimmer
         std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
         ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
         ImVec2 content; // maximum coordinates of the widgets inside region
-        ImVec2 extent; // ttoal available space inside the scroll region, default is infinite if scroll enabled
+        ImVec2 extent{ FLT_MAX, FLT_MAX }; // total available space inside the scroll region, default is infinite if scroll enabled
         ScrollBarState state;
     };
 

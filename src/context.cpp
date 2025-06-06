@@ -105,6 +105,22 @@ namespace glimmer
         inRow = contentInteracted = addedBounds = false;
     }
 
+    void AccordionBuilder::reset()
+    {
+        id = geometry = 0;
+        origin = size = totalsz = textsz = extent = ImVec2{};
+        content = ImRect{};
+        headerHeight = 0.f;
+        totalRegions = 0;
+        text = icon[0] = icon[1] = "";
+        event = WidgetDrawResult{};
+        regions.clear(true);
+        border = FourSidedBorder{};
+        bgcolor = 0;
+        svgOrImage[0] = svgOrImage[1] = isPath[0] = isPath[1] = false;
+        isRichText = hscroll = vscroll = false;
+    }
+
     void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         el.type = UIOperationType::Widget;
@@ -184,8 +200,17 @@ namespace glimmer
         {
             auto id = containerStack.top();
             auto index = id & 0xffff;
-            auto type = id >> 16;
-            offset = states[type][index].state.scroll.state.pos;
+            auto type = (WidgetType)(id >> 16);
+
+            if (type == WT_Accordion)
+            {
+                auto& accordion = accordions.top();
+                const auto& state = AccordionState(accordion.id);
+                offset = state.scrolls[accordion.totalRegions].state.pos;
+                return state.scrolls[accordion.totalRegions].viewport.Min + offset;
+            }
+            else if (type == WT_Scrollable)
+                offset = states[type][index].state.scroll.state.pos;
         }
 
         return layout.nextpos + offset;
@@ -289,6 +314,24 @@ namespace glimmer
         }
     }
 
+    IRenderer& WidgetContextData::GetRenderer()
+    {
+        if (!containerStack.empty())
+        {
+            auto id = containerStack.top();
+            auto wtype = (WidgetType)(id >> 16);
+
+            if (wtype == WT_Accordion)
+            {
+                auto& accordion = accordions.top();
+                return (accordion.geometry & FromRight) || (accordion.geometry & FromBottom) || usingDeferred ?
+                    *deferedRenderer : *Config.renderer;
+            }
+        }
+
+        return usingDeferred ? *deferedRenderer : *Config.renderer;
+    }
+
     void WidgetContextData::PushContainer(int32_t parentId, int32_t id)
     {
         auto index = id & 0xffff;
@@ -310,6 +353,20 @@ namespace glimmer
         if (wtype == WT_SplitterScrollRegion)
         {
             splitterScrollPaneParentIds[index] = -1;
+        }
+    }
+
+    void WidgetContextData::RecordDeferRange(RendererEventIndexRange& range, bool start) const
+    {
+        if (start)
+        {
+            range.events.first = deferedEvents.size();
+            range.primitives.first = deferedRenderer->TotalEnqueued();
+        }
+        else
+        {
+            range.events.second = deferedEvents.size();
+            range.primitives.second = deferedRenderer->TotalEnqueued();
         }
     }
     
@@ -378,7 +435,7 @@ namespace glimmer
     void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleAccordionEvent(int32_t id, const ImRect& region, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
@@ -424,7 +481,8 @@ namespace glimmer
                 break;
             case WT_Spinner:
                 ev.extent.Translate(origin);
-                ev.center += origin;
+                ev.incbtn.Translate(origin);
+                ev.decbtn.Translate(origin);
                 HandleSpinnerEvent(ev.id, ev.extent, ev.incbtn, ev.decbtn, io, result);
                 break;
             case WT_Slider:
@@ -433,8 +491,8 @@ namespace glimmer
                 HandleSliderEvent(ev.id, ev.padding, ev.content, io, result);
                 break;
             case WT_TextInput:
-                ev.content.Translate(origin);
-                HandleTextInputEvent(ev.id, ev.content, io, renderer, result);
+                ev.extent.Translate(origin);
+                HandleTextInputEvent(ev.id, ev.extent, io, renderer, result);
                 break;
             case WT_DropDown:
                 ev.margin.Translate(origin);
@@ -454,7 +512,7 @@ namespace glimmer
                 break;
             case WT_Accordion:
                 ev.extent.Translate(origin);
-                HandleAccordionEvent(ev.id, ev.extent, io, result);
+                HandleAccordionEvent(ev.id, ev.extent, ev.ridx, io, result);
                 break;
             default:
                 break;
@@ -487,6 +545,12 @@ namespace glimmer
         return itemGeometries[wtype][index];
     }
 
+    ImRect WidgetContextData::GetLayoutSize() const
+    {
+        auto idx = layouts.size();
+        return itemGeometries[WT_Layout][idx];
+    }
+
     ImVec2 WidgetContextData::MaximumExtent() const
     {
         if (!containerStack.empty())
@@ -512,8 +576,8 @@ namespace glimmer
             else if (wtype == WT_Accordion)
             {
                 auto& accordion = accordions.top();
-                return ImVec2{ accordion.hscroll ? accordion.extent.x : accordion.size.x,
-                    accordion.vscroll ? accordion.extent.y : accordion.size.y };
+                return ImVec2{ accordion.hscroll ? accordion.extent.x - accordion.origin.x: accordion.size.x,
+                    accordion.vscroll ? accordion.extent.y - accordion.origin.y : accordion.size.y };
             }
             else
             {
@@ -553,8 +617,10 @@ namespace glimmer
             else if (wtype == WT_Accordion)
             {
                 auto& accordion = accordions.top();
-                return accordion.origin + ImVec2{ accordion.hscroll ? accordion.extent.x : accordion.size.x,
-                    accordion.vscroll ? accordion.extent.y : accordion.size.y };
+                const auto& state = AccordionState(accordion.id);
+                const auto& region = state.scrolls[accordion.totalRegions];
+                return ImVec2{ accordion.hscroll ? region.extent.x : region.viewport.Max.x,
+                    accordion.vscroll ? region.extent.y : region.viewport.Max.y };
             }
             else
             {

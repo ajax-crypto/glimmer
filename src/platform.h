@@ -72,6 +72,9 @@ struct ImRect
     float Area() const { return GetWidth() * GetHeight(); }
     ImVec2 GetSize() const { return ImVec2{ GetWidth(), GetHeight() }; }
 };
+
+ImVec2 ImMin(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ std::min(lhs.x, rhs.x), std::min(lhs.y, rhs.y) }; }
+ImVec2 ImMax(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ std::max(lhs.x, rhs.x), std::max(lhs.y, rhs.y) }; }
 #endif
 
 inline bool operator==(const ImRect& lhs, const ImRect& rhs)

@@ -418,7 +418,7 @@ namespace glimmer
             auto& region = context.ScrollRegion(id);
             const auto& style = context.GetStyle(WS_Default);
 
-            auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+            auto& renderer = context.GetRenderer();
             LayoutItemDescriptor layoutItem;
             layoutItem.wtype = WT_Scrollable;
             layoutItem.id = id;
@@ -469,7 +469,7 @@ namespace glimmer
         else
         {
             auto id = context.containerStack.top();
-            auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+            auto& renderer = context.GetRenderer();
             EndScrollableImpl(id, renderer);
         }
     }
@@ -1555,7 +1555,8 @@ namespace glimmer
             isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
             if (input.lastClickTime != -1.f) input.lastClickTime += io.deltaTime;
 
-            if (mouseover) Config.platform->SetMouseCursor(MouseCursor::TextInput);
+            if (mouseover) 
+                Config.platform->SetMouseCursor(MouseCursor::TextInput);
 
             // When mouse is down inside the input, text selection is in progress
             // Hence, either text selection is starting, in which case record the start position.
@@ -2519,16 +2520,24 @@ namespace glimmer
         auto& accordion = context.accordions.push();
         auto& state = context.AccordionState(id);
         accordion.id = id;
-        accordion.style = context.GetStyle(state.state);
+        accordion.geometry = geometry;
         
+        const auto& style = context.GetStyle(WS_Default);
         LayoutItemDescriptor item;
         item.id = id;
         item.sizing = geometry;
         item.wtype = WT_Accordion;
-        AddExtent(item, accordion.style, neighbors);
+        AddExtent(item, style, neighbors);
         accordion.origin = item.margin.Min;
         accordion.size = item.margin.GetSize();
-        accordion.nextpos = item.content.Min;
+        accordion.content = item.content;
+        accordion.spacing.top = style.padding.top + style.margin.top + style.border.top.thickness;
+        accordion.spacing.bottom = style.padding.bottom + style.margin.bottom + style.border.bottom.thickness;
+        accordion.spacing.left = style.padding.left + style.margin.left + style.border.left.thickness;
+        accordion.spacing.right = style.padding.right + style.margin.right + style.border.right.thickness;
+
+        context.ToggleDeferedRendering(true, false);
+        context.deferEvents = true;
 
         return true;
     }
@@ -2537,7 +2546,18 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
-        accordion.prevpos = accordion.nextpos;
+        auto& state = context.AccordionState(accordion.id);
+
+        if (state.hstates.size() == accordion.totalRegions)
+            state.hstates.emplace_back(WS_Default);
+
+        if (accordion.regions.size() == accordion.totalRegions)
+            accordion.regions.emplace_back();
+
+        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
+        context.RecordDeferRange(accordion.regions[accordion.totalRegions].hrange, true);
+        accordion.border = style.border;
+        accordion.bgcolor = style.bgcolor;
         return true;
     }
 
@@ -2563,7 +2583,8 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
-        const auto& style = accordion.style;
+        auto& state = context.AccordionState(accordion.id);
+        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
         auto haswrap = !(style.font.flags & FontStyleNoWrap) && !(style.font.flags & FontStyleOverflowEllipsis) &&
             !(style.font.flags & FontStyleOverflowMarquee);
         accordion.textsz = Config.renderer->GetTextSize(content, style.font.font, style.font.size, 
@@ -2573,7 +2594,7 @@ namespace glimmer
         accordion.isRichText = isRichText;
     }
 
-    void HandleAccordionEvent(int32_t id, const ImRect& region, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
@@ -2583,18 +2604,23 @@ namespace glimmer
             auto& state = context.AccordionState(accordion.id);
             auto contains = region.Contains(io.mousepos);
 
-            if (contains && io.isLeftMouseDown()) state.state = WS_Hovered | WS_Pressed;
-            else if (contains) state.state = WS_Hovered;
-            else state.state = WS_Default;
+            if (contains && io.isLeftMouseDown()) state.hstates[ridx] = WS_Hovered | WS_Pressed;
+            else if (contains) state.hstates[ridx] = WS_Hovered;
+            else state.hstates[ridx] = WS_Default;
 
-            if (contains && io.clicked())
+            if (contains)
             {
-                state.opened = accordion.totalRegions;
-                result.event = WidgetEvent::Clicked;
+                if (io.clicked())
+                {
+                    state.opened = state.opened == ridx ? -1 : ridx;
+                    result.event = WidgetEvent::Clicked;
+                }
+                
+                Config.platform->SetMouseCursor(MouseCursor::Grab);
             }
         }
         else
-            context.deferedEvents.emplace_back(WT_Accordion, accordion.id, region);
+            context.deferedEvents.emplace_back(WT_Accordion, accordion.id, region, ridx);
     }
 
     void EndAccordionHeader(std::optional<bool> expanded)
@@ -2602,67 +2628,163 @@ namespace glimmer
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         auto& state = context.AccordionState(accordion.id);
-        const auto& style = accordion.style;
-        auto& renderer = *Config.renderer;
         auto isExpanded = expanded.has_value() ? expanded : state.opened == accordion.totalRegions;
+        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
         if (isExpanded) state.opened = accordion.totalRegions;
-        auto iconidx = isExpanded ? 1 : 0;
 
-        ImRect bg{ accordion.nextpos - ImVec2{ style.padding.left, style.padding.top }, 
-            accordion.nextpos + ImVec2{ accordion.content.GetWidth() + style.padding.right,
-            accordion.headerHeight + style.padding.bottom } };
+        auto iconidx = accordion.totalRegions == state.opened ? 1 : 0;
+        auto& renderer = context.GetRenderer();
+        ImRect bg{ accordion.content.Min, { accordion.content.Max.x,
+            accordion.content.Min.y + style.padding.v() + accordion.textsz.y } };
         DrawBackground(bg.Min, bg.Max, style, renderer);
+        auto nextpos = bg.Min + ImVec2{ style.padding.left, style.padding.top };
+        auto iconsz = 0.5f * accordion.headerHeight;
+        auto prevy = nextpos.y;
+        nextpos.y += 0.25f * accordion.headerHeight;
+        nextpos.x += 0.25f * accordion.headerHeight;
         if (!accordion.icon[iconidx].empty())
         {
-            accordion.svgOrImage[iconidx] ? renderer.DrawSVG(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, style.fgcolor,
+            accordion.svgOrImage[iconidx] ? renderer.DrawSVG(nextpos, { iconsz, iconsz }, style.fgcolor,
                 accordion.icon[iconidx], accordion.isPath[iconidx]) :
-                renderer.DrawImage(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, accordion.icon[iconidx]);
+                renderer.DrawImage(nextpos, { iconsz, iconsz }, accordion.icon[iconidx]);
         }
         else
-            DrawSymbol(accordion.nextpos, { accordion.headerHeight, accordion.headerHeight }, {}, expanded ? SymbolIcon::DownTriangle : SymbolIcon::RightTriangle,
+            DrawSymbol(nextpos, { iconsz, iconsz }, {}, expanded ? SymbolIcon::DownTriangle : SymbolIcon::RightTriangle,
                 style.fgcolor, style.fgcolor, 1.f, renderer);
-        DrawText(accordion.nextpos, accordion.nextpos + ImVec2{ accordion.size.x, accordion.headerHeight }, ImRect{ accordion.nextpos, accordion.nextpos + accordion.textsz },
-            accordion.text, false, style, renderer, ToTextFlags(accordion.isRichText ? TextType::RichText : TextType::PlainText));
+        nextpos.x += accordion.headerHeight + style.padding.left;
+        nextpos.y = prevy;
+        DrawText(nextpos, nextpos + ImVec2{ accordion.size.x, accordion.headerHeight }, 
+            ImRect{ nextpos, nextpos + accordion.textsz }, accordion.text, false, style, renderer, 
+            ToTextFlags(accordion.isRichText ? TextType::RichText : TextType::PlainText));
+        context.RecordDeferRange(accordion.regions[accordion.totalRegions].hrange, false);
 
-        auto io = Config.platform->CurrentIO();
-        HandleAccordionEvent(accordion.id, bg, io, accordion.event);
+        accordion.regions[accordion.totalRegions].header = bg.GetSize();
+        accordion.totalsz.y += bg.GetHeight();
+        context.ResetCurrentStyle();
     }
 
-    bool StartAccordionContent(bool hscroll, bool vscroll, ImVec2 maxsz)
+    bool StartAccordionContent(float height, bool hscroll, bool vscroll, ImVec2 maxsz)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         auto& state = context.AccordionState(accordion.id);
-        auto& cont = context.containerStack.push();
-        cont = accordion.id;
-        state.scrolls[accordion.totalRegions].enabled.first = hscroll;
-        state.scrolls[accordion.totalRegions].enabled.second = vscroll;
-        state.scrolls[accordion.totalRegions].extent = maxsz;
-        return state.opened == accordion.totalRegions;
+        auto& scroll = state.scrolls.size() == accordion.totalRegions ? state.scrolls.emplace_back() : 
+            state.scrolls[accordion.totalRegions];
+
+        scroll.enabled.first = hscroll;
+        scroll.enabled.second = vscroll;
+        scroll.extent = maxsz;
+        scroll.viewport.Min = accordion.content.Min;
+        scroll.viewport.Max = scroll.viewport.Min + ImVec2{ accordion.size.x, height };
+        context.RecordDeferRange(accordion.regions[accordion.totalRegions].crange, true);
+        auto isOpen = state.opened == accordion.totalRegions;
+
+        if (isOpen)
+        {
+            auto& cont = context.containerStack.push();
+            cont = accordion.id;
+        }
+
+        return isOpen;
     }
 
     void EndAccordionContent()
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
-        accordion.totalRegions++;
+        auto& state = context.AccordionState(accordion.id);
 
-        const auto& style = accordion.style;
-        auto& renderer = *Config.renderer;
-        ImRect border{ { accordion.prevpos.x - style.padding.left, accordion.prevpos.y - style.padding.top }, 
-            { accordion.origin.x + accordion.size.x, accordion.nextpos.y + style.padding.bottom } };
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        context.containerStack.pop(1, true);
+        if (state.opened == accordion.totalRegions)
+        {
+            auto lrect = context.GetLayoutSize();
+            state.scrolls[accordion.totalRegions].content = lrect.Max;
+            if (state.scrolls[accordion.totalRegions].viewport.Max.y == FLT_MAX)
+                state.scrolls[accordion.totalRegions].viewport.Max.y = lrect.Max.y;
+            accordion.regions[accordion.totalRegions].content = state.scrolls[accordion.totalRegions].viewport.GetSize();
+            accordion.totalsz.y += accordion.regions[accordion.totalRegions].content.y;
+            context.RecordDeferRange(accordion.regions[accordion.totalRegions].crange, false);
+            context.containerStack.pop(1, true);
+        }
+
+        accordion.totalRegions++;
     }
 
     WidgetDrawResult EndAccordion()
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
+        auto& state = context.AccordionState(accordion.id);
         auto res = accordion.event;
+        context.deferEvents = false;
 
-        context.AddItemGeometry(accordion.id, { accordion.origin, accordion.origin + accordion.size });
-        context.accordions.pop(1, true);
+        auto& renderer = context.GetRenderer();
+        auto io = Config.platform->CurrentIO();
+        accordion.totalsz.y += 2.f * (float)(accordion.totalRegions - 1);
+        auto offset = (accordion.geometry & ToBottom) ? ImVec2{ 0, 0 } : ImVec2{ 0, 
+            accordion.content.GetHeight() - accordion.totalsz.y - 
+            (accordion.origin.y + accordion.size.y - accordion.content.Max.y) };
+        ImRect content;
+        content.Min = { FLT_MAX, FLT_MAX };
+
+        for (auto idx = 0; idx < accordion.totalRegions; ++idx)
+        {
+            const auto& region = accordion.regions[idx];
+            ImVec2 headerstart = accordion.content.Min + offset;
+            content.Min = ImMin(content.Min, headerstart);
+            ImRect header{ headerstart, headerstart + region.header };
+            renderer.Render(*Config.renderer, offset, region.hrange.primitives.first,
+                region.hrange.primitives.second);
+            HandleAccordionEvent(accordion.id, header, idx, io, res);
+
+            if (header.Contains(io.mousepos))
+            {
+                if (io.clicked()) res.event = WidgetEvent::Clicked;
+                else if (io.isLeftMouseDown()) state.hstates[idx] |= WS_Pressed;
+                else state.hstates[idx] &= ~WS_Pressed;
+                state.hstates[idx] |= WS_Hovered;
+            }
+            else state.hstates[idx] &= ~WS_Hovered;
+
+            if (idx == state.opened)
+            {
+                offset.y += region.header.y;
+                auto scsz = state.scrolls[idx].viewport.GetSize();
+                state.scrolls[idx].viewport.Min = accordion.content.Min + offset;
+                state.scrolls[idx].viewport.Max = state.scrolls[idx].viewport.Min + scsz;
+
+                renderer.Render(*Config.renderer, offset, region.crange.primitives.first,
+                    region.crange.primitives.second);
+                context.HandleEvents(offset, region.crange.events.first, region.crange.events.second);
+
+                for (auto eidx = region.crange.events.first; eidx < region.crange.events.second; ++eidx)
+                {
+                    auto id = context.deferedEvents[eidx].id;
+                    auto geometry = context.GetGeometry(id);
+                    geometry.Translate(offset);
+                    context.AddItemGeometry(id, geometry);
+                }
+
+                ImRect border{ headerstart, state.scrolls[idx].viewport.Max };
+                DrawBorderRect(border.Min, border.Max, accordion.border, accordion.bgcolor, *Config.renderer);
+
+                auto hscroll = state.scrolls[idx].enabled.first ? HandleHScroll(state.scrolls[accordion.totalRegions].state, region.content.x,
+                    state.scrolls[idx].viewport, io.mousepos, renderer, io, Config.scrollbarSz) : false;
+                if (state.scrolls[idx].enabled.second) HandleVScroll(state.scrolls[accordion.totalRegions].state, region.content.y,
+                    state.scrolls[idx].viewport, io.mousepos, renderer, io, Config.scrollbarSz, hscroll);
+                offset.y += scsz.y;
+            }
+
+            offset.y += 2.f;
+        }
+
+        content.Max = { accordion.content.Max.x, accordion.content.Min.y + offset.y };
+        content.Max += ImVec2{ accordion.spacing.right, accordion.spacing.bottom };
+        content.Min -= ImVec2{ accordion.spacing.left, accordion.spacing.top };
+        context.deferedEvents.clear(true);
+        context.ToggleDeferedRendering(false, true);
+        context.AddItemGeometry(accordion.id, content);
+        context.accordions.pop(1, false);
+        accordion.reset();
         return res;
     }
 
@@ -3424,7 +3546,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         const auto& style = context.GetStyle(WS_Default);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         LayoutItemDescriptor layoutItem;
         NeighborWidgets neighbors;
         if (dir == DIR_Vertical) neighbors.bottom = nextid;
@@ -3443,7 +3565,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto id = context.containerStack.top();
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         renderer.ResetClipRect();
 
         auto hasHScroll = false;
@@ -3484,7 +3606,7 @@ namespace glimmer
         const auto& style = context.GetStyle(WS_Default);
         state.current = 0;
 
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
 
         auto idx = 0;
@@ -3547,7 +3669,7 @@ namespace glimmer
         auto mousepos = io.mousepos;
         const auto& style = context.GetStyle(WS_Default);
         const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
 
         assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
 
@@ -3655,7 +3777,7 @@ namespace glimmer
         auto& context = GetContext();
         auto el = context.splitterStack.top();
         auto& state = context.SplitterState(el.id);
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
 
         auto scid = state.scrollids[state.current];
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
@@ -3695,7 +3817,7 @@ namespace glimmer
 
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
-            auto& renderer = overlayctx.parentContext->usingDeferred ? *overlayctx.parentContext->deferedRenderer : *Config.renderer;
+            auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
             ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
 
             if ((origin + size) > overlayctx.WindowSize())
@@ -3814,7 +3936,7 @@ namespace glimmer
         auto& state = context.itemGrids.top();
         auto& header = state.headers[state.currlevel].emplace_back(config);
         auto& itemcfg = context.GetState(state.id).state.grid;
-        auto& renderer = GetContext().usingDeferred ? *GetContext().deferedRenderer : *Config.renderer;
+        auto& renderer = GetContext().GetRenderer();
         const auto& style = context.GetStyle(itemcfg.state);
 
         state.phase = ItemGridConstructPhase::HeaderCells;
@@ -3970,7 +4092,7 @@ namespace glimmer
         auto& gridstate = context.GridState(state.id);
         auto& config = context.GetState(state.id).state.grid;
         auto& headers = state.headers;
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         const auto& style = context.GetStyle(config.state);
         auto io = Config.platform->CurrentIO();
 
@@ -4116,7 +4238,7 @@ namespace glimmer
 
             if (descendents != ItemDescendentVisualState::NoDescendent)
             {
-                auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+                auto& renderer = context.GetRenderer();
                 const auto& style = context.GetStyle(WS_Default);
                 renderer.SetClipRect(start, end);
                 DrawSymbol(start, end, { 2.f, 2.f }, descendents == ItemDescendentVisualState::Collapsed ?
@@ -4357,7 +4479,7 @@ namespace glimmer
         auto& state = context.itemGrids.top();
         auto& gridstate = context.GridState(state.id);
         auto& config = context.GetState(state.id).state.grid;
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         auto io = Config.platform->CurrentIO();
         auto& ctx = GetContext();
 
@@ -4458,7 +4580,7 @@ namespace glimmer
         auto& state = context.itemGrids.top();
         auto& gridstate = context.GridState(state.id);
         const auto& config = context.GetState(state.id).state.grid;
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         auto io = Config.platform->CurrentIO();
 
         ImRect viewport{ state.origin + ImVec2{ 0.f, state.headerHeight }, state.origin + state.size };
@@ -4503,7 +4625,7 @@ namespace glimmer
         auto& context = GetContext();
         assert((id & 0xffff) <= (int)context.states[type].size());
         WidgetDrawResult result;
-        auto& renderer = context.usingDeferred ? *context.deferedRenderer : *Config.renderer;
+        auto& renderer = context.GetRenderer();
         auto& platform = *Config.platform;
         LayoutItemDescriptor layoutItem;
         layoutItem.wtype = type;

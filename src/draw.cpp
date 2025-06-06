@@ -310,8 +310,8 @@ namespace glimmer
         case glimmer::SymbolIcon::DownTriangle:
         {
             ImVec2 pos1{ startpos.x, startpos.y };
-            ImVec2 pos2{ pos1.x + size.x, pos1.y };
-            ImVec2 pos3{ startpos.x + size.x, pos1.y + (size.y * 0.5f) };
+            ImVec2 pos2{ startpos.x + size.x, startpos.y };
+            ImVec2 pos3{ startpos.x + (0.5f * size.x), startpos.y + size.y };
             renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
             renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
             break;
@@ -319,8 +319,8 @@ namespace glimmer
         case glimmer::SymbolIcon::UpTriangle:
         {
             ImVec2 pos1{ startpos.x, startpos.y + size.y };
-            ImVec2 pos2{ pos1.x + (0.5f * size.x), startpos.y };
-            ImVec2 pos3{ pos2.x + size.x, pos1.y + size.y };
+            ImVec2 pos2{ startpos.x + (0.5f * size.x), startpos.y };
+            ImVec2 pos3{ startpos.x + size.x, startpos.y + size.y };
             renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
             renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
             break;
@@ -328,7 +328,7 @@ namespace glimmer
         case glimmer::SymbolIcon::RightTriangle:
         {
             ImVec2 pos1{ startpos.x, startpos.y };
-            ImVec2 pos2{ pos1.x + size.x, startpos.y + (0.5f * size.y) };
+            ImVec2 pos2{ startpos.x + size.x, startpos.y + (0.5f * size.y) };
             ImVec2 pos3{ startpos.x, startpos.y + size.y };
             renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
             renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);

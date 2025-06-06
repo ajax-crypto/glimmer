@@ -42,9 +42,9 @@ namespace glimmer
     bool StartAccordionHeader();
     void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath);
     void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath);
-    void AddAccordionHeaderText(std::string_view content, bool isRichText);
-    void EndAccordionHeader(std::optional<bool> expanded);
-    bool StartAccordionContent(bool hscroll, bool vscroll, ImVec2 maxsz = {});
+    void AddAccordionHeaderText(std::string_view content, bool isRichText = false);
+    void EndAccordionHeader(std::optional<bool> expanded = std::nullopt);
+    bool StartAccordionContent(float height = FLT_MAX, bool hscroll = false, bool vscroll = false, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     void EndAccordionContent();
     WidgetDrawResult EndAccordion();
 

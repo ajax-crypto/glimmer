@@ -32,6 +32,8 @@ plutovg_convert_argb_to_rgba(pixels, pixels, width, height, stride);*/
 
 namespace glimmer
 {
+    ImVec2& Round(ImVec2& v) { v.x = roundf(v.x); v.y = roundf(v.y); return v; };
+
     ImVec2 ImGuiMeasureText(std::string_view text, void* fontptr, float sz, float wrapWidth)
     {
         auto imfont = (ImFont*)fontptr;
@@ -132,6 +134,7 @@ namespace glimmer
 
     void ImGuiRenderer::SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
     {
+        Round(startpos); Round(endpos);
         ImGui::PushClipRect(startpos, endpos, intersect);
     }
 
@@ -142,6 +145,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness)
     {
+        Round(startpos); Round(endpos); thickness = roundf(thickness);
         ((ImDrawList*)UserData)->AddLine(startpos, endpos, color, thickness);
     }
 
@@ -152,6 +156,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness)
     {
+        Round(pos1); Round(pos2); Round(pos3); thickness = roundf(thickness);
         filled ? ((ImDrawList*)UserData)->AddTriangleFilled(pos1, pos2, pos3, color) :
             ((ImDrawList*)UserData)->AddTriangle(pos1, pos2, pos3, color, thickness);
     }
@@ -160,6 +165,7 @@ namespace glimmer
     {
         if (thickness > 0.f || filled)
         {
+            Round(startpos); Round(endpos); thickness = roundf(thickness);
             filled ? ((ImDrawList*)UserData)->AddRectFilled(startpos, endpos, color) :
                 ((ImDrawList*)UserData)->AddRect(startpos, endpos, color, 0.f, 0, thickness);
         }
@@ -170,6 +176,13 @@ namespace glimmer
     {
         auto isUniformRadius = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr) ||
             ((topleftr + toprightr + bottomrightr + bottomleftr) == 0.f);
+
+        Round(startpos); Round(endpos);
+        thickness = roundf(thickness);
+        topleftr = roundf(topleftr);
+        toprightr = roundf(toprightr);
+        bottomrightr = roundf(bottomrightr);
+        bottomleftr = roundf(bottomleftr);
 
         if (isUniformRadius)
         {
@@ -193,20 +206,23 @@ namespace glimmer
 
     void ImGuiRenderer::DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
+        Round(startpos); Round(endpos);
         dir == DIR_Horizontal ? ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorto, colorto, colorfrom) :
             ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorfrom, colorto, colorto);
     }
 
-    void ImGuiRenderer::DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr, uint32_t colorfrom, uint32_t colorto, Direction dir)
+    void ImGuiRenderer::DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr, 
+        uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
         auto& dl = *((ImDrawList*)UserData);
         ConstructRoundedRect(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr);
-
+        // TODO: Create color array per vertex
         DrawPolyGradient(dl._Path.Data, NULL, dl._Path.Size);
     }
 
     void ImGuiRenderer::DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness)
     {
+        Round(center); radius = roundf(radius); thickness = roundf(thickness);
         filled ? ((ImDrawList*)UserData)->AddCircleFilled(center, radius, color) :
             ((ImDrawList*)UserData)->AddCircle(center, radius, color, 0, thickness);
     }
@@ -214,6 +230,7 @@ namespace glimmer
     void ImGuiRenderer::DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness)
     {
         constexpr float DegToRad = M_PI / 180.f;
+        Round(center); radius = roundf(radius); thickness = roundf(thickness);
 
         if (inverted)
         {
@@ -359,6 +376,8 @@ namespace glimmer
 
     void ImGuiRenderer::DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end)
     {
+        Round(center); radius = roundf(radius);
+
         auto drawList = ((ImDrawList*)UserData);
         if (((in | out) & IM_COL32_A_MASK) == 0 || radius < 0.5f)
             return;
@@ -427,6 +446,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth)
     {
+        Round(pos);
         auto font = ImGui::GetFont();
         ((ImDrawList*)UserData)->AddText(font, _currentFontSz, pos, color, text.data(), text.data() + text.size(),
             wrapWidth);
@@ -449,6 +469,8 @@ namespace glimmer
 
     bool ImGuiRenderer::StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color)
     {
+        Round(pos); Round(size);
+
         char buffer[32];
         memset(buffer, 0, 32);
         std::to_chars(buffer, buffer + 31, id);
@@ -475,6 +497,8 @@ namespace glimmer
 
     void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
     {
+        Round(pos); Round(size);
+
         constexpr int bufsz = 1 << 13;
         static char buffer[bufsz] = { 0 };
 
@@ -530,6 +554,8 @@ namespace glimmer
 
     void ImGuiRenderer::DrawImage(ImVec2 pos, ImVec2 size, std::string_view file)
     {
+        Round(pos); Round(size);
+
         auto& dl = *((ImDrawList*)UserData);
         bool found = false;
 
@@ -742,8 +768,9 @@ namespace glimmer
                     break;
 
                 case DrawingOps::Triangle:
-                    renderer.DrawTriangle(entry.second.triangle.pos1, entry.second.triangle.pos2, entry.second.triangle.pos3,
-                        entry.second.triangle.color, entry.second.triangle.filled, entry.second.triangle.thickness);
+                    renderer.DrawTriangle(entry.second.triangle.pos1 + offset, entry.second.triangle.pos2 + offset, 
+                        entry.second.triangle.pos3 + offset, entry.second.triangle.color, entry.second.triangle.filled, 
+                        entry.second.triangle.thickness);
                     break;
 
                 case DrawingOps::Rectangle:
