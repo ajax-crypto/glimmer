@@ -4,12 +4,12 @@
 #include "style.h"
 #include "draw.h"
 
-#define GLIMMER_FAST_LAYOUT_ENGINE 0
+#define GLIMMER_FLAT_LAYOUT_ENGINE 0
 #define GLIMMER_CLAY_LAYOUT_ENGINE 1
 #define GLIMMER_YOGA_LAYOUT_ENGINE 2
 
 #ifndef GLIMMER_LAYOUT_ENGINE
-#define GLIMMER_LAYOUT_ENGINE GLIMMER_FAST_LAYOUT_ENGINE
+#define GLIMMER_LAYOUT_ENGINE GLIMMER_YOGA_LAYOUT_ENGINE
 #endif
 
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
@@ -18,6 +18,20 @@
 
 Clay_Arena LayoutArena;
 void* LayoutMemory = nullptr;
+#endif
+
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
+#include "libs/inc/yoga/Yoga.h"
+YGNodeRef root = nullptr;
+std::vector<YGNodeRef> children;
+
+static ImRect GetBoundingBox(YGNodeConstRef node)
+{
+    ImRect box;
+    box.Min = { YGNodeLayoutGetLeft(node), YGNodeLayoutGetTop(node) };
+    box.Max = box.Min + ImVec2{ YGNodeLayoutGetWidth(node), YGNodeLayoutGetHeight(node) };
+    return box;
+}
 #endif
 
 namespace glimmer
@@ -264,7 +278,7 @@ namespace glimmer
         ComputeExtent(layoutItem, nextpos, style, neighbors, width, height);
     }
 
-#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
     static float GetTotalSpacing(LayoutDescriptor& layout, Direction dir)
     {
         return dir == DIR_Horizontal ? (((float)layout.currcol + 2.f) * layout.spacing.x) :
@@ -505,11 +519,11 @@ namespace glimmer
     }
 #endif
 
-    ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item)
+    void AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item, const StyleDescriptor& style)
     {
         layout.itemIndexes.emplace_back(GetContext().layoutItems.size(), LayoutOps::AddWidget);
 
-#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
         ImVec2 offset = layout.nextpos - layout.geometry.Min;
         layout.currow = std::max(layout.currow, (int16_t)0);
         layout.currcol = std::max(layout.currcol, (int16_t)0);
@@ -629,17 +643,8 @@ namespace glimmer
         layout.extent.Min = ImMin(layout.extent.Min, item.margin.Min);
         layout.extent.Max = ImMax(layout.extent.Max, item.margin.Max);
 
-        auto& context = GetContext();
-        context.layoutItems.push_back(item);
-        
-        if (!context.spans.empty() && (context.spans.top() & OnlyOnce) != 0) context.spans.pop(1, true);
-
-        if (layout.from == -1) layout.from = layout.to = (int16_t)(context.layoutItems.size() - 1);
-        else layout.to = (int16_t)(context.layoutItems.size() - 1);
-        layout.itemidx = layout.to;
-        return offset;
-
 #elif GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
+
         Clay__OpenElement();
         Clay_ElementDeclaration decl;
         decl.custom.customData = reinterpret_cast<void*>((intptr_t)layout.to);
@@ -662,9 +667,43 @@ namespace glimmer
 
         Clay__ConfigureOpenElement(decl);
         Clay__CloseElement();
-        return ImVec2{ 0, 0 };
-#endif
+
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
         
+        YGNodeRef child = YGNodeNew();
+        YGNodeStyleSetWidth(child, item.margin.GetWidth());
+        YGNodeStyleSetHeight(child, item.margin.GetHeight());
+        if (style.maxdim.x != FLT_MAX) YGNodeStyleSetMaxWidth(child, style.maxdim.x);
+        if (style.maxdim.y != FLT_MAX) YGNodeStyleSetMaxHeight(child, style.maxdim.y);
+        if (style.mindim.x != 0) YGNodeStyleSetMinWidth(child, style.mindim.x);
+        if (style.mindim.y != 0) YGNodeStyleSetMinHeight(child, style.mindim.y);
+        
+        // Main-axis flex growth/shrink
+        if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandH)) YGNodeStyleSetFlexGrow(child, 1);
+        else if ((layout.type == Layout::Vertical) && (item.sizing & ExpandV)) YGNodeStyleSetFlexGrow(child, 1);
+        else YGNodeStyleSetFlexGrow(child, 0);
+
+        if ((layout.type == Layout::Horizontal) && (item.sizing & ShrinkH)) YGNodeStyleSetFlexShrink(child, 1);
+        else if ((layout.type == Layout::Vertical) && (item.sizing & ShrinkV)) YGNodeStyleSetFlexShrink(child, 1);
+        else YGNodeStyleSetFlexShrink(child, 0);
+
+        // Cross-axis override aligment
+        if ((layout.type == Layout::Vertical) && (item.sizing & ExpandH)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
+        else if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandV)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
+
+        YGNodeInsertChild(root, child, YGNodeGetChildCount(root));
+        children.emplace_back(child);
+
+#endif
+
+        auto& context = GetContext();
+        context.layoutItems.push_back(item);
+
+        if (!context.spans.empty() && (context.spans.top() & OnlyOnce) != 0) context.spans.pop(1, true);
+
+        if (layout.from == -1) layout.from = layout.to = (int16_t)(context.layoutItems.size() - 1);
+        else layout.to = (int16_t)(context.layoutItems.size() - 1);
+        layout.itemidx = layout.to;
     }
 
     static ImRect GetAvailableSpace(int32_t direction, ImVec2 nextpos, const NeighborWidgets& neighbors)
@@ -689,6 +728,11 @@ namespace glimmer
     ImRect BeginLayout(Layout type, int32_t fill, int32_t alignment, bool wrap, ImVec2 spacing, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
+
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
+        assert(context.layouts.empty()); // No nested layout is supported
+#endif
+
         auto& layout = context.layouts.push();
         const auto& style = context.currStyleStates == 0 ? context.StyleStack[WSI_Default].top() : context.currStyle[WSI_Default];
 
@@ -716,6 +760,7 @@ namespace glimmer
         ImRect available = GetAvailableSpace(alignment, nextpos, neighbors);
 
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
+
         if (context.layouts.size() == 1)
         {
             uint64_t totalMemorySize = Clay_MinMemorySize();
@@ -760,6 +805,47 @@ namespace glimmer
                 context.ScrollRegion(id);
             });
         }*/
+
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
+
+        assert(context.layouts.size() == 1); // TODO: Implement nested layout support...
+
+        root = YGNodeNew();
+        if ((fill & FD_Horizontal) && (available.Max.x != FLT_MAX)) YGNodeStyleSetWidth(root, available.GetWidth());
+        if ((fill & FD_Vertical) && (available.Max.y != FLT_MAX)) YGNodeStyleSetHeight(root, available.GetHeight());
+        YGNodeStyleSetFlexDirection(root, type == Layout::Horizontal ? YGFlexDirectionRow : YGFlexDirectionColumn);
+        YGNodeStyleSetFlexWrap(root, wrap ? YGWrapWrap : YGWrapNoWrap);
+        YGNodeStyleSetPosition(root, YGEdgeLeft, 0.f);
+        YGNodeStyleSetPosition(root, YGEdgeTop, 0.f);
+        YGNodeStyleSetGap(root, YGGutterRow, spacing.x);
+        YGNodeStyleSetGap(root, YGGutterColumn, spacing.y);
+
+        if ((type == Layout::Horizontal))
+        {
+            // Main axis alignment
+            if (alignment & TextAlignRight) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
+            else if (alignment & TextAlignHCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
+            else if (alignment & TextAlignJustify) YGNodeStyleSetJustifyContent(root, YGJustifySpaceAround);
+            else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
+
+            // Cross axis alignment
+            if (alignment & TextAlignBottom) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
+            else if (alignment & TextAlignVCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
+            else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
+        }
+        else
+        {
+            // Main axis alignment
+            if (alignment & TextAlignBottom) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
+            else if (alignment & TextAlignVCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
+            else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
+
+            // Cross axis alignment
+            if (alignment & TextAlignRight) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
+            else if (alignment & TextAlignHCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
+            else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
+        }
+
 #endif
 
         layout.geometry = available;
@@ -1017,49 +1103,28 @@ namespace glimmer
         
         while (depth > 0 && !context.layouts.empty())
         {
-#if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
-            Clay__CloseElement();
-
-            if (context.layouts.size() == 1)
-            {
-                const auto& layout = context.layouts.top();
-                auto renderCommands = Clay_EndLayout();
-
-                for (auto idx = 0; idx < renderCommands.length; ++idx)
-                {
-                    auto& command = renderCommands.internalArray[idx];
-                    if (command.commandType == CLAY_RENDER_COMMAND_TYPE_CUSTOM)
-                    {
-                        ImRect bbox = { { command.boundingBox.x, command.boundingBox.y }, { command.boundingBox.x + command.boundingBox.width,
-                            command.boundingBox.y + command.boundingBox.height } };
-                        bbox.Translate(layout.geometry.Min);
-                        auto data = command.renderData.custom;
-                        auto id = (int16_t)((intptr_t)(data.customData));
-                        RenderWidget(id, bbox);
-                    }
-                }
-            }
-#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_FAST_LAYOUT_ENGINE
             auto& layout = context.layouts.top();
 
-            if (!IsLayoutDependentOnContent(layout) || context.layouts.size() == 1)
-            {
-                AlignLayoutAxisItems(layout);
-                AlignCrossAxisItems(layout, depth);
-            }
-            else
-            {
-                auto& parent = context.layouts.top(1);
-                auto& item = context.layoutItems.emplace_back();
-
-                item.id = (WT_Layout << 16) | (parent.children.size() - 1);
-                item.to = (int16_t)(context.layoutItems.size() - 1);
-                if (item.from == -1) item.from = item.to;
-                parent.children.emplace_back(layout);
-            }
-
             if (context.layouts.size() == 1)
             {
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
+
+                AlignLayoutAxisItems(layout);
+                AlignCrossAxisItems(layout, depth);
+
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
+
+                Clay__CloseElement();
+                auto renderCommands = Clay_EndLayout();
+                auto widgetidx = 0;
+
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
+
+                auto widgetidx = 0;
+                YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
+
+#endif
+
                 static StyleStackT StyleStack[WSI_Total];
 
                 auto io = Config.platform->CurrentIO();
@@ -1087,9 +1152,33 @@ namespace glimmer
                     case LayoutOps::AddWidget:
                     {
                         auto& item = context.layoutItems[(int16_t)data];
+
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
+
+                        auto& command = renderCommands.internalArray[widgetidx];
+                        if (command.commandType == CLAY_RENDER_COMMAND_TYPE_CUSTOM)
+                        {
+                            ImRect bbox = { { command.boundingBox.x, command.boundingBox.y }, { command.boundingBox.x + command.boundingBox.width,
+                                command.boundingBox.y + command.boundingBox.height } };
+                            bbox.Translate(layout.geometry.Min);
+                            item.margin = bbox;
+                        }
+
+                        ++widgetidx;
+
+#elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
+                        
+                        auto child = children[widgetidx];
+                        auto bbox = GetBoundingBox(child);
+                        bbox.Translate(layout.geometry.Min);
+                        item.margin = bbox;
+                        ++widgetidx;
+
+#endif
                         if (auto res = RenderWidget(layout, item, StyleStack, currStyle,
                             currStyleStates, io); res.event != WidgetEvent::None)
                             result = res;
+
                         min = ImMin(min, item.margin.Min);
                         max = ImMax(min, item.margin.Max);
 
@@ -1146,8 +1235,12 @@ namespace glimmer
                 
                 geometry = layout.geometry;
                 context.AddItemGeometry(layout.id, geometry);
-            }
+
+#if GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
+                YGNodeFreeRecursive(root);
+                children.clear();
 #endif
+            }
 
             --depth;
             layout.reset();

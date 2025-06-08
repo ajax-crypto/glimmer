@@ -275,6 +275,7 @@ namespace glimmer
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
+    int64_t FramesRendered();
 
 #define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 #define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)

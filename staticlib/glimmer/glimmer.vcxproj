@@ -37,6 +37,15 @@
     <ClInclude Include="..\..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h" />
     <ClInclude Include="..\..\src\libs\inc\lunasvg\lunasvg.h" />
     <ClInclude Include="..\..\src\libs\inc\stb_image\stb_image.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGConfig.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGEnums.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGMacros.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNode.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNodeLayout.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNodeStyle.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGPixelGrid.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGValue.h" />
+    <ClInclude Include="..\..\src\libs\inc\yoga\Yoga.h" />
     <ClInclude Include="..\..\src\platform.h" />
     <ClInclude Include="..\..\src\renderer.h" />
     <ClInclude Include="..\..\src\style.h" />

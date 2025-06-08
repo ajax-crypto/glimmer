@@ -502,7 +502,7 @@ namespace glimmer
         Vector<int32_t, int16_t, 8> hstates;
     };
 
-    ImVec2 AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item);
+    void AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item, const StyleDescriptor& style);
 
     // Determine extent of layout/splitter/other containers
     void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,

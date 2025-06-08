@@ -28,6 +28,9 @@
     <Filter Include="Header Files\layout">
       <UniqueIdentifier>{0c160a30-8b70-476f-8b6a-e8a5cf065731}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\layout\yoga">
+      <UniqueIdentifier>{1496b173-1fb3-4f3f-b168-e302aa21445e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -101,6 +104,33 @@
     </ClInclude>
     <ClInclude Include="..\..\src\libs\inc\clay\clay.h">
       <Filter>Header Files\layout</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGConfig.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGEnums.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGMacros.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNode.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNodeLayout.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGNodeStyle.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGPixelGrid.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\YGValue.h">
+      <Filter>Header Files\layout\yoga</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\yoga\Yoga.h">
+      <Filter>Header Files\layout\yoga</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

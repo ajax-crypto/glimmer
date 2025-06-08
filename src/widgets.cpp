@@ -410,7 +410,7 @@ namespace glimmer
             layoutItem.hscroll = hscroll;
             layoutItem.extent = maxsz;
             AddExtent(layoutItem, style, neighbors);
-            AddItemToLayout(layout, layoutItem);
+            AddItemToLayout(layout, layoutItem, style);
             layout.containerStack.push() = id;
         }
         else
@@ -458,12 +458,13 @@ namespace glimmer
         if (!context.layouts.empty())
         {
             auto& layout = context.layouts.top();
+            const auto& style = context.GetStyle(WS_Default);
             auto id = layout.containerStack.top();
             LayoutItemDescriptor layoutItem;
             layoutItem.wtype = WT_Scrollable;
             layoutItem.id = id;
             layoutItem.closing = true;
-            AddItemToLayout(layout, layoutItem);
+            AddItemToLayout(layout, layoutItem, style);
             layout.containerStack.pop(1, true);
         }
         else
@@ -4661,7 +4662,7 @@ namespace glimmer
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(pos,
                     style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4689,7 +4690,7 @@ namespace glimmer
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(pos,
                     style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4714,7 +4715,7 @@ namespace glimmer
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4743,7 +4744,7 @@ namespace glimmer
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4776,7 +4777,7 @@ namespace glimmer
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4804,7 +4805,7 @@ namespace glimmer
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4845,7 +4846,8 @@ namespace glimmer
                 auto pos = layout.geometry.Min;
                 if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
                 if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
+                layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4872,7 +4874,7 @@ namespace glimmer
                 auto pos = layout.geometry.Min;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4908,7 +4910,7 @@ namespace glimmer
                 auto pos = layout.geometry.Min;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4933,7 +4935,7 @@ namespace glimmer
                 auto bounds = TabBarBounds(context.currentTab.id, layoutItem.padding, renderer);
                 bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
                 layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else
             {
@@ -4968,7 +4970,7 @@ namespace glimmer
                 auto pos = layout.geometry.Min;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
             }
             else if (nestedCtx.source == NestedContextSourceType::ItemGrid && !nestedCtx.base->itemGrids.empty())
             {

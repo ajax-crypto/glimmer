@@ -423,6 +423,7 @@ namespace glimmer
     {
         ExpandH = 2, ExpandV = 4, ExpandAll = ExpandH | ExpandV,
         ToLeft = 8, ToRight = 16, ToBottom = 32, ToTop = 64,
+        ShrinkH = 128, ShrinkV = 256, ShrinkAll = ShrinkH | ShrinkV,
         OnlyOnce = 1 << 16,
         FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
         ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,

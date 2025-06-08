@@ -391,6 +391,11 @@ namespace glimmer
     }
 #endif
 
+    int64_t FramesRendered()
+    {
+        return Config.platform->frameCount;
+    }
+
     IODescriptor::IODescriptor()
     {
         for (auto k = 0; k <= GLIMMER_NKEY_ROLLOVER_MAX; ++k) key[k] = Key_Invalid;

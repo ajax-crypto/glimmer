@@ -255,12 +255,12 @@ int main(int argc, char** argv)
                 SetNextStyle("background-color: rgb(100, 0, 255); color: rgb(200, 200, 200);", "color: white;");
                 StartAccordionHeader();
                 AddAccordionHeaderText("Test Accordion");
-                EndAccordionHeader(true);
+                EndAccordionHeader(FramesRendered() == 0 ? std::optional<bool>{ true } : std::nullopt);
                 
                 if (StartAccordionContent())
                 {
                     //Move(FD_Horizontal);
-                    BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignHCenter | TextAlignBottom, 
+                    BeginLayout(Layout::Horizontal, FD_Horizontal | FD_Vertical, TextAlignCenter, 
                         false, { 5.f, 5.f });
                     {
                         Label(widgets[BOTTOM]);
