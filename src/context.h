@@ -388,7 +388,9 @@ namespace glimmer
 
     struct TabItemDescriptor
     {
-        std::string_view name, tooltip;
+        std::string_view name, tooltip, expanded;
+        TextType nameType = TextType::PlainText;
+        TextType expandedType = TextType::PlainText;
         int32_t itemflags = 0;
     };
 
@@ -396,9 +398,11 @@ namespace glimmer
     {
         int32_t id;
         int32_t geometry;
-        TabBarItemSizing sizing = TabBarItemSizing::ShrinkToFit;
+        TabBarItemSizing sizing = TabBarItemSizing::ResizeToFit;
         NeighborWidgets neighbors;
         Vector<TabItemDescriptor, int16_t, 16> items;
+        std::string_view expand = "Expand";
+        TextType expandType = TextType::PlainText;
         bool newTabButton = false;
 
         TabBarDescriptor() {}
@@ -445,6 +449,11 @@ namespace glimmer
         void reset();
     };
 
+    constexpr int16_t NewTabIndex = -1;
+    constexpr int16_t DropDownTabIndex = -2;
+    constexpr int16_t ExpandTabsIndex = -3;
+    constexpr int16_t InvalidTabIndex = -4;
+
     struct TabBarInternalState
     {
         struct ItemDescriptor
@@ -452,13 +461,19 @@ namespace glimmer
             int16_t state = 0;
             ImRect extent, close, pin, text;
             bool pinned = false;
+            TabItemDescriptor descriptor;
         };
 
-        int16_t current = -1;
-        int16_t hovered = -1;
+        int16_t current = InvalidTabIndex;
+        int16_t hovered = InvalidTabIndex;
         Vector<ItemDescriptor, int16_t, 16> tabs;
+        std::string_view expandContent = "Expand";
+        TextType expandType = TextType::PlainText;
         ImRect create;
+        ImRect dropdown;
+        ImRect expand;
         ScrollableRegion scroll;
+        bool expanded = false;
     };
 
     struct AccordionBuilder
@@ -573,7 +588,7 @@ namespace glimmer
     struct WidgetContextData
     {
         // This is quasi-persistent
-        std::vector<WidgetStateData> states[WT_TotalTypes];
+        std::vector<WidgetConfigData> states[WT_TotalTypes];
         std::vector<ItemGridInternalState> gridStates;
         std::vector<TabBarInternalState> tabStates;
         std::vector<ToggleButtonInternalState> toggleStates;
@@ -651,18 +666,19 @@ namespace glimmer
         Vector<EventDeferInfo, int16_t> deferedEvents;
         IRenderer* deferedRenderer = nullptr;
 
-        ImVec2 popupOrigin;
+        ImVec2 popupOrigin{ -1.f, -1.f }, popupSize{ -1.f, -1.f };
         int32_t popupTarget = -1;
         ImRect activePopUpRegion;
+        RendererEventIndexRange popupRange;
 
-        WidgetStateData& GetState(int32_t id)
+        WidgetConfigData& GetState(int32_t id)
         {
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);
             return states[wtype][index];
         }
 
-        WidgetStateData const& GetState(int32_t id) const
+        WidgetConfigData const& GetState(int32_t id) const
         {
             auto index = id & 0xffff;
             auto wtype = (WidgetType)(id >> 16);

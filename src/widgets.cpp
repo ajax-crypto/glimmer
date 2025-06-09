@@ -10,6 +10,7 @@
 #include "context.h"
 #include "layout.h"
 #include "im_font_manager.h"
+#include "libs/inc/implot/implot.h"
 
 namespace glimmer
 {
@@ -19,7 +20,7 @@ namespace glimmer
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         ImVec2 size, ImVec2 totalsz);
 
-    WidgetStateData::WidgetStateData(WidgetType ty)
+    WidgetConfigData::WidgetConfigData(WidgetType ty)
         : type{ ty }
     {
         switch (type)
@@ -41,8 +42,8 @@ namespace glimmer
         }
     }
 
-    WidgetStateData::WidgetStateData(const WidgetStateData& src)
-        : WidgetStateData{ src.type }
+    WidgetConfigData::WidgetConfigData(const WidgetConfigData& src)
+        : WidgetConfigData{ src.type }
     {
         switch (type)
         {
@@ -63,7 +64,7 @@ namespace glimmer
         }
     }
 
-    WidgetStateData& WidgetStateData::operator=(const WidgetStateData& src)
+    WidgetConfigData& WidgetConfigData::operator=(const WidgetConfigData& src)
     {
         type = src.type;
         switch (src.type)
@@ -86,7 +87,7 @@ namespace glimmer
         return *this;
     }
 
-    WidgetStateData::~WidgetStateData()
+    WidgetConfigData::~WidgetConfigData()
     {
         switch (type)
         {
@@ -1946,7 +1947,7 @@ namespace glimmer
                 ImVec2 available2 = ImVec2{ maxw - border.Min.x, maxh - padding.Min.y };
 
                 // Create the popup with its own context                
-                if (StartPopUp(id, { border.Min.x, padding.Max.y }))
+                if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), state.overlayHeight }))
                 {
                     state.ShowList(state, available1, available2);
                     EndPopUp();
@@ -2066,6 +2067,7 @@ namespace glimmer
             auto ismouseover = padding.Contains(io.mousepos);
             state.state = !ismouseover ? WS_Default :
                 io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            if (ismouseover) Config.platform->SetMouseCursor(MouseCursor::Grab);
             if (ismouseover && io.clicked())
             {
                 result.event = WidgetEvent::Clicked; state.opened = !state.opened;
@@ -2077,7 +2079,7 @@ namespace glimmer
                    /* if (state.inputId == -1)
                     {
                         state.inputId = GetNextId(WT_TextInput);
-                        auto& text = GetWidgetState(state.inputId).state.input.text;
+                        auto& text = GetWidgetConfig(state.inputId).state.input.text;
                         for (auto ch : state.text) text.push_back(ch);
                     }
 
@@ -2102,7 +2104,7 @@ namespace glimmer
                     ImVec2{ padding.Min.x, maxh };
 
                 // Create the popup with its own context                
-                if (StartPopUp(id, { border.Min.x, padding.Max.y }))
+                if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
                 {
                     if (state.ShowList)
                         state.ShowList(available1, available2, state);
@@ -2123,24 +2125,24 @@ namespace glimmer
                                 {
                                     optstate.first = GetNextId(WT_Checkbox);
                                     optstate.second = GetNextId(WT_Label);
-                                    GetWidgetState(optstate.first).state.checkbox.check = state.selected == optidx ?
+                                    GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
                                         CheckState::Checked : CheckState::Unchecked;
-                                    GetWidgetState(optstate.second).state.label.text = option.second;
+                                    GetWidgetConfig(optstate.second).state.label.text = option.second;
                                     break;
                                 }
                                 case WT_ToggleButton:
                                 {
                                     optstate.first = GetNextId(WT_ToggleButton);
                                     optstate.second = GetNextId(WT_Label);
-                                    GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
-                                    GetWidgetState(optstate.second).state.label.text = option.second;
+                                    GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
+                                    GetWidgetConfig(optstate.second).state.label.text = option.second;
                                     break;
                                 }
                                 case WT_Invalid:
                                 {
                                     optstate.first = -1;
                                     optstate.second = GetNextId(WT_Label);
-                                    GetWidgetState(optstate.first).state.toggle.checked = state.selected == optidx;
+                                    GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
                                     break;
                                 }
                                 default: break;
@@ -2197,6 +2199,7 @@ namespace glimmer
 
 #pragma region TabBar
 
+    // TODO: Find a faster bounds computation method, move detailed computation to draw method?
     ImRect TabBarBounds(int32_t id, const ImRect& content, IRenderer& renderer)
     {
         ImRect result;
@@ -2204,136 +2207,251 @@ namespace glimmer
         auto& state = context.TabBarState(id);
         const auto& config = context.GetState(id).state.tab;
         int16_t tabidx = 0, lastRowStart = 0;
-        auto height = 0.f;
+        auto height = 0.f, width = 0.f;
         auto fontsz = 0.f;
+        auto overflow = false;
         ImVec2 offset = result.Min = content.Min;
 
-        for (const auto& item : context.currentTab.items)
+        if (config.direction == FD_Horizontal)
         {
-            auto& tab = state.tabs[tabidx];
-            auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
-                (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
-            const auto& style = context.GetStyle(flag);
-            auto txtsz = renderer.GetTextSize(item.name, style.font.font, style.font.size);
-            tab.extent.Min = offset;
-
-            switch (context.currentTab.sizing)
+            for (const auto& item : context.currentTab.items)
             {
-            case TabBarItemSizing::Scrollable:
-            {
-                auto txtorigin = result.Max.x;
-                offset.x += style.padding.h() + txtsz.x + config.spacing.x;
-                height = std::max(height, style.padding.v() + txtsz.y);
-                tab.extent.Max = ImVec2{ offset.x, offset.y + height };
-                break;
-            }
+                auto& tab = state.tabs[tabidx];
+                auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                    (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
+                const auto& style = context.GetStyle(flag);
+                auto txtsz = renderer.GetTextSize(item.name, style.font.font, style.font.size);
+                tab.extent.Min = offset;
 
-            case TabBarItemSizing::MultiRow:
-                if (style.padding.h() + txtsz.x > content.GetWidth())
+                switch (context.currentTab.sizing)
                 {
-                    auto prevh = height;
-                    auto leftover = style.padding.h() + txtsz.x - content.GetWidth();
-                    auto toadd = leftover / (float)(tabidx - lastRowStart);
-
-                    for (auto idx = tabidx; idx >= lastRowStart; --idx)
-                    {
-                        state.tabs[idx].extent.Max.x += toadd;
-                        state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
-                    }
-                        
-                    offset.y += height + config.spacing.y;
-                    offset.x = content.Min.x;
-                    height = style.padding.v() + txtsz.y;
-                    lastRowStart = tabidx;
-
-                    // TODO: Expand size if expand tabs set to true
+                case TabBarItemSizing::Scrollable:
+                {
+                    auto txtorigin = result.Max.x;
+                    offset.x += style.padding.h() + txtsz.x + config.spacing.x;
+                    height = std::max(height, style.padding.v() + txtsz.y);
+                    tab.extent.Max = ImVec2{ offset.x, offset.y + height };
+                    break;
                 }
-                else
+
+                case TabBarItemSizing::DropDown:
                 {
+                    auto txtorigin = result.Max.x;
+                    offset.x += style.padding.h() + txtsz.x + config.spacing.x;
+
+                    if (txtorigin + txtsz.x > content.Max.x - txtsz.y)
+                    {
+                        tab.extent.Min = tab.extent.Max = ImVec2{};
+                        overflow = true;
+                    }
+                    else
+                    {
+                        height = std::max(height, style.padding.v() + txtsz.y);
+                        tab.extent.Max = ImVec2{ offset.x, offset.y + height };
+                    }
+
+                    break;
+                }
+
+                case TabBarItemSizing::MultiRow:
+                    if (offset.x + txtsz.x > content.Max.x)
+                    {
+                        auto prevh = height;
+                        auto leftover = style.padding.h() + txtsz.x - content.GetWidth();
+                        auto toadd = leftover / (float)(tabidx - lastRowStart);
+
+                        for (auto idx = tabidx; idx >= lastRowStart; --idx)
+                        {
+                            state.tabs[idx].extent.Max.x += toadd;
+                            state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
+                        }
+
+                        offset.y += height + config.spacing.y;
+                        offset.x = content.Min.x;
+                        height = style.padding.v() + txtsz.y;
+                        lastRowStart = tabidx;
+
+                        // TODO: Expand size if expand tabs set to true
+                    }
+                    else
+                    {
+                        height = std::max(height, style.padding.v() + txtsz.y);
+                        tab.extent.Min = offset;
+                        offset.x += txtsz.x + style.padding.h() + config.spacing.x;
+                        tab.extent.Max.x = offset.x;
+                    }
+                    break;
+
+                case TabBarItemSizing::ResizeToFit:
                     height = std::max(height, style.padding.v() + txtsz.y);
                     tab.extent.Min = offset;
-                    offset.x += txtsz.x + style.padding.h() + config.spacing.x;
+                    offset.x += txtsz.x + style.padding.h();
                     tab.extent.Max.x = offset.x;
-                }
-                break;
+                    break;
 
-            case TabBarItemSizing::ShrinkToFit:
-                height = std::max(height, style.padding.v() + txtsz.y);
-                tab.extent.Min = offset;
-                offset.x += txtsz.x + style.padding.h();
+                default: break;
+                }
+
+                if (item.itemflags & TI_Pinnable)
+                {
+                    offset.x += config.btnspacing;
+                    tab.pin.Min = ImVec2{ offset.x, offset.y + style.padding.top };
+                    offset.x += config.btnsize * style.font.size;
+                    tab.pin.Max = ImVec2{ offset.x, tab.pin.Min.y + style.font.size };
+                }
+
+                if (item.itemflags & TI_Closeable)
+                {
+                    offset.x += config.btnspacing;
+                    tab.close.Min = ImVec2{ offset.x, offset.y + style.padding.top };
+                    offset.x += config.btnsize * style.font.size;
+                    tab.close.Max = ImVec2{ offset.x, tab.close.Min.y + style.font.size };
+                }
+
+                offset.x += style.padding.left;
                 tab.extent.Max.x = offset.x;
-                break;
-
-            default: break;
+                tab.extent.Max.y += style.padding.bottom;
+                tab.text.Min = tab.extent.Min + ImVec2{ style.padding.left, style.padding.top };
+                tab.text.Max = tab.text.Min + txtsz;
+                offset.x += config.spacing.x;
+                fontsz = std::max(fontsz, style.font.size);
+                tabidx++;
             }
 
-            if (item.itemflags & TI_Pinnable)
+            if (context.currentTab.newTabButton)
             {
-                offset.x += config.btnspacing;
-                tab.pin.Min = ImVec2{ offset.x, offset.y + style.padding.top };
-                offset.x += config.btnsize * style.font.size;
-                tab.pin.Max = ImVec2{ offset.x, tab.pin.Min.y + style.font.size };
+                const auto& style = context.GetStyle(WS_Default);
+
+                offset.x += config.spacing.x;
+                state.create = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+                offset.x += state.create.GetWidth();
             }
 
-            if (item.itemflags & TI_Closeable) 
+            if (overflow)
             {
-                offset.x += config.btnspacing;
-                tab.close.Min = ImVec2{ offset.x, offset.y + style.padding.top };
-                offset.x += config.btnsize * style.font.size;
-                tab.close.Max = ImVec2{ offset.x, tab.close.Min.y + style.font.size };
+                const auto& style = context.GetStyle(WS_Default);
+
+                offset.x += config.spacing.x;
+                state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+                offset.x += state.create.GetWidth();
             }
 
-            offset.x += style.padding.left;
-            tab.extent.Max.x = offset.x;
-            tab.extent.Max.y += style.padding.bottom;
-            tab.text.Min = tab.extent.Min + ImVec2{ style.padding.left, style.padding.top };
-            tab.text.Max = tab.text.Min + txtsz;
-            offset.x += config.spacing.x;
-            fontsz = std::max(fontsz, style.font.size);
-            tabidx++;
-        }
-
-        if (context.currentTab.newTabButton)
-        {
-            const auto& style = context.GetStyle(WS_Default);
-
-            offset.x += config.spacing.x;
-            state.create = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
-            offset.x += state.create.GetWidth();
-        }
-
-        if (context.currentTab.sizing == TabBarItemSizing::ShrinkToFit)
-        {
-            auto extrah = (offset.x - content.Min.x) - content.GetWidth() + state.create.GetWidth();
-
-            if ((extrah > 0.f) || config.expandTabs)
+            if (context.currentTab.sizing == TabBarItemSizing::ResizeToFit)
             {
-                auto cumulative = 0.f;
-                extrah /= (float)tabidx;
+                auto extrah = (offset.x - content.Min.x) - content.GetWidth() + state.create.GetWidth() + state.dropdown.GetWidth();
 
-                for (auto idx = 0; idx < tabidx; ++idx)
+                if ((extrah > 0.f) || config.expandTabs)
                 {
-                    state.tabs[idx].extent.Min.x -= cumulative;
-                    state.tabs[idx].extent.Max.x -= (cumulative + extrah);
-                    state.tabs[idx].pin.TranslateX(-(cumulative + extrah));
-                    state.tabs[idx].close.TranslateX(-(cumulative + extrah));
-                    state.tabs[idx].text.TranslateX(-cumulative);
-                    cumulative += extrah;
-                }
+                    auto cumulative = 0.f;
+                    extrah /= (float)tabidx;
 
-                if (context.currentTab.newTabButton)
-                {
-                    const auto& last = state.tabs.back();
-                    auto sz = state.create.GetSize();
-                    state.create.Min.x = last.extent.Max.x + config.spacing.x;
-                    state.create.Min.y = last.extent.Min.y;
-                    state.create.Max = state.create.Min + sz;
+                    for (auto idx = 0; idx < tabidx; ++idx)
+                    {
+                        state.tabs[idx].extent.Min.x -= cumulative;
+                        state.tabs[idx].extent.Max.x -= (cumulative + extrah);
+                        state.tabs[idx].pin.TranslateX(-(cumulative + extrah));
+                        state.tabs[idx].close.TranslateX(-(cumulative + extrah));
+                        state.tabs[idx].text.TranslateX(-cumulative);
+                        cumulative += extrah;
+                    }
+
+                    if (context.currentTab.newTabButton)
+                    {
+                        const auto& last = state.tabs.back();
+                        auto sz = state.create.GetSize();
+                        state.create.Min.x = last.extent.Max.x + config.spacing.x;
+                        state.create.Min.y = last.extent.Min.y;
+                        state.create.Max = state.create.Min + sz;
+                    }
                 }
             }
+
+            for (auto idx = tabidx - 1; idx >= lastRowStart; --idx)
+                state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
         }
-        
-        for (auto idx = tabidx - 1; idx >= lastRowStart; --idx)
-            state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
+        else
+        {
+            if (config.showExpanded)
+            {
+                const auto& style = context.GetStyle(state.hovered == ExpandTabsIndex ? WS_Hovered : WS_Default);
+                state.expand.Min = offset;
+                auto sz = state.expandType == TextType::PlainText ? renderer.GetTextSize(state.expandContent, style.font.font, style.font.size) :
+                    ImVec2{ style.font.size, style.font.size };
+                state.expand.Max = state.expand.Min + sz;
+                offset.y += sz.y + config.spacing.y;
+            }
+
+            for (const auto& item : context.currentTab.items)
+            {
+                auto& tab = state.tabs[tabidx];
+                auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                    (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
+                const auto& style = context.GetStyle(flag);
+                auto txtsz = item.nameType == TextType::PlainText ? renderer.GetTextSize(item.name, style.font.font, style.font.size) : 
+                    ImVec2{ style.font.size, style.font.size };
+                tab.extent.Min = offset;
+
+                switch (context.currentTab.sizing)
+                {
+                case TabBarItemSizing::Scrollable:
+                {
+                    auto txtorigin = result.Max.y;
+                    offset.y += style.padding.v() + txtsz.y + config.spacing.y;
+                    width = std::max(width, style.padding.h() + txtsz.x);
+                    tab.extent.Max = ImVec2{ offset.x + width, offset.y };
+                    break;
+                }
+
+                case TabBarItemSizing::DropDown:
+                {
+                    auto txtorigin = result.Max.x;
+                    offset.y += style.padding.v() + txtsz.y + config.spacing.y;
+
+                    if (txtorigin + txtsz.x > content.Max.x - txtsz.y)
+                    {
+                        tab.extent.Min = tab.extent.Max = ImVec2{};
+                        overflow = true;
+                    }
+                    else
+                    {
+                        width = std::max(width, style.padding.h() + txtsz.x);
+                        tab.extent.Max = ImVec2{ offset.x + width, offset.y };
+                    }
+
+                    break;
+                }
+
+                default: break;
+                }
+
+                if (item.itemflags & TI_Closeable)
+                {
+                    offset.x += config.btnspacing;
+                    tab.close.Min = ImVec2{ offset.x, offset.y + style.padding.top };
+                    offset.x += config.btnsize * style.font.size;
+                    tab.close.Max = ImVec2{ offset.x, tab.close.Min.y + style.font.size };
+                }
+
+                tab.extent.Max = offset;
+                tab.text.Min = tab.extent.Min + ImVec2{ style.padding.left, style.padding.top };
+                tab.text.Max = tab.text.Min + txtsz;
+                offset.y += config.spacing.y;
+                fontsz = std::max(fontsz, style.font.size);
+                tabidx++;
+            }
+
+            if (overflow)
+            {
+                const auto& style = context.GetStyle(WS_Default);
+
+                offset.x += config.spacing.x;
+                state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+                offset.x += state.create.GetWidth();
+            }
+
+            for (auto idx = tabidx - 1; idx >= lastRowStart; --idx)
+                state.tabs[idx].extent.Max.x = state.tabs[idx].extent.Min.x + width;
+        }
 
         result.Max = state.tabs.back().extent.Max;
         return result;
@@ -2348,6 +2466,19 @@ namespace glimmer
             auto& state = context.TabBarState(id);
             auto tabidx = 0;
             auto hashover = false;
+            state.hovered = InvalidTabIndex;
+
+            if (state.expand.Contains(io.mousepos))
+            {
+                state.hovered = ExpandTabsIndex;
+
+                if (io.clicked())
+                {
+                    state.expanded = !state.expanded;
+                    result.event = WidgetEvent::Clicked;
+                    return;
+                }
+            }
 
             for (auto& tab : state.tabs)
             {
@@ -2376,24 +2507,36 @@ namespace glimmer
                         result.event = WidgetEvent::Clicked;
                         state.current = tabidx;
                         result.tabidx = tabidx;
+                        return;
                     }
                 }
 
                 ++tabidx;
             }
 
-            if (!hashover)
+            if (state.create.Contains(io.mousepos))
             {
-                state.hovered = state.create.Contains(io.mousepos) ? -1 : -2;
+                state.hovered = NewTabIndex;
+
                 if (io.clicked())
                 {
                     result.event = WidgetEvent::Clicked;
                     result.newTab = true;
+                    return;
                 }
             }
 
-            auto width = state.tabs.back().extent.Max.x - state.tabs.front().extent.Min.x;
-            HandleHScroll(state.scroll.state, width, content, io.mousepos, renderer, io, 5.f, false);
+            if (state.dropdown.Contains(io.mousepos))
+            {
+                // TODO: Show other tabs in drop down format...
+                state.hovered = DropDownTabIndex;
+            }
+
+            if (state.scroll.enabled.first)
+            {
+                auto width = state.tabs.back().extent.Max.x - state.tabs.front().extent.Min.x;
+                HandleHScroll(state.scroll.state, width, content, io.mousepos, renderer, io, 5.f, false);
+            }
         }
         else context.deferedEvents.emplace_back(WT_TabBar, id, content);
     }
@@ -2419,8 +2562,12 @@ namespace glimmer
             renderer.SetClipRect(rect.Min, rect.Max);
             DrawBackground(rect.Min, rect.Max, style, renderer);
             DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
-            DrawText(rect.Min, rect.Max,  tab.text, context.currentTab.items[tabidx].name, flag & WS_Disabled,
-                style, renderer);
+
+            if (context.currentTab.items[tabidx].nameType == TextType::PlainText)
+                DrawText(rect.Min, rect.Max, tab.text, context.currentTab.items[tabidx].name, flag & WS_Disabled,
+                    style, renderer);
+            else if (context.currentTab.items[tabidx].nameType == TextType::SVG)
+                renderer.DrawSVG(rect.Min, rect.GetSize(), style.fgcolor, context.currentTab.items[tabidx].name, false);
 
             if (tab.pinned || (((tabidx == state.current) || (tabidx == state.hovered)) &&
                 context.currentTab.items[tabidx].itemflags & TI_Pinnable))
@@ -2462,9 +2609,9 @@ namespace glimmer
             tabidx++;
         }
 
-        if (context.currentTab.newTabButton)
+        if (state.create.GetArea() > 0.f)
         {
-            auto flag = state.hovered == -1 ? WS_Hovered : WS_Default;
+            auto flag = state.hovered == NewTabIndex ? WS_Hovered : WS_Default;
             const auto& style = context.GetStyle(flag);
 
             DrawBackground(state.create.Min, state.create.Max, style, renderer);
@@ -2472,6 +2619,15 @@ namespace glimmer
             DrawSymbol(state.create.Min, state.create.GetSize(),
                 { style.padding.left, style.padding.top },
                 SymbolIcon::Plus, style.fgcolor, 0, 2.f, renderer);
+        }
+
+        if (state.dropdown.GetArea() > 0.f)
+        {
+            auto flag = state.hovered == DropDownTabIndex ? WS_Hovered : WS_Default;
+            const auto& style = context.GetStyle(flag);
+
+            DrawSymbol(state.create.Min, state.create.Max, {}, SymbolIcon::DownTriangle, style.fgcolor, 
+                style.fgcolor, 1.f, renderer);
         }
 
         HandleTabBarEvent(id, content, io, renderer, result);
@@ -2496,14 +2652,29 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
-        tab.items.emplace_back(name, tooltip, flags);
+        auto& item = tab.items.emplace_back();
+        item.name = name;
+        item.itemflags = flags;
+        item.tooltip = tooltip;
     }
 
-    WidgetDrawResult EndTabBar(bool canAddTab)
+    void AddTab(TextType type, std::string_view name, TextType extype, std::string_view expanded, int32_t flags)
     {
         auto& context = GetContext();
         auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
-        tab.newTabButton = canAddTab;
+        auto& item = tab.items.emplace_back();
+        item.name = name;
+        item.nameType = type;
+        item.expanded = expanded;
+        item.expandedType = extype;
+        item.itemflags = flags;
+    }
+
+    WidgetDrawResult EndTabBar(std::optional<bool> canAddTab)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        tab.newTabButton = canAddTab.has_value() ? canAddTab.value() : tab.newTabButton;
         auto& state = context.TabBarState(tab.id);
         state.tabs.resize(tab.items.size());
         auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
@@ -3793,7 +3964,7 @@ namespace glimmer
 
 #pragma region Popups
 
-    bool StartPopUp(int32_t id, ImVec2 origin)
+    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size)
     {
         auto io = Config.platform->CurrentIO();
         if (!io.isKeyPressed(Key_Escape))
@@ -3803,6 +3974,8 @@ namespace glimmer
             overlayctx.deferEvents = true;
             overlayctx.popupOrigin = origin;
             overlayctx.popupTarget = id;
+            overlayctx.popupSize = size;
+            overlayctx.RecordDeferRange(overlayctx.popupRange, true);
             return true;
         }
         else
@@ -3815,6 +3988,7 @@ namespace glimmer
     {
         auto& overlayctx = GetContext();
         WidgetDrawResult result;
+        overlayctx.RecordDeferRange(overlayctx.popupRange, false);
 
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
@@ -3829,11 +4003,13 @@ namespace glimmer
                 renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
 
                 overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
-                overlayctx.deferedRenderer->Render(renderer, origin);
+                overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first, 
+                    overlayctx.popupRange.primitives.second);
                 overlayctx.ToggleDeferedRendering(false);
                 overlayctx.deferEvents = false;
 
-                result = overlayctx.HandleEvents(origin);
+                result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
+                    overlayctx.popupRange.events.second);
                 renderer.EndOverlay();
             }
         }
@@ -4616,6 +4792,27 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Charts
+
+    bool StartPlot(std::string_view id, ImVec2 size, int32_t flags)
+    {
+        auto& context = GetContext();
+        auto extent = context.MaximumExtent();
+        auto pos = context.NextAdHocPos();
+        if (size.x == FLT_MAX) size.x = extent.x;
+        if (size.y == FLT_MAX) size.y = extent.y;
+        ImGui::SetCursorPos(pos);
+        return ImPlot::BeginPlot(id.data(), size, flags);
+    }
+
+    WidgetDrawResult EndPlot()
+    {
+        ImPlot::EndPlot();
+        return WidgetDrawResult{};
+    }
+
+#pragma endregion
+
 #pragma region Public APIs
     // Widget rendering are of three types:
     // 1. Capture only the bounds to add to a layout
@@ -5057,7 +5254,7 @@ namespace glimmer
         {
             context.states[type].reserve(context.states[type].size() + 32);
             for (auto idx = 0; idx < 32; ++idx)
-                context.states[type].emplace_back(WidgetStateData{ type });
+                context.states[type].emplace_back(WidgetConfigData{ type });
             switch (type)
             {
             case WT_Checkbox: {
@@ -5066,12 +5263,32 @@ namespace glimmer
                     context.checkboxStates.emplace_back();
                 break;
             }
+            case WT_RadioButton: {
+                context.radioStates.reserve(context.radioStates.size() + 32);
+                for (auto idx = 0; idx < 32; ++idx)
+                    context.radioStates.emplace_back();
+                break;
+            }
+            case WT_TextInput: {
+                context.inputTextStates.reserve(context.inputTextStates.size() + 32);
+                for (auto idx = 0; idx < 32; ++idx)
+                    context.inputTextStates.emplace_back();
+                break;
+            }
+            case WT_ToggleButton: {
+                context.toggleStates.reserve(context.toggleStates.size() + 32);
+                for (auto idx = 0; idx < 32; ++idx)
+                    context.toggleStates.emplace_back();
+                break;
+            }
+            // TODO: Add others...
+            default: break;
             }
         }
         return id;
     }
 
-    WidgetStateData& GetWidgetState(WidgetType type, int16_t id)
+    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id)
     {
         auto& context = GetContext();
         int32_t wid = id;
@@ -5084,10 +5301,10 @@ namespace glimmer
         return state;
     }
 
-    WidgetStateData& GetWidgetState(int32_t id)
+    WidgetConfigData& GetWidgetConfig(int32_t id)
     {
         auto wtype = (WidgetType)(id >> 16);
-        return GetWidgetState(wtype, (int16_t)(id & 0xffff));
+        return GetWidgetConfig(wtype, (int16_t)(id & 0xffff));
     }
 
 #pragma endregion

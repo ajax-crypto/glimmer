@@ -127,6 +127,7 @@ namespace glimmer
 
         float _currentFontSz = 0.f;
         std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
+        ImDrawList* prevlist = nullptr;
     };
 
     ImGuiRenderer::ImGuiRenderer()
@@ -484,6 +485,8 @@ namespace glimmer
         {
             auto dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled(pos, pos + size, color);
+            prevlist = (ImDrawList*)UserData;
+            UserData = dl;
             SetClipRect(pos, pos + size, false);
         }
         return res;
@@ -493,6 +496,8 @@ namespace glimmer
     {
         ResetClipRect();
         ImGui::End();
+        UserData = prevlist;
+        prevlist = nullptr;
     }
 
     void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)

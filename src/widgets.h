@@ -8,8 +8,8 @@ namespace glimmer
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 
-    WidgetStateData& GetWidgetState(WidgetType type, int16_t id);
-    WidgetStateData& GetWidgetState(int32_t id);
+    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id);
+    WidgetConfigData& GetWidgetConfig(int32_t id);
 
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -27,7 +27,7 @@ namespace glimmer
     void NextSplitRegion();
     void EndSplitRegion();
 
-    bool StartPopUp(int32_t id, ImVec2 origin);
+    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     WidgetDrawResult EndPopUp();
 
     void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
@@ -36,7 +36,8 @@ namespace glimmer
 
     bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
-    WidgetDrawResult EndTabBar(bool canAddTab);
+    void AddTab(TextType type, std::string_view name, TextType extype, std::string_view expanded, int32_t flags = 0);
+    WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
 
     bool StartAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool StartAccordionHeader();
@@ -56,4 +57,7 @@ namespace glimmer
     WidgetDrawResult EndItemGridHeader();
     void PopulateItemGrid(bool byRows);
     WidgetDrawResult EndItemGrid(int totalRows);
+
+    bool StartPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
+    WidgetDrawResult EndPlot();
 }

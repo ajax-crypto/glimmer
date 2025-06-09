@@ -12,7 +12,7 @@
 #define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
 #endif
 
-#if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
+#if GLIMMER_PLATFORM == GLIMMER_GLFW_PLATFORM
 #include "libs/inc/imgui/imgui_impl_glfw.h"
 #include "libs/inc/imgui/imgui_impl_opengl3.h"
 
@@ -95,7 +95,7 @@ namespace glimmer
         KeyMappings[Key_GraveAccent] = { '`', '~' };
     }
 
-#if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
+#if GLIMMER_PLATFORM == GLIMMER_GLFW_PLATFORM
 
     static void glfw_error_callback(int error, const char* description)
     {
@@ -261,8 +261,21 @@ namespace glimmer
             //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // 3.0+ only
 #endif
 
+            int width = 0, height = 0;
+
+            if (params.size.x == FLT_MAX || params.size.y == FLT_MAX)
+            {
+                glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+                width = 640; height = 480;
+            }
+            else
+            {
+                width = (int)params.size.x;
+                height = (int)params.size.y;
+            }
+
             // Create window with graphics context
-            m_window = glfwCreateWindow((int)params.size.x, (int)params.size.y, params.title.data(), nullptr, nullptr);
+            m_window = glfwCreateWindow(width, height, params.title.data(), nullptr, nullptr);
             if (m_window == nullptr) return false;
 
             glfwMakeContextCurrent(m_window);

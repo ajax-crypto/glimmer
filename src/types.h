@@ -152,7 +152,7 @@ namespace glimmer
         WS_Disabled = 1 << 8
     };
 
-    enum class TextType { PlainText, RichText, SVG };
+    enum class TextType { PlainText, RichText, SVG, ImagePath, SVGPath };
 
     struct CommonWidgetData
     {
@@ -233,6 +233,7 @@ namespace glimmer
         std::string_view prefix, suffix;
         std::pair<int, int> selection{ -1, -1 };
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
+        float overlayHeight = FLT_MAX;
     };
 
     struct DropDownState : public CommonWidgetData
@@ -253,7 +254,8 @@ namespace glimmer
         TI_Closeable = 1, 
         TI_Pinnable = 2,
         TI_Active = 4,
-        TI_AddNewTab = 8
+        TI_AddNewTab = 8,
+        TI_AnchoredToEnd = 16
     };
 
     enum TabItemState
@@ -263,18 +265,20 @@ namespace glimmer
 
     enum class TabBarItemSizing
     {
-        Scrollable, ShrinkToFit, MultiRow
+        Scrollable, ResizeToFit, MultiRow, DropDown
     };
 
     struct TabBarState
     {
         TabBarItemSizing sizing;
         ImVec2 spacing;
+        Direction direction = DIR_Horizontal;
         float btnspacing = 5.f;
         float btnsize = 0.75f; // 75% of tab text height
         bool expandTabs = false;
         bool circularButtons = true;
         bool createNewTabs = false;
+        bool showExpanded = false; // pop out drawer for vertical tabs
     };
 
     enum ColumnProperty : int32_t
@@ -390,7 +394,7 @@ namespace glimmer
         void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);
     };
 
-    struct WidgetStateData
+    struct WidgetConfigData
     {
         WidgetType type;
 
@@ -413,10 +417,10 @@ namespace glimmer
             ~SharedWidgetState() {}
         } state;
 
-        WidgetStateData(WidgetType type);
-        WidgetStateData(const WidgetStateData& src);
-        WidgetStateData& operator=(const WidgetStateData& src);
-        ~WidgetStateData();
+        WidgetConfigData(WidgetType type);
+        WidgetConfigData(const WidgetConfigData& src);
+        WidgetConfigData& operator=(const WidgetConfigData& src);
+        ~WidgetConfigData();
     };
 
     enum WidgetGeometry : int32_t

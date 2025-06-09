@@ -66,7 +66,7 @@ namespace glimmer
     {
         id = -1;
         geometry = 0;
-        sizing = TabBarItemSizing::ShrinkToFit;
+        sizing = TabBarItemSizing::ResizeToFit;
         neighbors = NeighborWidgets{};
         items.clear(true);
         newTabButton = false;
@@ -587,7 +587,8 @@ namespace glimmer
         else
         {
             auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
-            return ImVec2{ rect.GetWidth(), rect.GetHeight() };
+            return ImVec2{ popupSize.x == -1.f ? rect.GetWidth() : popupSize.x, 
+                popupSize.y == -1.f ? rect.GetHeight() : popupSize.y };
         }
     }
 
@@ -630,14 +631,16 @@ namespace glimmer
         else
         {
             auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
-            return rect.Max;
+            auto ispopup = popupOrigin.x != -1.f;
+            return ispopup ? popupOrigin + popupSize : rect.Max;
         }
     }
 
     ImVec2 WidgetContextData::WindowSize() const
     {
         auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
-        return ImVec2{ rect.GetWidth(), rect.GetHeight() };
+        auto ispopup = popupOrigin.x != -1.f;
+        return ispopup ? popupSize : rect.GetSize();
     }
     
     WidgetContextData::WidgetContextData()
@@ -663,7 +666,7 @@ namespace glimmer
         {
             maxids[idx] = 0;
             states[idx].resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 32, 
-                WidgetStateData{ (WidgetType)idx });
+                WidgetConfigData{ (WidgetType)idx });
         }
     }
     

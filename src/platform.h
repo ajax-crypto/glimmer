@@ -1,81 +1,21 @@
 #pragma once
 
-#define GLIMMER_IMGUI_GLFW_PLATFORM 0
+#define GLIMMER_GLFW_PLATFORM 0
 #define GLIMMER_SDL3_PLATFORM 1
 // Add other platforms...
 
 #ifndef GLIMMER_PLATFORM
-#define GLIMMER_PLATFORM GLIMMER_IMGUI_GLFW_PLATFORM
+#define GLIMMER_PLATFORM GLIMMER_GLFW_PLATFORM
 #endif
 
 #ifndef GLIMMER_NKEY_ROLLOVER_MAX
 #define GLIMMER_NKEY_ROLLOVER_MAX 8
 #endif
 
-#if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
 #include "libs/inc/imgui/imgui.h"
 #include "libs/inc/imgui/imgui_internal.h"
-
 #define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
 #define GLIMMER_KEY_ENUM_END ImGuiKey_NamedKey_END
-#else
-struct ImVec2
-{
-    float x = 0.f, y = 0.f;
-
-    ImVec2 operator+(const ImVec2& other) const
-    {
-        return { x + other.x, y + other.y };
-    }
-
-    ImVec2 operator-(const ImVec2& other) const
-    {
-        return { x - other.x, y - other.y };
-    }
-
-    bool operator==(const ImVec2& other) const
-    {
-        return x == other.x && y == other.y;
-    }
-
-    bool operator<(const ImVec2& other) const
-    {
-        return x < other.x || y < other.y;
-    }
-};
-
-struct ImRect
-{
-    ImVec2 Min, Max;
-
-    bool Contains(const ImRect& other) const
-    {
-        return Min.x <= other.Min.x && Min.y <= other.Min.y &&
-            Max.x >= other.Max.x && Max.y >= other.Max.y;
-    }
-
-    void Expand(const float amount)
-    {
-        Min.x -= amount; Min.y -= amount; Max.x += amount; Max.y += amount;
-    }
-
-    void Translate(const ImVec2& d)
-    {
-        Min.x += d.x; Min.y += d.y; Max.x += d.x; Max.y += d.y;
-    }
-
-    void TranslateX(float amount) { Min.x += amount; Max.x += amount; }
-    void TranslateY(float amount) { Min.y += amount; Max.y += amount; }
-
-    float GetWidth() const { return Max.x - Min.x; }
-    float GetHeight() const { return Max.y - Min.y; }
-    float Area() const { return GetWidth() * GetHeight(); }
-    ImVec2 GetSize() const { return ImVec2{ GetWidth(), GetHeight() }; }
-};
-
-ImVec2 ImMin(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ std::min(lhs.x, rhs.x), std::min(lhs.y, rhs.y) }; }
-ImVec2 ImMax(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ std::max(lhs.x, rhs.x), std::max(lhs.y, rhs.y) }; }
-#endif
 
 inline bool operator==(const ImRect& lhs, const ImRect& rhs)
 {
@@ -97,7 +37,7 @@ inline bool operator>(ImVec2 lhs, ImVec2 rhs)
 
 namespace glimmer
 {
-#if GLIMMER_PLATFORM == GLIMMER_IMGUI_GLFW_PLATFORM
+#if GLIMMER_PLATFORM == GLIMMER_GLFW_PLATFORM
     enum class MouseButton
     {
         LeftMouseButton = ImGuiMouseButton_Left,
@@ -247,7 +187,7 @@ namespace glimmer
 
     struct WindowParams
     {
-        ImVec2 size;
+        ImVec2 size{ FLT_MAX, FLT_MAX };
         std::string_view title;
         uint8_t bgcolor[4] = { 255, 255, 255, 255 };
         bool softwareCursor = false;

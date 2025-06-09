@@ -31,6 +31,18 @@
     <Filter Include="Header Files\layout\yoga">
       <UniqueIdentifier>{1496b173-1fb3-4f3f-b168-e302aa21445e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\implot">
+      <UniqueIdentifier>{6dbe898e-31fb-4e6e-84c8-f94ae7613bc2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\implot">
+      <UniqueIdentifier>{c8e86438-bb08-4e87-88ad-eee79d3ee325}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\glfw">
+      <UniqueIdentifier>{943de1f7-4814-432d-a565-77d8fd79e4be}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\glfw">
+      <UniqueIdentifier>{b2288e6d-fb12-4776-84a8-bfcb526ffc4f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -72,16 +84,7 @@
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui.h">
       <Filter>Header Files\imgui</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_glfw.h">
-      <Filter>Header Files\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_opengl3.h">
-      <Filter>Header Files\imgui</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\libs\inc\imgui\imconfig.h">
-      <Filter>Header Files\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_opengl3_loader.h">
       <Filter>Header Files\imgui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui_internal.h">
@@ -132,6 +135,21 @@
     <ClInclude Include="..\..\src\libs\inc\yoga\Yoga.h">
       <Filter>Header Files\layout\yoga</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\implot\implot.h">
+      <Filter>Header Files\implot</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\implot\implot_internal.h">
+      <Filter>Header Files\implot</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_glfw.h">
+      <Filter>Header Files\glfw</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_opengl3.h">
+      <Filter>Header Files\glfw</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_opengl3_loader.h">
+      <Filter>Header Files\glfw</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\context.cpp">
@@ -164,12 +182,6 @@
     <ClCompile Include="..\..\src\libs\src\imgui_draw.cpp">
       <Filter>Source Files\imgui</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_glfw.cpp">
-      <Filter>Source Files\imgui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_opengl3.cpp">
-      <Filter>Source Files\imgui</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\libs\inc\imgui\misc\freetype\imgui_freetype.cpp">
       <Filter>Source Files\imgui</Filter>
     </ClCompile>
@@ -178,6 +190,18 @@
     </ClCompile>
     <ClCompile Include="..\..\src\libs\src\imgui_tables.cpp">
       <Filter>Source Files\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\inc\implot\implot.cpp">
+      <Filter>Source Files\implot</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\inc\implot\implot_items.cpp">
+      <Filter>Source Files\implot</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\src\imgui_impl_glfw.cpp">
+      <Filter>Source Files\glfw</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\src\imgui_impl_opengl3.cpp">
+      <Filter>Source Files\glfw</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
