@@ -402,7 +402,7 @@ namespace glimmer
 
         if (!context.layouts.empty())
         {
-            const auto& style = context.GetStyle(WS_Default);
+            const auto style = WidgetContextData::GetStyle(WS_Default);
             auto& layout = context.layouts.top();
             LayoutItemDescriptor layoutItem;
             layoutItem.wtype = WT_Scrollable;
@@ -417,7 +417,7 @@ namespace glimmer
         else
         {
             auto& region = context.ScrollRegion(id);
-            const auto& style = context.GetStyle(WS_Default);
+            const auto style = WidgetContextData::GetStyle(WS_Default);
 
             auto& renderer = context.GetRenderer();
             LayoutItemDescriptor layoutItem;
@@ -459,7 +459,7 @@ namespace glimmer
         if (!context.layouts.empty())
         {
             auto& layout = context.layouts.top();
-            const auto& style = context.GetStyle(WS_Default);
+            const auto style = WidgetContextData::GetStyle(WS_Default);
             auto id = layout.containerStack.top();
             LayoutItemDescriptor layoutItem;
             layoutItem.wtype = WT_Scrollable;
@@ -538,7 +538,7 @@ namespace glimmer
             content.Min.y = padding.Min.y + style.padding.top;
         }
 
-        auto hastextw = (style.specified & StyleWidth) && !((style.font.flags & FontStyleOverflowEllipsis) ||
+        auto hastextw = (style.dimension.x > 0.f) && !((style.font.flags & FontStyleOverflowEllipsis) ||
             (style.font.flags & FontStyleOverflowMarquee));
         ImVec2 textsz{ 0.f, 0.f };
         auto textMetricsComputed = false, hexpanded = false, vexpanded = false;
@@ -546,7 +546,7 @@ namespace glimmer
         auto setHFromContent = [&] {
             if (geometry & ToLeft)
             {
-                content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
+                content.Max.x = (style.dimension.x > 0.f) ? style.dimension.x :
                     content.Min.x - clamp(textsz.x, style.mindim.x, style.maxdim.x);
                 padding.Max.x = content.Max.x - style.padding.left;
                 border.Max.x = padding.Max.x - borderstyle.left.thickness;
@@ -554,7 +554,7 @@ namespace glimmer
             }
             else
             {
-                content.Max.x = (style.specified & StyleWidth) ? style.dimension.x :
+                content.Max.x = (style.dimension.x > 0.f) ? style.dimension.x :
                     content.Min.x + clamp(textsz.x, style.mindim.x, style.maxdim.x);
                 padding.Max.x = content.Max.x + style.padding.right;
                 border.Max.x = padding.Max.x + borderstyle.right.thickness;
@@ -565,7 +565,7 @@ namespace glimmer
         auto setVFromContent = [&] {
             if (geometry & ToTop)
             {
-                content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
+                content.Max.y = (style.dimension.y > 0.f) ? style.dimension.y :
                     content.Min.y - clamp(textsz.y, style.mindim.y, style.maxdim.y);
                 padding.Max.y = content.Max.y - style.padding.top;
                 border.Max.y = padding.Max.y - borderstyle.top.thickness;
@@ -573,7 +573,7 @@ namespace glimmer
             }
             else
             {
-                content.Max.y = (style.specified & StyleHeight) ? style.dimension.y :
+                content.Max.y = (style.dimension.y > 0.f) ? style.dimension.y :
                     content.Min.y + clamp(textsz.y, style.mindim.y, style.maxdim.y);
                 padding.Max.y = content.Max.y + style.padding.bottom;
                 border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
@@ -868,7 +868,7 @@ namespace glimmer
     static std::pair<ImRect, ImVec2> ToggleButtonBounds(ToggleButtonState& state, const ImRect& extent, IRenderer& renderer)
     {
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
+        auto style = WidgetContextData::GetStyle(state.state);
         auto& specificStyle = context.toggleButtonStyles[log2((unsigned)state.state)].top();
         ImRect result;
         ImVec2 text;
@@ -988,7 +988,7 @@ namespace glimmer
     static ImRect RadioButtonBounds(const RadioButtonState& state, const ImRect& extent)
     {
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
+        const auto style = WidgetContextData::GetStyle(state.state);
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
@@ -1053,7 +1053,7 @@ namespace glimmer
     static ImRect CheckboxBounds(const CheckboxState& state, const ImRect& extent)
     {
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
+        const auto style = WidgetContextData::GetStyle(state.state);
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
@@ -1133,7 +1133,7 @@ namespace glimmer
     {
         auto digits = (int)(std::ceilf(std::log10f(state.max) + 1.f)) + (!state.isInteger ? state.precision + 1 : 0);
         auto& context = GetContext();
-        const auto& style = context.GetStyle(state.state);
+        const auto style = WidgetContextData::GetStyle(state.state);
 
         static char buffer[32] = { 0 };
         assert(digits < 31);
@@ -1162,8 +1162,8 @@ namespace glimmer
 
         result.Max.x += style.padding.h();
         result.Max.y += style.padding.v();
-        if (style.specified & StyleWidth) result.Max.x = result.Min.x + style.dimension.x;
-        if (style.specified & StyleHeight) result.Max.y = result.Min.y + style.dimension.y;
+        if (style.dimension.x > 0.f) result.Max.x = result.Min.x + style.dimension.x;
+        if (style.dimension.y > 0.f) result.Max.y = result.Min.y + style.dimension.y;
         return result;
     }
 
@@ -1367,11 +1367,11 @@ namespace glimmer
         ImRect result;
         auto& context = GetContext();
         auto& state = context.GetState(id).state.slider;
-        const auto& style = context.GetStyle(state.state);
+        const auto style = WidgetContextData::GetStyle(state.state);
         auto slidersz = std::max(Config.sliderSize, style.font.size);
-        auto width = (style.specified & StyleWidth) ? style.dimension.x : 
+        auto width = (style.dimension.x > 0.f) ? style.dimension.x : 
             (state.dir == DIR_Horizontal ? extent.GetWidth() : slidersz);
-        auto height = (style.specified & StyleHeight) ? style.dimension.y :
+        auto height = (style.dimension.y > 0.f) ? style.dimension.y :
             (state.dir == DIR_Horizontal ? slidersz : extent.GetHeight());
 
         result.Min = extent.Min;
@@ -1387,7 +1387,7 @@ namespace glimmer
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.slider;
-            const auto& style = context.GetStyle(state.state);
+            const auto style = WidgetContextData::GetStyle(state.state);
             const auto& specificStyle = context.sliderStyles[log2((unsigned)state.state)].top();
             auto center = thumb.Min + ImVec2{ thumb.GetWidth(), thumb.GetWidth() };
             auto width = extent.GetWidth(), height = extent.GetHeight();
@@ -1545,7 +1545,7 @@ namespace glimmer
         {
             auto& state = context.GetState(id).state.input;
             auto& input = context.InputTextState(id);
-            auto& style = context.GetStyle(state.state);
+            auto style = WidgetContextData::GetStyle(state.state);
 
             auto mousepos = io.mousepos;
             auto mouseover = content.Contains(mousepos) || (state.state & WS_Pressed);
@@ -2046,7 +2046,7 @@ namespace glimmer
     static std::pair<ImRect, ImRect> DropDownBounds(int32_t id, DropDownState& state, const ImRect& content, IRenderer& renderer)
     {
         auto& context = GetContext();
-        auto& style = context.GetStyle(state.state);
+        auto style = WidgetContextData::GetStyle(state.state);
         auto size = renderer.GetTextSize(state.text, style.font.font, style.font.size);
         ImRect bounds = content;
 
@@ -2219,7 +2219,7 @@ namespace glimmer
                 auto& tab = state.tabs[tabidx];
                 auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
                     (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
-                const auto& style = context.GetStyle(flag);
+                const auto style = WidgetContextData::GetStyle(flag);
                 auto txtsz = renderer.GetTextSize(item.name, style.font.font, style.font.size);
                 tab.extent.Min = offset;
 
@@ -2320,7 +2320,7 @@ namespace glimmer
 
             if (context.currentTab.newTabButton)
             {
-                const auto& style = context.GetStyle(WS_Default);
+                const auto style = WidgetContextData::GetStyle(WS_Default);
 
                 offset.x += config.spacing.x;
                 state.create = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
@@ -2329,7 +2329,7 @@ namespace glimmer
 
             if (overflow)
             {
-                const auto& style = context.GetStyle(WS_Default);
+                const auto style = WidgetContextData::GetStyle(WS_Default);
 
                 offset.x += config.spacing.x;
                 state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
@@ -2373,7 +2373,7 @@ namespace glimmer
         {
             if (config.showExpanded)
             {
-                const auto& style = context.GetStyle(state.hovered == ExpandTabsIndex ? WS_Hovered : WS_Default);
+                const auto style = WidgetContextData::GetStyle(state.hovered == ExpandTabsIndex ? WS_Hovered : WS_Default);
                 state.expand.Min = offset;
                 auto sz = state.expandType == TextType::PlainText ? renderer.GetTextSize(state.expandContent, style.font.font, style.font.size) :
                     ImVec2{ style.font.size, style.font.size };
@@ -2384,9 +2384,9 @@ namespace glimmer
             for (const auto& item : context.currentTab.items)
             {
                 auto& tab = state.tabs[tabidx];
-                auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                auto flag = tabidx == state.current ? WS_Selected : tabidx == state.hovered ? WS_Hovered :
                     (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
-                const auto& style = context.GetStyle(flag);
+                const auto style = WidgetContextData::GetStyle(flag);
                 auto txtsz = item.nameType == TextType::PlainText ? renderer.GetTextSize(item.name, style.font.font, style.font.size) : 
                     ImVec2{ style.font.size, style.font.size };
                 tab.extent.Min = offset;
@@ -2442,7 +2442,7 @@ namespace glimmer
 
             if (overflow)
             {
-                const auto& style = context.GetStyle(WS_Default);
+                const auto style = WidgetContextData::GetStyle(WS_Default);
 
                 offset.x += config.spacing.x;
                 state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
@@ -2483,9 +2483,9 @@ namespace glimmer
             for (auto& tab : state.tabs)
             {
                 auto& rect = tab.extent;
-                auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+                auto flag = tabidx == state.current ? WS_Selected : tabidx == state.hovered ? WS_Hovered :
                     (state.tabs[tabidx].state & TI_Disabled) ? WS_Disabled : WS_Default;
-                const auto& style = context.GetStyle(flag);
+                const auto style = WidgetContextData::GetStyle(flag);
                 
                 if (tab.close.Contains(io.mousepos) && io.clicked())
                 {
@@ -2497,7 +2497,7 @@ namespace glimmer
                     result.event = WidgetEvent::Clicked;
                     tab.pinned = !tab.pinned;
                 }
-                else if (rect.Contains(io.mousepos))
+                else if (rect.Contains(io.mousepos) && (state.current != tabidx))
                 {
                     state.hovered = tabidx;
                     hashover = true;
@@ -2553,9 +2553,11 @@ namespace glimmer
         for (const auto& tab : state.tabs)
         {
             auto& rect = tab.extent;
-            auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
+            auto flag = tabidx == state.current ? WS_Selected : tabidx == state.hovered ? WS_Hovered :
                 (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
-            const auto& style = context.GetStyle(flag);
+            //BREAK_IF(flag & WS_Selected);
+
+            const auto style = WidgetContextData::GetStyle(flag);
             const auto& specificStyle = context.tabBarStyles[log2((unsigned)flag)].top();
             auto darker = DarkenColor(style.bgcolor);
             
@@ -2583,7 +2585,7 @@ namespace glimmer
                     renderer.DrawRect(tab.pin.Min, tab.pin.Max, specificStyle.pinbgcolor, true);
 
                 DrawSymbol(tab.pin.Min, tab.pin.GetSize(),
-                    { specificStyle.pinPadding, specificStyle.pinPadding }, SymbolIcon::Cross,
+                    { specificStyle.pinPadding, specificStyle.pinPadding }, SymbolIcon::Pin,
                     specificStyle.pincolor, specificStyle.pinbgcolor, 2.f, renderer);
             }
             
@@ -2612,7 +2614,7 @@ namespace glimmer
         if (state.create.GetArea() > 0.f)
         {
             auto flag = state.hovered == NewTabIndex ? WS_Hovered : WS_Default;
-            const auto& style = context.GetStyle(flag);
+            const auto style = WidgetContextData::GetStyle(flag);
 
             DrawBackground(state.create.Min, state.create.Max, style, renderer);
             DrawBorderRect(state.create.Min, state.create.Max, style.border, style.bgcolor, renderer);
@@ -2624,7 +2626,7 @@ namespace glimmer
         if (state.dropdown.GetArea() > 0.f)
         {
             auto flag = state.hovered == DropDownTabIndex ? WS_Hovered : WS_Default;
-            const auto& style = context.GetStyle(flag);
+            const auto style = WidgetContextData::GetStyle(flag);
 
             DrawSymbol(state.create.Min, state.create.Max, {}, SymbolIcon::DownTriangle, style.fgcolor, 
                 style.fgcolor, 1.f, renderer);
@@ -2694,7 +2696,7 @@ namespace glimmer
         accordion.id = id;
         accordion.geometry = geometry;
         
-        const auto& style = context.GetStyle(WS_Default);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
         LayoutItemDescriptor item;
         item.id = id;
         item.sizing = geometry;
@@ -2726,7 +2728,7 @@ namespace glimmer
         if (accordion.regions.size() == accordion.totalRegions)
             accordion.regions.emplace_back();
 
-        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
+        const auto style = WidgetContextData::GetStyle(state.hstates[accordion.totalRegions]);
         context.RecordDeferRange(accordion.regions[accordion.totalRegions].hrange, true);
         accordion.border = style.border;
         accordion.bgcolor = style.bgcolor;
@@ -2756,7 +2758,7 @@ namespace glimmer
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         auto& state = context.AccordionState(accordion.id);
-        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
+        const auto style = WidgetContextData::GetStyle(state.hstates[accordion.totalRegions]);
         auto haswrap = !(style.font.flags & FontStyleNoWrap) && !(style.font.flags & FontStyleOverflowEllipsis) &&
             !(style.font.flags & FontStyleOverflowMarquee);
         accordion.textsz = Config.renderer->GetTextSize(content, style.font.font, style.font.size, 
@@ -2801,7 +2803,7 @@ namespace glimmer
         auto& accordion = context.accordions.top();
         auto& state = context.AccordionState(accordion.id);
         auto isExpanded = expanded.has_value() ? expanded : state.opened == accordion.totalRegions;
-        const auto& style = context.GetStyle(state.hstates[accordion.totalRegions]);
+        const auto style = WidgetContextData::GetStyle(state.hstates[accordion.totalRegions]);
         if (isExpanded) state.opened = accordion.totalRegions;
 
         auto iconidx = accordion.totalRegions == state.opened ? 1 : 0;
@@ -2832,7 +2834,6 @@ namespace glimmer
 
         accordion.regions[accordion.totalRegions].header = bg.GetSize();
         accordion.totalsz.y += bg.GetHeight();
-        context.ResetCurrentStyle();
     }
 
     bool StartAccordionContent(float height, bool hscroll, bool vscroll, ImVec2 maxsz)
@@ -3226,7 +3227,7 @@ namespace glimmer
         {
         case WT_Label:
         {
-            auto& itemstyle = context.GetStyle(model.state.label.state);
+            auto itemstyle = context.GetStyle(model.state.label.state);
             if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
                 itemstyle.font.size, FT_Normal);
 
@@ -3717,7 +3718,7 @@ namespace glimmer
     void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
     {
         auto& context = GetContext();
-        const auto& style = context.GetStyle(WS_Default);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
         auto& renderer = context.GetRenderer();
         LayoutItemDescriptor layoutItem;
         NeighborWidgets neighbors;
@@ -3775,7 +3776,7 @@ namespace glimmer
         el.id = id;
 
         auto& state = context.SplitterState(id);
-        const auto& style = context.GetStyle(WS_Default);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
         state.current = 0;
 
         auto& renderer = context.GetRenderer();
@@ -3783,8 +3784,8 @@ namespace glimmer
 
         auto idx = 0;
         auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
-            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
+            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
         width -= splittersz * (float)splits.size();
         height -= splittersz * (float)splits.size();
         auto prev = el.extent.Min;
@@ -3839,14 +3840,14 @@ namespace glimmer
         auto& state = context.SplitterState(el.id);
         auto io = Config.platform->CurrentIO();
         auto mousepos = io.mousepos;
-        const auto& style = context.GetStyle(WS_Default);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
         const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
         auto& renderer = context.GetRenderer();
 
         assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
 
-        auto splittersz = el.dir == DIR_Vertical ? (style.specified & StyleHeight ? style.dimension.y : Config.splitterSize) :
-            style.specified & StyleWidth ? style.dimension.x : Config.splitterSize;
+        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
+            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
         auto scid = state.scrollids[state.current];
         if (scid != -1) EndSplitterScrollableRegion(state.scrolldata[state.current], el.dir, el.extent);
         else renderer.ResetClipRect();
@@ -4005,15 +4006,17 @@ namespace glimmer
                 overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
                 overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first, 
                     overlayctx.popupRange.primitives.second);
-                overlayctx.ToggleDeferedRendering(false);
+                
                 overlayctx.deferEvents = false;
-
                 result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
                     overlayctx.popupRange.events.second);
+               
                 renderer.EndOverlay();
             }
         }
 
+        overlayctx.ToggleDeferedRendering(false);
+        overlayctx.deferedEvents.clear(true);
         PopContext();
         return result;
     }
@@ -4046,7 +4049,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& state = context.itemGrids.push();
-        const auto& style = context.GetStyle(WS_Default);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
 
         state.id = id;
         state.geometry = geometry;
@@ -4114,7 +4117,7 @@ namespace glimmer
         auto& header = state.headers[state.currlevel].emplace_back(config);
         auto& itemcfg = context.GetState(state.id).state.grid;
         auto& renderer = GetContext().GetRenderer();
-        const auto& style = context.GetStyle(itemcfg.state);
+        const auto style = WidgetContextData::GetStyle(itemcfg.state);
 
         state.phase = ItemGridConstructPhase::HeaderCells;
         header.extent.Min = state.nextpos;
@@ -4175,7 +4178,7 @@ namespace glimmer
         auto& state = context.itemGrids.top();
         auto& itemcfg = context.GetState(state.id).state.grid;
         auto& renderer = *GetContext().deferedRenderer;
-        const auto& style = context.GetStyle(itemcfg.state);
+        const auto style = WidgetContextData::GetStyle(itemcfg.state);
         auto& header = state.currentHeader();
 
         header.range.primitives.first = renderer.TotalEnqueued();
@@ -4270,7 +4273,7 @@ namespace glimmer
         auto& config = context.GetState(state.id).state.grid;
         auto& headers = state.headers;
         auto& renderer = context.GetRenderer();
-        const auto& style = context.GetStyle(config.state);
+        const auto style = WidgetContextData::GetStyle(config.state);
         auto io = Config.platform->CurrentIO();
 
         CategorizeColumns();
@@ -4410,13 +4413,13 @@ namespace glimmer
         if (state.currCol == 0)
         {
             ImVec2 start = state.nextpos;
-            const auto& style = context.GetStyle(WS_Default);
+            const auto style = WidgetContextData::GetStyle(WS_Default);
             ImVec2 end = start + ImVec2{ style.font.size, style.font.size };
 
             if (descendents != ItemDescendentVisualState::NoDescendent)
             {
                 auto& renderer = context.GetRenderer();
-                const auto& style = context.GetStyle(WS_Default);
+                const auto style = WidgetContextData::GetStyle(WS_Default);
                 renderer.SetClipRect(start, end);
                 DrawSymbol(start, end, { 2.f, 2.f }, descendents == ItemDescendentVisualState::Collapsed ?
                     SymbolIcon::RightTriangle : SymbolIcon::DownTriangle, style.fgcolor, style.fgcolor, 1.f,
@@ -4610,7 +4613,6 @@ namespace glimmer
                 config.gridwidth);
 
             DrawBackground(extent.Min, extent.Max, style, *Config.renderer);
-            context.ResetCurrentStyle();
 
             Config.renderer->SetClipRect(extent.Min, extent.Max);
             context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, 0.f }, range.primitives.first,
@@ -4847,8 +4849,8 @@ namespace glimmer
         {
         case WT_Label: {
             auto& state = context.GetState(wid).state.label;
-            CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
-            auto& style = context.GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
+            auto style = WidgetContextData::GetStyle(state.state);
 
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
@@ -4876,8 +4878,8 @@ namespace glimmer
         }
         case WT_Button: {
             auto& state = context.GetState(wid).state.button;
-            CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
-            auto& style = context.GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), context.GetStyle(state.state));
+            auto style = WidgetContextData::GetStyle(state.state);
 
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
@@ -4904,8 +4906,8 @@ namespace glimmer
         }
         case WT_RadioButton: {
             auto& state = context.GetState(wid).state.radio;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto bounds = RadioButtonBounds(state, layoutItem.margin);
 
@@ -4927,8 +4929,8 @@ namespace glimmer
         }
         case WT_ToggleButton: {
             auto& state = context.GetState(wid).state.toggle;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto [bounds, textsz] = ToggleButtonBounds(state, layoutItem.content, renderer);
 
@@ -4956,8 +4958,8 @@ namespace glimmer
         }
         case WT_Checkbox: {
             auto& state = context.GetState(wid).state.checkbox;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto bounds = CheckboxBounds(state, layoutItem.margin);
 
@@ -4989,8 +4991,8 @@ namespace glimmer
         }
         case WT_Spinner: {
             auto& state = context.GetState(wid).state.spinner;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors, { 
                 0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v() }, maxxy);
             auto bounds = SpinnerBounds(wid, state, renderer, layoutItem.padding);
@@ -5017,8 +5019,8 @@ namespace glimmer
         }
         case WT_Slider: {
             auto& state = context.GetState(wid).state.slider;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             auto deltav = style.margin.v() + style.border.v() + style.padding.v();
             auto deltah = style.margin.h() + style.border.h() + style.padding.h();
             AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
@@ -5059,9 +5061,10 @@ namespace glimmer
         }
         case WT_TextInput: {
             auto& state = context.GetState(wid).state.input;
-            auto& style = context.GetStyle(state.state);
+            auto style = WidgetContextData::GetStyle(state.state);
+            //BREAK_IF(state.state & WS_Pressed);
             
-            CopyStyle(context.GetStyle(WS_Default), style);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
             AddExtent(layoutItem, style, neighbors, { 0.f, style.font.size + vdelta }, maxxy);
 
@@ -5086,9 +5089,9 @@ namespace glimmer
         }
         case WT_DropDown: {
             auto& state = context.GetState(wid).state.dropdown;
-            auto& style = context.GetStyle(state.state);
+            auto style = WidgetContextData::GetStyle(state.state);
             
-            CopyStyle(context.GetStyle(WS_Default), style);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             auto vdelta = style.margin.v() + style.padding.v() + style.border.v();
             AddExtent(layoutItem, style, neighbors, { 0.f, style.font.size + vdelta }, maxxy);
             auto [bounds, textrect] = DropDownBounds(id, state, layoutItem.content, renderer);
@@ -5122,7 +5125,7 @@ namespace glimmer
             break;
         }
         case WT_TabBar: {
-            const auto& style = context.GetStyle(WS_Default);
+            const auto style = WidgetContextData::GetStyle(WS_Default);
 
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
@@ -5149,8 +5152,8 @@ namespace glimmer
         }
         case WT_ItemGrid: {
             auto& state = context.GetState(wid).state.grid;
-            auto& style = context.GetStyle(state.state);
-            CopyStyle(context.GetStyle(WS_Default), style);
+            auto style = WidgetContextData::GetStyle(state.state);
+            // CopyStyle(context.GetStyle(WS_Default), style);
             AddExtent(layoutItem, style, neighbors);
 
             if (context.nestedContextStack.empty())
@@ -5179,7 +5182,6 @@ namespace glimmer
         default: break;
         }
 
-        context.ResetCurrentStyle();
         return result;
     }
 

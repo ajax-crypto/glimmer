@@ -37,7 +37,7 @@ namespace glimmer
         alignment = TextAlignLeading;
         from = -1, to = -1, itemidx = -1;
         currow = -1, currcol = -1;
-        currStyleStates = 0;
+        NextEnabledStyles = 0;
         geometry = ImRect{ { FIT_SZ, FIT_SZ },{ FIT_SZ, FIT_SZ } };
         nextpos = ImVec2{ 0.f, 0.f };
         prevpos = ImVec2{ 0.f, 0.f };
@@ -281,17 +281,15 @@ namespace glimmer
         {
             auto popsz = WidgetContextData::StyleStack[idx].size() - 1;
             if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
-            WidgetContextData::currStyle[idx] = StyleDescriptor{};
         }
-
-        WidgetContextData::currStyleStates = 0;
     }
 
-    StyleDescriptor& WidgetContextData::GetStyle(int32_t state)
+    StyleDescriptor WidgetContextData::GetStyle(int32_t state)
     {
         auto style = log2((unsigned)state);
-        auto& res = (state & currStyleStates) ? currStyle[style] : StyleStack[style].top();
+        auto res = StyleStack[style].top();
         AddFontPtr(res.font);
+        if (style != WSI_Default) CopyStyle(StyleStack[WSI_Default].top(), res);
         return res;
     }
 
@@ -532,12 +530,6 @@ namespace glimmer
         layoutItems.clear(true);
     }
 
-    void WidgetContextData::ResetCurrentStyle()
-    {
-        currStyleStates = 0;
-        for (auto idx = 0; idx < WSI_Total; ++idx) currStyle[idx] = StyleDescriptor{};
-    }
-
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
     {
         auto index = id & 0xffff;
@@ -771,8 +763,6 @@ namespace glimmer
     }
 
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
-    StyleDescriptor WidgetContextData::currStyle[WSI_Total];
-    int32_t WidgetContextData::currStyleStates = 0;
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];

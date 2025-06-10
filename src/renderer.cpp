@@ -479,7 +479,7 @@ namespace glimmer
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
 
-        auto res = ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        auto res = ImGui::BeginPopup(buffer, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
         if (res)
         {
@@ -495,7 +495,7 @@ namespace glimmer
     void ImGuiRenderer::EndOverlay()
     {
         ResetClipRect();
-        ImGui::End();
+        ImGui::EndPopup();
         UserData = prevlist;
         prevlist = nullptr;
     }

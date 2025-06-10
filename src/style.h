@@ -277,9 +277,6 @@ namespace glimmer
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
     void PushStyle(WidgetState state, std::string_view css);
-    void SetNextStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
-        std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
-    StyleDescriptor& GetCurrentStyle(int32_t state = WS_Default);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 

@@ -5,4 +5,5 @@
 #include "style.h"
 #include "layout.h"
 #include "widgets.h"
+#include "libs/inc/implot/implot.h"
 

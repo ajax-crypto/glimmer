@@ -229,7 +229,7 @@ namespace glimmer
     struct ColumnProps : public ItemGridState::ColumnConfig
     {
         ImVec2 offset;
-        Vector<ItemGridUIOperation, int16_t, 2> uiops{ true };
+        Vector<ItemGridUIOperation, int16_t, 2> uiops{ false };
         Vector<StyleDescriptor, int16_t, 2> styles{ false };
         RendererEventIndexRange range;
         int32_t alignment = TextAlignCenter;
@@ -419,7 +419,7 @@ namespace glimmer
         int16_t from = -1, to = -1, itemidx = -1;
         int16_t styleStartIdx[WSI_Total];
         int16_t currow = -1, currcol = -1;
-        int32_t currStyleStates = 0;
+        int32_t NextEnabledStyles = 0;
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
         ImVec2 spacing{ 0.f, 0.f };
@@ -615,8 +615,6 @@ namespace glimmer
 
         // Styling data is static as it is persisted across contexts
         static StyleStackT StyleStack[WSI_Total];
-        static StyleDescriptor currStyle[WSI_Total];
-        static int32_t currStyleStates;
 
         // Per widget specific style objects
         static DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> toggleButtonStyles[WSI_Total];
@@ -758,7 +756,7 @@ namespace glimmer
             return states[type][index].state.scroll;
         }
 
-        StyleDescriptor& GetStyle(int32_t state);
+        static StyleDescriptor GetStyle(int32_t state);
 
         IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
         IRenderer& GetRenderer();
@@ -768,7 +766,6 @@ namespace glimmer
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
         void ResetLayoutData();
-        void ResetCurrentStyle();
 
         const ImRect& GetGeometry(int32_t id) const;
         ImRect GetLayoutSize() const;

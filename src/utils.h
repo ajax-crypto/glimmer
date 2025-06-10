@@ -11,6 +11,9 @@
 #define LOG(FMT, ...) std::fprintf(stderr, FMT, __VA_ARGS__)
 #define HIGHLIGHT(FMT, ...) std::fprintf(stderr, "\x1B[93m" FMT "\x1B[0m", __VA_ARGS__)
 #define LOGERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
+#ifdef _WIN32
+#define BREAK_IF(...) if (__VA_ARGS__) __debugbreak()
+#endif
 #else
 #define LOG(FMT, ...)
 #define HIGHLIGHT(FMT, ...)

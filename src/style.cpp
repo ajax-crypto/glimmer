@@ -579,7 +579,7 @@ namespace glimmer
 
         idx2 = SkipSpace(input, idx2);
         auto idx3 = WholeWord(input, idx2 + 1);
-        auto color = input.substr(idx2 + 1, idx3);
+        auto color = input.substr(idx2, idx3);
         result.color = ExtractColor(color, NamedColor, userData);
 
         return result;
@@ -1049,6 +1049,8 @@ namespace glimmer
         return prop;
     }
 
+#pragma region Style stack
+
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
     {
         if (&src == &dest || dest.specified & StyleUpdatedFromBase) return;
@@ -1063,50 +1065,50 @@ namespace glimmer
                 case glimmer::StyleBackground:
                     dest.bgcolor = src.bgcolor;
                     dest.gradient = src.gradient;
-                    if (src.specified & prop) dest.specified |= prop;
+                    ////if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFgColor:
                     dest.fgcolor = src.fgcolor;
-                    if (src.specified & prop) dest.specified |= prop;
+                    ////if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFontSize:
                 case glimmer::StyleFontFamily:
                 case glimmer::StyleFontWeight:
                 case glimmer::StyleFontStyle:
                     dest.font = src.font;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHeight:
                     dest.dimension.y = src.dimension.y;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleWidth:
                     dest.dimension.x = src.dimension.x;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHAlignment:
                     (src.alignment & TextAlignLeft) ? dest.alignment |= TextAlignLeft : dest.alignment &= ~TextAlignLeft;
                     (src.alignment & TextAlignRight) ? dest.alignment |= TextAlignRight : dest.alignment &= ~TextAlignRight;
                     (src.alignment & TextAlignHCenter) ? dest.alignment |= TextAlignHCenter : dest.alignment &= ~TextAlignHCenter;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleVAlignment:
                     (src.alignment & TextAlignTop) ? dest.alignment |= TextAlignTop : dest.alignment &= ~TextAlignTop;
                     (src.alignment & TextAlignBottom) ? dest.alignment |= TextAlignBottom : dest.alignment &= ~TextAlignBottom;
                     (src.alignment & TextAlignVCenter) ? dest.alignment |= TextAlignVCenter : dest.alignment &= ~TextAlignVCenter;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StylePadding:
                     dest.padding = src.padding;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMargin:
                     dest.margin = src.margin;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleBorder:
                     dest.border = src.border;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleOverflow:
                     break;
@@ -1118,7 +1120,7 @@ namespace glimmer
                     dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
                     dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
                     dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 }
                 case glimmer::StyleCellSpacing:
@@ -1127,25 +1129,25 @@ namespace glimmer
                     break;
                 case glimmer::StyleBoxShadow:
                     dest.shadow = src.shadow;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleTextOverflow:
                     break;
                 case glimmer::StyleMinWidth:
                     dest.mindim.x = src.mindim.x;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxWidth:
                     dest.maxdim.x = src.maxdim.x;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMinHeight:
                     dest.mindim.y = src.mindim.y;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxHeight:
                     dest.maxdim.y = src.maxdim.y;
-                    if (src.specified & prop) dest.specified |= prop;
+                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 default:
                     break;
@@ -1153,10 +1155,8 @@ namespace glimmer
             }
         }
 
-        dest.specified |= StyleUpdatedFromBase;
+        //dest.specified |= StyleUpdatedFromBase;
     }
-
-#pragma region Style stack
 
     template <typename StackT>
     static int32_t PushStyle(std::string_view* css, StackT* stack)
@@ -1180,9 +1180,10 @@ namespace glimmer
                 }
                 else
                 {
-                    auto defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+                    /*auto defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
                     defstyle.From(css[style]);
-                    stack[style].push() = defstyle;
+                    stack[style].push() = defstyle;*/
+                    stack[style].push().From(css[style]);
                 }
 
                 res |= (1 << style);
@@ -1198,6 +1199,7 @@ namespace glimmer
         auto idx = log2((unsigned)state);
 
         if (idx == WSI_Default)
+        {
             if (!stack[idx].empty())
             {
                 auto parent = stack[idx].top();
@@ -1208,13 +1210,15 @@ namespace glimmer
             }
             else
                 stack[idx].push().From(css);
+        }
         else
         {
-            const auto& defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+            /*const auto& defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
             auto& style = stack[idx].push();
             style = defstyle;
-            style.From(css);
-            style.specified |= defstyle.specified;
+            style.From(css);*/
+
+            stack[idx].push().From(css);
         }
     }
 
@@ -1259,52 +1263,8 @@ namespace glimmer
                 layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
             }
         }
-        
+
         PushStyle(state, css, context.StyleStack);
-    }
-
-    void SetNextStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
-        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
-    {
-        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, "", "", "", disblcss };
-        auto& context = GetContext();
-
-        for (auto style = 0; style < WSI_Total; ++style)
-        {
-            if (!css[style].empty())
-            {
-                if (!context.layouts.empty())
-                {
-                    auto& layout = context.layouts.top();
-                    auto state = PushStyle(css, layout.styles);
-
-                    // Enqueue multiple layout ops, to capture indexes of each widget state specific style
-                    for (auto idx = 0; idx < WSI_Total; ++idx)
-                    {
-                        if (state & (1 << idx))
-                        {
-                            auto sz = (int64_t)(layout.styles[idx].size() - 1);
-                            layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::SetStyle);
-                        }
-                    }
-                }
-                
-                context.currStyleStates |= (1 << style);
-
-                if (style != WSI_Default)
-                {
-                    context.currStyle[style] = GetCurrentStyle(WS_Default);
-                }
-
-                context.currStyle[style].From(css[style]);
-            }
-        }
-    }
-
-    StyleDescriptor& GetCurrentStyle(int32_t state)
-    {
-        auto& context = GetContext();
-        return context.GetStyle(state);
     }
 
     void PopStyle(int depth, int32_t state)
@@ -1490,6 +1450,9 @@ namespace glimmer
                 }
             }*/
         }
+
+        if ((prop & StyleFontFamily) || (prop & StyleFontSize) || (prop & StyleFontWeight))
+            font.font = nullptr;
 
         AddFontPtr(font);
         specified |= prop;

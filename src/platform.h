@@ -202,7 +202,7 @@ namespace glimmer
         virtual void SetMouseCursor(MouseCursor cursor) = 0;
 
         virtual bool CreateWindow(const WindowParams& params) = 0;
-        virtual bool PollEvents(bool (*runner)(ImVec2, void*), void* data) = 0;
+        virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
 
         float fps() const;
 

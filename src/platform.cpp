@@ -308,7 +308,7 @@ namespace glimmer
             return true;
         }
 
-        bool PollEvents(bool (*runner)(ImVec2, void*), void* data)
+        bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
         {
             auto close = false;
 
@@ -352,7 +352,7 @@ namespace glimmer
                     auto dl = ImGui::GetWindowDrawList();
                     Config.renderer->UserData = dl;
                     dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
-                    close = !runner(winsz, data);
+                    close = !runner(winsz, *this, data);
                 }
 
                 ImGui::End();
