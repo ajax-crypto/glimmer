@@ -211,7 +211,7 @@ void TestWindow(glimmer::UIConfig& config)
         Move(FD_Vertical);
 
         StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
-            SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f, .scrollable = false } }, ExpandH);
+            SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
 
         {
             PushStyle("background-color: rgb(175, 175, 175)");
