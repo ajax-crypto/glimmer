@@ -102,12 +102,13 @@ namespace glimmer
         WT_Invalid = -1,
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
-        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterScrollRegion, WT_Accordion,
+        WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterRegion, WT_Accordion,
         WT_Slider, WT_Spinner,
         WT_TextInput,
         WT_DropDown,
         WT_TabBar,
         WT_ItemGrid,
+        WT_Charts,
         WT_TotalTypes
     };
 
@@ -208,6 +209,18 @@ namespace glimmer
         Direction dir = DIR_Horizontal;
     };
 
+    enum ScrollType : int32_t
+    {
+        ST_Horizontal = 1,
+        ST_Vertical = 2,
+        ST_Always_H = 4,
+        ST_Always_V = 8,
+        ST_ReserveForHScroll = 16,
+        ST_ReserveForVScroll = 32,
+        ST_NoMouseWheel_V = 64,
+        ST_ShowScrollBarInsideViewport = 128
+    };
+
     struct ScrollBarState
     {
         ImVec2 pos;
@@ -219,7 +232,8 @@ namespace glimmer
 
     struct ScrollableRegion
     {
-        std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
+        //std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
+        int32_t type = 0; // scroll bar properties
         ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
         ImVec2 content; // maximum coordinates of the widgets inside region
         ImVec2 extent{ FLT_MAX, FLT_MAX }; // total available space inside the scroll region, default is infinite if scroll enabled
@@ -321,7 +335,8 @@ namespace glimmer
 
     enum class WidgetEvent
     {
-        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, Dragged, Edited, Selected
+        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, 
+        Dragged, Edited, Selected, Scrolled
     };
 
     struct WidgetDrawResult
@@ -334,6 +349,7 @@ namespace glimmer
         int16_t tabclosed = -1;
         int16_t tabidx = -1;
         ImRect geometry, content;
+        float wheel = 0.f;
         bool newTab = false;
     };
 
@@ -417,6 +433,8 @@ namespace glimmer
             ~SharedWidgetState() {}
         } state;
 
+        CommonWidgetData data;
+
         WidgetConfigData(WidgetType type);
         WidgetConfigData(const WidgetConfigData& src);
         WidgetConfigData& operator=(const WidgetConfigData& src);
@@ -478,7 +496,6 @@ namespace glimmer
         float min = 0.f;
         float max = 1.f;
         float initial = 0.5f;
-        bool scrollable = true;
     };
 
     inline int32_t ToTextFlags(TextType type)

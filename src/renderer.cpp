@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "context.h"
 
 #include <cstdio>
 #include <charconv>
@@ -457,9 +458,9 @@ namespace glimmer
     {
         if (!text.empty())
         {
-            //SetCurrentFont(config.DefaultFontFamily, Config.defaultFontSz, FT_Normal);
-            //ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
-            //ResetFont();
+            SetCurrentFont(Config.tooltipFontFamily, Config.defaultFontSz, FT_Normal);
+            ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
+            ResetFont();
         }
     }
 
@@ -479,7 +480,7 @@ namespace glimmer
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
 
-        auto res = ImGui::BeginPopup(buffer, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        auto res = ImGui::Begin(buffer, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
         if (res)
         {
@@ -495,7 +496,7 @@ namespace glimmer
     void ImGuiRenderer::EndOverlay()
     {
         ResetClipRect();
-        ImGui::EndPopup();
+        ImGui::End();
         UserData = prevlist;
         prevlist = nullptr;
     }

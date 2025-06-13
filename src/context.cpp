@@ -1,6 +1,7 @@
 #include "context.h"
 #include "im_font_manager.h"
 #include "renderer.h"
+#include "libs/inc/implot/implot.h"
 #include <list>
 
 #ifndef GLIMMER_MAX_OVERLAYS
@@ -15,7 +16,11 @@ namespace glimmer
 {
     static std::list<WidgetContextData> WidgetContexts;
     static WidgetContextData* CurrentContext = nullptr;
+    static ImPlotContext* ChartsContext = nullptr;
     static bool StartedRendering = false;
+    static bool HasImPlotContext = false;
+
+    void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
@@ -209,11 +214,13 @@ namespace glimmer
                 offset = state.scrolls[accordion.totalRegions].state.pos;
                 return state.scrolls[accordion.totalRegions].viewport.Min + offset;
             }
-            else if (type == WT_Scrollable)
+            else if (type == WT_Scrollable && !layout.addedOffset)
+            {
                 offset = states[type][index].state.scroll.state.pos;
+            }
         }
 
-        return layout.nextpos + offset;
+        return layout.nextpos - offset;
     }
 
     void AddFontPtr(FontStyle& font)
@@ -244,6 +251,14 @@ namespace glimmer
     {
         StartedRendering = true;
 
+        if (!HasImPlotContext)
+        {
+            HasImPlotContext = true;
+            ChartsContext = ImPlot::CreateContext();
+            auto& style = ImPlot::GetStyle();
+            style.PlotPadding = { 0.f, 0.f };
+        }
+
         for (auto it = WidgetContexts.rbegin(); it != WidgetContexts.rend(); ++it)
         {
             auto& context = *it;
@@ -268,8 +283,9 @@ namespace glimmer
             }
             
             context.ResetLayoutData();
-            context.maxids[WT_SplitterScrollRegion] = 0;
+            context.maxids[WT_SplitterRegion] = 0;
             context.maxids[WT_Layout] = 0;
+            context.maxids[WT_Charts] = 0;
             context.activePopUpRegion = ImRect{};
 
             assert(context.layouts.empty());
@@ -335,7 +351,7 @@ namespace glimmer
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
 
-        if (wtype == WT_SplitterScrollRegion)
+        if (wtype == WT_SplitterRegion)
             splitterScrollPaneParentIds[index] = parentId;
 
         containerStack.push() = id;
@@ -348,7 +364,7 @@ namespace glimmer
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
 
-        if (wtype == WT_SplitterScrollRegion)
+        if (wtype == WT_SplitterRegion)
         {
             splitterScrollPaneParentIds[index] = -1;
         }
@@ -384,13 +400,7 @@ namespace glimmer
             id = containerStack.top();
             wtype = (WidgetType)(id >> 16);
 
-            if (wtype == WT_SplitterScrollRegion)
-            {
-                const auto& splitter = splitterStack.top();
-                auto& state = SplitterState(splitter.id);
-                state.scrolldata[state.current].extent = ImMax(state.scrolldata[state.current].extent, geometry.Max);
-            }
-            else if (wtype == WT_Scrollable)
+            if (wtype == WT_Scrollable)
             {
                 index = id & 0xffff;
                 auto& region = states[wtype][index].state.scroll;
@@ -543,7 +553,7 @@ namespace glimmer
         return itemGeometries[WT_Layout][idx];
     }
 
-    ImVec2 WidgetContextData::MaximumExtent() const
+    ImVec2 WidgetContextData::MaximumSize() const
     {
         if (!containerStack.empty())
         {
@@ -562,13 +572,14 @@ namespace glimmer
                 auto index = id & 0xffff;
                 auto type = id >> 16;
                 auto& region = states[type][index].state.scroll;
-                return ImVec2{ region.enabled.first ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
-                    region.enabled.second ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+                auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x : region.viewport.GetWidth(),
+                    (region.type & ST_Vertical) ? region.extent.y : region.viewport.GetHeight() };
+                return sz;
             }
             else if (wtype == WT_Accordion)
             {
                 auto& accordion = accordions.top();
-                return ImVec2{ accordion.hscroll ? accordion.extent.x - accordion.origin.x: accordion.size.x,
+                return ImVec2{ accordion.hscroll ? accordion.extent.x - accordion.origin.x : accordion.size.x,
                     accordion.vscroll ? accordion.extent.y - accordion.origin.y : accordion.size.y };
             }
             else
@@ -579,12 +590,13 @@ namespace glimmer
         else
         {
             auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
-            return ImVec2{ popupSize.x == -1.f ? rect.GetWidth() : popupSize.x, 
-                popupSize.y == -1.f ? rect.GetHeight() : popupSize.y };
+            auto currpos = adhocLayout.top().nextpos;
+            return ImVec2{ popupSize.x == -1.f ? rect.GetWidth() - currpos.x : popupSize.x,
+                popupSize.y == -1.f ? rect.GetHeight() - currpos.y : popupSize.y };
         }
     }
 
-    ImVec2 WidgetContextData::MaximumAbsExtent() const
+    ImVec2 WidgetContextData::MaximumExtent() const
     {
         if (!containerStack.empty())
         {
@@ -604,8 +616,9 @@ namespace glimmer
                 auto index = id & 0xffff;
                 auto type = id >> 16;
                 auto& region = states[type][index].state.scroll;
-                return ImVec2{ region.enabled.first ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
-                    region.enabled.second ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+                auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
+                    (region.type & ST_Vertical) ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+                return sz;
             }
             else if (wtype == WT_Accordion)
             {
@@ -650,7 +663,7 @@ namespace glimmer
         spinnerStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Spinner) : 8);
         tabBarStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 4);
         accordionStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Accordion) : 4);
-        splitterScrollPaneParentIds.resize((Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_SplitterScrollRegion) : 32) 
+        splitterScrollPaneParentIds.resize((Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_SplitterRegion) : 32) 
             * GLIMMER_MAX_SPLITTER_REGIONS, -1);
         dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);
 
@@ -667,7 +680,7 @@ namespace glimmer
         for (auto idx = 0; idx < GLIMMER_MAX_SPLITTER_REGIONS; ++idx)
         {
             states[idx] = WS_Default;
-            scrollids[idx] = -1;
+            containers[idx] = -1;
             isdragged[idx] = false;
             dragstart[idx] = 0.f;
         }
@@ -760,6 +773,11 @@ namespace glimmer
     {
         CurrentContext = GetContext().parentContext;
         assert(CurrentContext != nullptr);
+    }
+
+    void Cleanup()
+    {
+        ImPlot::DestroyContext(ChartsContext);
     }
 
     StyleStackT WidgetContextData::StyleStack[WSI_Total];

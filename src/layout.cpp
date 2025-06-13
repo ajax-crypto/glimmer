@@ -50,12 +50,13 @@ namespace glimmer
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    void StartScrollableImpl(int32_t id, bool hscroll, bool vscroll, ImVec2 maxsz, const StyleDescriptor& style,
+    void StartScrollableImpl(int32_t id, int32_t flags, ImVec2 maxsz, const StyleDescriptor& style,
         const ImRect& border, const ImRect& content, IRenderer& renderer);
     void EndScrollableImpl(int32_t id, IRenderer& renderer);
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
         IRenderer& renderer);
     void RecordItemGeometry(const LayoutItemDescriptor& layoutItem);
+    void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
 #pragma region Layout functions
 
@@ -87,6 +88,7 @@ namespace glimmer
         layout.nextpos = geometry.Min;
         if (direction & FD_Horizontal) layout.nextpos.x = geometry.Max.x;
         if (direction & FD_Vertical) layout.nextpos.y = geometry.Max.y;
+        if (!layout.addedOffset && layout.insideContainer) layout.addedOffset = true;
     }
 
     void Move(int32_t hid, int32_t vid, bool toRight, bool toBottom)
@@ -98,6 +100,7 @@ namespace glimmer
         auto& layout = context.adhocLayout.top();
         layout.nextpos.x = toRight ? hgeometry.Max.x : hgeometry.Min.x;
         layout.nextpos.y = toBottom ? vgeometry.Max.y : vgeometry.Min.y;
+        if (!layout.addedOffset && layout.insideContainer) layout.addedOffset = true;
     }
 
     void Move(ImVec2 amount, int32_t direction)
@@ -108,13 +111,16 @@ namespace glimmer
         if (direction & ToTop) amount.y = -amount.y;
         auto& layout = context.adhocLayout.top();
         layout.nextpos += amount;
+        if (!layout.addedOffset && layout.insideContainer) layout.addedOffset = true;
     }
 
     void Move(ImVec2 pos)
     {
         auto& context = GetContext();
         if (!context.layouts.empty()) return;
-        context.adhocLayout.top().nextpos = pos;
+        auto& layout = context.adhocLayout.top();
+        layout.nextpos = pos;
+        if (!layout.addedOffset && layout.insideContainer) layout.addedOffset = true;
     }
 
     void PopSpan(int depth)
@@ -138,9 +144,9 @@ namespace glimmer
         else
         {
             layoutItem.margin.Max.x = nextpos.x + width;
-            layoutItem.border.Max.x = layoutItem.margin.Max.x - style.margin.left;
-            layoutItem.padding.Max.x = layoutItem.border.Max.x - style.border.left.thickness;
-            layoutItem.content.Max.x = layoutItem.padding.Max.x - style.padding.left;
+            layoutItem.border.Max.x = layoutItem.margin.Max.x - style.margin.right;
+            layoutItem.padding.Max.x = layoutItem.border.Max.x - style.border.right.thickness;
+            layoutItem.content.Max.x = layoutItem.padding.Max.x - style.padding.right;
         }
 
         if (layoutItem.sizing & FromTop)
@@ -153,13 +159,14 @@ namespace glimmer
         else
         {
             layoutItem.margin.Max.y = nextpos.y + height;
-            layoutItem.border.Max.y = layoutItem.margin.Max.y - style.margin.top;
-            layoutItem.padding.Max.y = layoutItem.border.Max.y - style.border.top.thickness;
-            layoutItem.content.Max.y = layoutItem.padding.Max.y - style.padding.top;
+            layoutItem.border.Max.y = layoutItem.margin.Max.y - style.margin.bottom;
+            layoutItem.padding.Max.y = layoutItem.border.Max.y - style.border.bottom.thickness;
+            layoutItem.content.Max.y = layoutItem.padding.Max.y - style.padding.bottom;
         }
 
         if (style.dimension.x > 0.f)
         {
+            // TODO: Fix it!
             auto w = clamp(style.dimension.x, style.mindim.x, style.maxdim.x);
 
             if (layoutItem.sizing & FromRight) [[unlikely]]
@@ -250,11 +257,32 @@ namespace glimmer
             layoutItem.sizing |= FromTop;
     }
 
+    static void ReserveSpaceForScrollBars(WidgetContextData& context, LayoutItemDescriptor& layoutItem)
+    {
+        if (layoutItem.wtype == WT_Scrollable)
+        {
+            auto type = context.GetState(layoutItem.id).state.scroll.type;
+            if (type & ST_ReserveForVScroll)
+            {
+                layoutItem.border.Max.x -= Config.scrollbarSz;
+                layoutItem.padding.Max.x -= Config.scrollbarSz;
+                layoutItem.content.Max.x -= Config.scrollbarSz;
+            }
+
+            if (type & ST_ReserveForHScroll)
+            {
+                layoutItem.border.Max.y -= Config.scrollbarSz;
+                layoutItem.padding.Max.y -= Config.scrollbarSz;
+                layoutItem.content.Max.y -= Config.scrollbarSz;
+            }
+        }
+    }
+
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         float width, float height)
     {
         auto& context = GetContext();
-        auto totalsz = context.MaximumAbsExtent();
+        auto totalsz = context.MaximumExtent();
         auto nextpos = !context.layouts.empty() ? context.layouts.top().nextpos : context.NextAdHocPos();
         AddDefaultDirection(layoutItem);
 
@@ -262,6 +290,7 @@ namespace glimmer
         if (height <= 0.f) height = clamp(totalsz.y - nextpos.y, style.mindim.y, style.maxdim.y);
 
         ComputeExtent(layoutItem, nextpos, style, neighbors, width, height);
+        ReserveSpaceForScrollBars(context, layoutItem);
     }
 
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
@@ -276,6 +305,7 @@ namespace glimmer
         if (height <= 0.f) height = clamp(totalsz.y - nextpos.y, style.mindim.y, style.maxdim.y);
 
         ComputeExtent(layoutItem, nextpos, style, neighbors, width, height);
+        ReserveSpaceForScrollBars(context, layoutItem);
     }
 
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
@@ -710,7 +740,7 @@ namespace glimmer
     {
         ImRect available;
         auto& context = GetContext();
-        auto maxabs = context.MaximumAbsExtent();
+        auto maxabs = context.MaximumExtent();
 
         available.Min.y = nextpos.y;
         available.Max.y = neighbors.bottom == -1 ? maxabs.y : context.GetGeometry(neighbors.bottom).Min.y;
@@ -1058,14 +1088,15 @@ namespace glimmer
             break;
         }
         case WT_Scrollable: {
-            if (item.closing) EndScrollableImpl(item.id, renderer);
+            /*if (item.closing) EndScrollableImpl(item.id, renderer);
             else 
             {
                 const auto& style = GetStyle(StyleStack, WS_Default);
                 StartScrollableImpl(item.id, item.hscroll, item.vscroll, item.extent, style, item.border, item.content, renderer);
             }
             if (!context.nestedContextStack.empty())
-                RecordItemGeometry(item);
+                RecordItemGeometry(item);*/
+            // TODO: Fix this
             break;
         }
         case WT_TabBar: {

@@ -218,11 +218,11 @@ namespace glimmer
 #ifdef _DEBUG
                 auto fps = ((float)deltaFrames / totalDeltaTime);
                 if (fps >= 50.f)
-                    LOG("Total Frames: %d | Current FPS: %f | Max Frame Time: %f\n", deltaFrames,
-                        fps, maxFrameTime);
+                    LOG("Total Frames: %d | Current FPS: %.0f | Max Frame Time: %.0fms\n", deltaFrames,
+                        fps, (maxFrameTime * 1000.f));
                 else
-                    LOGERROR("Total Frames: %d | Current FPS: %f | Max Frame Time: %f\n", deltaFrames,
-                        fps, maxFrameTime);
+                    LOGERROR("Total Frames: %d | Current FPS: %.0f | Max Frame Time: %.0fms\n", deltaFrames,
+                        fps, (maxFrameTime * 1000.f));
                 LOG("*alloc calls in last 1s: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
                 TotalMallocs = 0;
                 AllocatedBytes = 0;
@@ -374,6 +374,8 @@ namespace glimmer
 #else
             }
 #endif
+
+            Cleanup();
             return true;
         }
 
@@ -419,5 +421,10 @@ namespace glimmer
     float IPlatform::fps() const
     {
         return (float)frameCount / totalTime;
+    }
+
+    UIConfig* IPlatform::config() const
+    {
+        return &Config;
     }
 }

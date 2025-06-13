@@ -30,9 +30,9 @@ namespace glimmer
     bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     WidgetDrawResult EndPopUp();
 
-    void StartScrollableRegion(int32_t id, bool hscroll, bool vscroll, int32_t geometry = ToBottomRight, 
-        const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { -1.f, -1.f });
-    void EndScrollableRegion();
+    void StartScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
+        const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
+    ImRect EndScrollableRegion();
 
     bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
@@ -45,7 +45,7 @@ namespace glimmer
     void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath);
     void AddAccordionHeaderText(std::string_view content, bool isRichText = false);
     void EndAccordionHeader(std::optional<bool> expanded = std::nullopt);
-    bool StartAccordionContent(float height = FLT_MAX, bool hscroll = false, bool vscroll = false, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
+    bool StartAccordionContent(float height = FLT_MAX, int32_t scrollflags = 0, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     void EndAccordionContent();
     WidgetDrawResult EndAccordion();
 

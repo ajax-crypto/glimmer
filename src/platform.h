@@ -193,6 +193,8 @@ namespace glimmer
         bool softwareCursor = false;
     };
 
+    struct UIConfig;
+
     struct IPlatform
     {
         virtual void SetClipboardText(std::string_view input) = 0;
@@ -205,6 +207,7 @@ namespace glimmer
         virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
 
         float fps() const;
+        UIConfig* config() const;
 
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;

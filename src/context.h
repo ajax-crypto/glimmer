@@ -93,7 +93,7 @@ namespace glimmer
         Vector<HeaderCellResizeState, int16_t> cols[4];
         BiDirMap colmap[8];
         HeaderCellDragState drag;
-        ScrollBarState scroll;
+        ScrollableRegion scroll;
         ImVec2 totalsz;
         ItemGridCurrentState state = ItemGridCurrentState::Default;
         
@@ -311,19 +311,19 @@ namespace glimmer
         float lastCaretShowTime = 0.f;
         float selectionStart = -1.f;
         float lastClickTime = -1.f;
-        ScrollBarState scroll;
+        ScrollableRegion scroll;
         Vector<float, int16_t> pixelpos; // Cumulative pixel position of characters
         UndoRedoStack<TextInputOperation> ops; // Text operations for redo/undo stack
         TextInputOperation currops;
 
         void moveLeft(float amount)
         {
-            scroll.pos.x = std::max(0.f, scroll.pos.x - amount);
+            scroll.state.pos.x = std::max(0.f, scroll.state.pos.x - amount);
         }
 
         void moveRight(float amount)
         {
-            scroll.pos.x = std::min(scroll.pos.x + amount, pixelpos.back());
+            scroll.state.pos.x = std::min(scroll.state.pos.x + amount, pixelpos.back());
         }
     };
 
@@ -331,6 +331,8 @@ namespace glimmer
     {
         ImVec2 nextpos{ 0.f, 0.f }; // position of next widget
         int32_t lastItemId = -1; // last inserted item's ID
+        bool insideContainer = false;
+        bool addedOffset = false;
     };
 
     struct SplitterContainerState
@@ -352,8 +354,7 @@ namespace glimmer
         int current = 0;
         SplitRange spacing[GLIMMER_MAX_SPLITTER_REGIONS]; // spacing from (i-1)th to ith splitter
         int32_t states[GLIMMER_MAX_SPLITTER_REGIONS]; // ith splitter's state
-        int32_t scrollids[GLIMMER_MAX_SPLITTER_REGIONS]; // id of ith scroll data
-        ScrollableRegion scrolldata[GLIMMER_MAX_SPLITTER_REGIONS]; // ith scroll region data
+        int32_t containers[GLIMMER_MAX_SPLITTER_REGIONS]; // id of ith container
         ImRect viewport[GLIMMER_MAX_SPLITTER_REGIONS]; // ith non-scroll region geometry
         bool isdragged[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
         float dragstart[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
@@ -423,9 +424,9 @@ namespace glimmer
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
         ImVec2 spacing{ 0.f, 0.f };
-        ImVec2 maxdim{ 0.f, 0.f };
+        ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
         ImVec2 cumulative{ 0.f, 0.f };
-        ImRect extent{};
+        ImRect extent{}; // max coords of widgets inside layout
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
         OverflowMode hofmode = OverflowMode::Scroll;
@@ -644,7 +645,9 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
-            Vector<ImRect, int16_t>{ true } };
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true } 
+        };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
         FixedSizeStack<LayoutDescriptor, GLIMMER_MAX_LAYOUT_NESTING> layouts;
@@ -756,6 +759,13 @@ namespace glimmer
             return states[type][index].state.scroll;
         }
 
+        ScrollableRegion const& ScrollRegion(int32_t id) const
+        {
+            auto index = id & 0xffff;
+            auto type = id >> 16;
+            return states[type][index].state.scroll;
+        }
+
         static StyleDescriptor GetStyle(int32_t state);
 
         IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
@@ -770,8 +780,8 @@ namespace glimmer
         const ImRect& GetGeometry(int32_t id) const;
         ImRect GetLayoutSize() const;
         void RecordDeferRange(RendererEventIndexRange& range, bool start) const;
+        ImVec2 MaximumSize() const;
         ImVec2 MaximumExtent() const;
-        ImVec2 MaximumAbsExtent() const;
         ImVec2 WindowSize() const;
         ImVec2 NextAdHocPos() const;
 
@@ -781,6 +791,7 @@ namespace glimmer
     WidgetContextData& GetContext();
     WidgetContextData& PushContext(int32_t id);
     void PopContext();
+    void Cleanup();
 
     inline NestedContextSource InvalidSource{};
 }

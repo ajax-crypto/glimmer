@@ -189,7 +189,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <SupportJustMyCode>false</SupportJustMyCode>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
-      <FloatingPointModel>Fast</FloatingPointModel>
+      <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
       <AdditionalIncludeDirectories>..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -215,7 +215,7 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
-      <FloatingPointModel>Fast</FloatingPointModel>
+      <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
       <AdditionalIncludeDirectories>..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

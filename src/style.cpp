@@ -3,6 +3,7 @@
 
 #include <cctype>
 #include <unordered_map>
+#include <variant>
 
 namespace glimmer
 {
@@ -129,7 +130,7 @@ namespace glimmer
 
         if (decimal != -1)
         {
-            for (auto midx = decimal; midx >= 0; --midx)
+            for (auto midx = decimal - 1; midx >= 0; --midx)
             {
                 result += (input[midx] - '0') * base;
                 base *= 10.f;
@@ -170,6 +171,35 @@ namespace glimmer
         result = num.value;
 
         return result * scale;
+    }
+
+    [[nodiscard]] FourSidedMeasure ExtractWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale)
+    {
+        FourSidedMeasure result;
+        auto idx = SkipSpace(input, 0);
+        auto end = (int)input.size();
+        while ((idx < end) && !std::isspace(input[idx])) idx++;
+        result.top = result.bottom = result.left = result.right = ExtractFloatWithUnit(input.substr(0, idx), defaultVal, ems, parent, scale);
+        idx = SkipSpace(input, idx);
+
+        if (idx < ((int)input.size() - 1))
+        {
+            auto start = idx;
+            while ((idx < end) && !std::isspace(input[idx])) idx++;
+            result.right = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+            idx = SkipSpace(input, idx);
+
+            start = idx;
+            while ((idx < end) && !std::isspace(input[idx])) idx++;
+            result.bottom = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+            idx = SkipSpace(input, idx);
+
+            start = idx;
+            while ((idx < end) && !std::isspace(input[idx])) idx++;
+            result.left = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+        }
+
+        return result;
     }
 
 #ifndef IM_RICHTEXT_TARGET_IMGUI
@@ -828,6 +858,26 @@ namespace glimmer
             style.dimension.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             prop = StyleHeight;
         }
+        else if (AreSame(stylePropName, "min-width"))
+        {
+            style.mindim.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            prop = StyleWidth;
+        }
+        else if (AreSame(stylePropName, "min-height"))
+        {
+            style.mindim.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            prop = StyleHeight;
+        }
+        else if (AreSame(stylePropName, "max-width"))
+        {
+            style.maxdim.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            prop = StyleWidth;
+        }
+        else if (AreSame(stylePropName, "max-height"))
+        {
+            style.maxdim.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            prop = StyleHeight;
+        }
         else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
         {
             style.alignment |= AreSame(stylePropVal, "justify") ? TextAlignJustify :
@@ -850,8 +900,7 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "padding"))
         {
-            auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            style.padding.top = style.padding.right = style.padding.left = style.padding.bottom = val;
+            style.padding = ExtractWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-top"))
@@ -932,9 +981,11 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "border-width"))
         {
-            auto width = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
-                1.f, 1.f);
-            style.border.setThickness(width);
+            auto width = ExtractWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.border.top.thickness = width.top;
+            style.border.left.thickness = width.left;
+            style.border.bottom.thickness = width.bottom;
+            style.border.right.thickness = width.right;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-color"))
@@ -973,8 +1024,7 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "margin"))
         {
-            style.margin.left = style.margin.right = style.margin.top = style.margin.bottom =
-                ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.margin = ExtractWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-top"))
@@ -1245,6 +1295,20 @@ namespace glimmer
         }
        
         PushStyle(css, context.StyleStack);
+    }
+
+    void PushStyleFmt(WidgetState state, std::string_view fmt, ...)
+    {
+        static char buffer[4096] = { 0 };
+
+        std::memset(buffer, 0, 4096);
+        va_list args;
+        va_start(args, fmt);
+        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
+        buffer[std::min(sz, 4095)] = 0;
+        va_end(args);
+
+        PushStyle(state, buffer);
     }
 
     void PushStyle(WidgetState state, std::string_view css)
