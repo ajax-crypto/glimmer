@@ -12,6 +12,13 @@
 #include "im_font_manager.h"
 #include "libs/inc/implot/implot.h"
 
+#include <unordered_map>
+#include <string>
+
+#ifndef GLIMMER_TOTAL_ID_SIZE
+#define GLIMMER_TOTAL_ID_SIZE (1 << 16)
+#endif
+
 namespace glimmer
 {
     // This is required, as for some widgets, double clicking leads to a editor, and hence a text input widget
@@ -19,6 +26,30 @@ namespace glimmer
         IRenderer& renderer, const IODescriptor& io);
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         ImVec2 size, ImVec2 totalsz);
+
+    static Vector<char, int32_t> IdStringBackingStore{ GLIMMER_TOTAL_ID_SIZE, 0 };
+    static int32_t IdStringBackingStoreSize = 0;
+    static std::unordered_map<std::string_view, int32_t> NamedIds[WT_TotalTypes];
+
+    static std::string_view CreatePermanentCopy(std::string_view input)
+    {
+        auto sz = input.size();
+        memcpy(IdStringBackingStore.data() + IdStringBackingStoreSize, input.data(), sz);
+        auto res = std::string_view{ IdStringBackingStore.data() + IdStringBackingStoreSize, sz };
+        IdStringBackingStoreSize += sz;
+        return res;
+    }
+
+    static int32_t GetIdFromString(std::string_view id, WidgetType type)
+    {
+        auto it = NamedIds[type].find(id);
+        if (it == NamedIds[type].end())
+        {
+            auto key = CreatePermanentCopy(id);
+            it = NamedIds[type].emplace(key, GetNextId(type)).first;
+        }
+        return it->second;
+    }
 
     WidgetConfigData::WidgetConfigData(WidgetType ty)
         : type{ ty }
@@ -2749,6 +2780,7 @@ namespace glimmer
         auto& state = context.TabBarState(tab.id);
         state.tabs.resize(tab.items.size());
         auto result = Widget(tab.id, WT_TabBar, tab.geometry, tab.neighbors);
+        if (result.event != WidgetEvent::Clicked) result.tabidx = state.current;
         context.currentTab.reset();
         return result;
     }
@@ -3111,7 +3143,7 @@ namespace glimmer
         auto& evprop = gridstate.cols[level][col - 1];
 
         if (!evprop.mouseDown && isMouseNearColDrag)
-            Config.platform->SetMouseCursor(MouseCursor::Grab);
+            Config.platform->SetMouseCursor(MouseCursor::ResizeHorizontal);
 
         if (io.isLeftMouseDown())
         {
@@ -4115,7 +4147,7 @@ namespace glimmer
 
     bool StartItemGridHeader(int levels)
     {
-        assert(levels > 0 && levels <= 4);
+        assert(levels > 0 && levels <= GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL);
         auto& context = *WidgetContextData::CurrentItemGridContext;
         auto& state = context.itemGrids.top();
         auto& itemcfg = context.GetState(state.id).state.grid;
@@ -4225,9 +4257,19 @@ namespace glimmer
 
         header.range.primitives.first = renderer.TotalEnqueued();
         header.range.events.first = GetContext().deferedEvents.size();
-        auto res = itemcfg.header(header.content.Min, header.content.GetWidth(),
-            state.currlevel, state.currCol, config.parent);
-        if (res.event != WidgetEvent::None) state.event = res;
+
+        if (itemcfg.header != nullptr)
+            itemcfg.header(header.content.Min, header.content.GetWidth(),
+                state.currlevel, state.currCol, config.parent);
+        else
+        {
+            static char buffer[64] = { 0 };
+            std::memset(buffer, 0, 64);
+            auto sz = std::snprintf(buffer, 63, "[itemgrid-%d][header-%dx%d]",
+                state.id, state.currCol, state.currlevel);
+            Label(std::string_view{ buffer, (size_t)sz }, config.name);
+        }
+
         header.range.primitives.second = renderer.TotalEnqueued();
         header.range.events.second = GetContext().deferedEvents.size();
 
@@ -4293,9 +4335,19 @@ namespace glimmer
 
         header.range.primitives.first = renderer.TotalEnqueued();
         header.range.events.first = GetContext().deferedEvents.size();
-        auto res = itemcfg.header(header.content.Min, header.content.GetWidth(),
-            state.currlevel, state.currCol, config.parent);
-        if (res.event != WidgetEvent::None) state.event = res;
+
+        if (itemcfg.header != nullptr)
+            itemcfg.header(header.content.Min, header.content.GetWidth(),
+                state.currlevel, state.currCol, config.parent);
+        else
+        {
+            static char buffer[64] = { 0 };
+            std::memset(buffer, 0, 64);
+            auto sz = std::snprintf(buffer, 63, "[itemgrid-%d][header-%dx%d]",
+                state.id, state.currCol, state.currlevel);
+            Label(std::string_view{ buffer, (size_t)sz }, config.name);
+        }
+
         header.range.primitives.second = renderer.TotalEnqueued();
         header.range.events.second = GetContext().deferedEvents.size();
 
@@ -4355,16 +4407,12 @@ namespace glimmer
 
                 header.offset.x = header.content.Min.x - header.offset.x;
                 header.offset.y = header.content.Min.y - header.offset.y;
-
-                if (level == 0 && ((state.headers[level].size() - 1) == col))
-                    state.size.x = header.extent.Max.x - state.origin.x + config.gridwidth;
             }
 
             ypos += state.headerHeights[level] + config.gridwidth;
             state.headerHeight += state.headerHeights[level] + config.gridwidth;
         }
 
-        auto hshift = -gridstate.scroll.state.pos.x;
         auto& ctx = GetContext();
         state.phase = ItemGridConstructPhase::HeaderPlacement;
         std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
@@ -4373,12 +4421,16 @@ namespace glimmer
 
         for (auto level = 0; level < state.levels; ++level)
         {
+            auto frozenWidth = 0.f;
+
             for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
             {
                 auto col = gridstate.colmap[level].vtol[vcol];
 
                 auto& hdr = headers[level][col];
                 auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
+                auto hshift = (config.frozencols == col + 1) ? -gridstate.altscroll.state.pos.x :
+                    (config.frozencols <= col) ? -gridstate.scroll.state.pos.x : 0.f;
                 state.currCol = col;
 
                 if (isBeingMoved)
@@ -4401,13 +4453,18 @@ namespace glimmer
                 }
                 else
                 {
-                    Config.renderer->DrawRect(hdr.extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
-                        hdr.extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
-                        config.gridwidth);
-                    renderer.SetClipRect(hdr.extent.Min, hdr.extent.Max);
-                    ctx.deferedRenderer->Render(*Config.renderer, hdr.offset + ImVec2{ hshift, 0.f },
+                    if (col == config.frozencols)
+                        renderer.SetClipRect(state.origin + ImVec2{ frozenWidth, 0.f }, state.origin + state.size);
+                    else if (col < config.frozencols)
+                        frozenWidth = (hdr.extent.Max.x - state.origin.x);
+
+                    ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth + hshift, config.gridwidth };
+                    Config.renderer->DrawRect(hdr.extent.Min - gridline, hdr.extent.Max + gridline, 
+                        config.gridcolor, false, config.gridwidth);
+                    renderer.SetClipRect(hdr.extent.Min + shift, hdr.extent.Max + shift);
+                    ctx.deferedRenderer->Render(*Config.renderer, hdr.offset + shift,
                         hdr.range.primitives.first, hdr.range.primitives.second);
-                    auto res = ctx.HandleEvents(hdr.offset, hdr.range.events.first, hdr.range.events.second);
+                    auto res = ctx.HandleEvents(hdr.offset + shift, hdr.range.events.first, hdr.range.events.second);
                     auto interacted = res.event != WidgetEvent::None;
                     renderer.ResetClipRect();
 
@@ -4433,83 +4490,117 @@ namespace glimmer
             }
         }
 
+        if (config.frozencols > 0) renderer.ResetClipRect();
         state.nextpos.y = ypos - gridstate.scroll.state.pos.y;
-        state.nextpos.x = state.origin.x + hshift;
+        state.nextpos.x = state.origin.x;
         state.phase = ItemGridConstructPhase::Headers;
         state.currlevel = state.levels - 1;
+        state.totalsz.x = state.headers[state.currlevel].back().extent.Max.x + config.gridwidth;
         ctx.ToggleDeferedRendering(false, false);
         ctx.deferEvents = false;
         return result;
     }
 
-    void PopulateItemGrid(bool byRows)
+    void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method)
     {
         auto& context = *WidgetContextData::CurrentItemGridContext;
         auto& state = context.itemGrids.top();
-        state.inRow = byRows;
+        state.method = method;
+        state.rowcount = totalRows;
     }
 
-    static void DrawItemDescendentSymbol(WidgetContextData& context, CurrentItemGridState& state,
-        ItemDescendentVisualState descendents)
-    {
-        if (state.currCol == 0)
-        {
-            ImVec2 start = state.nextpos;
-            const auto style = WidgetContextData::GetStyle(WS_Default);
-            ImVec2 end = start + ImVec2{ style.font.size, style.font.size };
-
-            if (descendents != ItemDescendentVisualState::NoDescendent)
-            {
-                auto& renderer = context.GetRenderer();
-                const auto style = WidgetContextData::GetStyle(WS_Default);
-                renderer.SetClipRect(start, end);
-                DrawSymbol(start, end, { 2.f, 2.f }, descendents == ItemDescendentVisualState::Collapsed ?
-                    SymbolIcon::RightTriangle : SymbolIcon::DownTriangle, style.fgcolor, style.fgcolor, 1.f,
-                    renderer);
-                renderer.ResetClipRect();
-            }
-
-            state.nextpos.x = end.x;
-        }
-    }
-
-    static WidgetDrawResult PopulateData(int totalRows);
-
-    static float HAlignCellContent(CurrentItemGridState& state, const ItemGridState& config, int16_t col, float width)
+    static float HAlignCellContent(CurrentItemGridState& state, const ItemGridState& config, int16_t col,
+        float required, float available)
     {
         auto alignment = state.headers[state.levels - 1][col].alignment;
         auto hdiff = 0.f;
 
         if (alignment & TextAlignHCenter)
         {
-            auto totalw = state.headers[state.currlevel][col].extent.GetWidth() - (2.f * config.cellpadding.x);
-            hdiff = std::max(0.f, totalw - width) * 0.5f;
+            hdiff = std::max(0.f, available - required) * 0.5f;
         }
         else if (alignment & TextAlignRight)
         {
-            auto totalw = state.headers[state.currlevel][col].extent.GetWidth() - (2.f * config.cellpadding.x);
-            hdiff = std::max(0.f, totalw - width);
+            hdiff = std::max(0.f, available - required);
         }
 
         return hdiff;
     }
 
     static float VAlignCellContent(CurrentItemGridState& state, const ItemGridState& config, int16_t col,
-        float maxh, float height)
+        float required, float available)
     {
         auto alignment = state.headers[state.levels - 1][col].alignment;
         auto vdiff = 0.f;
 
         if (alignment & TextAlignVCenter)
         {
-            vdiff = std::max(0.f, maxh - height) * 0.5f;
+            vdiff = std::max(0.f, available - required) * 0.5f;
         }
         else if (alignment & TextAlignBottom)
         {
-            vdiff = std::max(0.f, maxh - height);
+            vdiff = std::max(0.f, available - required);
         }
 
         return vdiff;
+    }
+
+    static void DrawItemDescendentSymbol(WidgetContextData& context, CurrentItemGridState& state,
+        ItemDescendentVisualState descendents, int32_t alignment)
+    {
+        if (state.currCol == 0)
+        {
+            ImVec2 start = state.nextpos;
+            const auto style = WidgetContextData::GetStyle(WS_Default);
+            ImVec2 size = ImVec2{ style.font.size * 0.4f, style.font.size * 0.5f };
+            auto vdiff = ((alignment & TextAlignVCenter) ? (style.font.size - size.y) * 0.5f :
+                (alignment & TextAlignBottom) ? (style.font.size - size.y) : 0.f) + (0.2f * style.font.size);
+
+            if (descendents != ItemDescendentVisualState::NoDescendent)
+            {
+                auto& renderer = context.GetRenderer();
+                const auto style = WidgetContextData::GetStyle(WS_Default);
+                renderer.SetClipRect(start, start + ImVec2{ style.font.size, style.font.size });
+                DrawSymbol(start + ImVec2{ 0.f, vdiff }, size, {}, descendents == ItemDescendentVisualState::Collapsed ?
+                    SymbolIcon::RightTriangle : SymbolIcon::DownTriangle, style.fgcolor, style.fgcolor, 1.f,
+                    renderer);
+                renderer.ResetClipRect();
+            }
+
+            state.nextpos.x += size.x;
+        }
+    }
+
+    static WidgetDrawResult PopulateData(int totalRows);
+
+    static ImVec2 RenderItemGridCell(WidgetContextData& context, CurrentItemGridState& state, 
+        const ItemGridInternalState& gridstate, const ItemGridState& config, float maxh, int16_t col,
+        WidgetDrawResult& result)
+    {
+        const auto& header = state.headers[state.levels - 1][col];
+        auto& cellGeometry = state.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
+        ImVec2 available{ header.content.GetWidth(), maxh },
+            required = cellGeometry.offset;
+        if (col == 0) available.x -= state.cellIndent;
+        cellGeometry.extent.Max.y = cellGeometry.extent.Min.y + maxh + (2.f * config.cellpadding.y);
+        cellGeometry.content.Max.y = cellGeometry.content.Min.y + maxh;
+
+        auto hdiff = HAlignCellContent(state, config, col, required.x, available.x);
+        auto vdiff = VAlignCellContent(state, config, col, required.y, available.y);
+        auto hshift = (config.frozencols == col + 1) ? -gridstate.altscroll.state.pos.x :
+            (config.frozencols <= col) ? -gridstate.scroll.state.pos.x : 0.f;
+        const auto& range = header.range;
+
+        ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth + hshift, config.gridwidth };
+        Config.renderer->DrawRect(cellGeometry.extent.Min - gridline, cellGeometry.extent.Max + gridline, 
+            config.gridcolor, false, config.gridwidth);
+        Config.renderer->SetClipRect(cellGeometry.content.Min + shift, cellGeometry.content.Max + shift);
+        context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff + hshift, vdiff },
+            range.primitives.first, range.primitives.second);
+        Config.renderer->ResetClipRect();
+        auto res = context.HandleEvents(ImVec2{ hdiff + hshift, vdiff }, range.events.first, range.events.second);
+        if (res.event != WidgetEvent::None) result = res;
+        return cellGeometry.extent.GetSize();
     }
 
     static void AddRowData(WidgetContextData& context, CurrentItemGridState& state,
@@ -4517,13 +4608,17 @@ namespace glimmer
         int totalRows)
     {
         auto row = 0;
+        auto startx = state.headers[state.levels - 1][0].content.Min.x;
         state.phase = ItemGridConstructPhase::Rows;
+        state.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(state.headers[state.levels - 1].size());
 
         while (totalRows > 0)
         {
             auto coloffset = 1;
             auto maxh = 0.f;
+            state.nextpos.y += config.cellpadding.y;
 
+            // Determine cell geometry for current row
             for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
             {
                 auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
@@ -4537,72 +4632,93 @@ namespace glimmer
                     context.ToggleDeferedRendering(true, false);
                     context.deferEvents = true;
                     std::pair<float, float> bounds;
-                    bounds.first = state.headers[state.levels - 1][col].extent.Min.x;
-                    bounds.second = state.headers[state.levels - 1][col + coloffset - 1].extent.Max.x;
-                    state.headers[state.levels][col].range.events.first = context.deferedEvents.size();
-                    state.headers[state.levels][col].range.primitives.first = context.deferedRenderer->TotalEnqueued();
+
+                    auto& header = state.headers[state.levels - 1][col];
+                    bounds.first = header.extent.Min.x + ((col == 0) ? state.cellIndent : 0.f) + config.cellpadding.x;
+                    bounds.second = header.extent.Max.x - config.cellpadding.x;
+                    header.range.events.first = context.deferedEvents.size();
+                    header.range.primitives.first = context.deferedRenderer->TotalEnqueued();
+                    state.nextpos.x = bounds.first;
 
                     if (vstate != ItemDescendentVisualState::NoDescendent)
-                        DrawItemDescendentSymbol(context, state, vstate);
-
-                    GetContext().adhocLayout.top().nextpos.x = state.nextpos.x = bounds.first;
-                    auto res = config.celldata(bounds, row, col, state.depth);
-                    if (res.event != WidgetEvent::None) result = res;
-                    auto height = state.maxCellExtent.y - state.headers[state.levels - 1][col].content.Min.y;
-                    maxh = std::max(maxh, height);
-
-                    auto& extent = state.headers[state.levels - 1][col].extent;
-                    extent.Min = ImVec2{ bounds.first, state.nextpos.y };
-                    extent.Max = ImVec2{ bounds.second, height + state.nextpos.y };
-                    state.headers[state.levels][col].alignment = align;
-                    state.headers[state.levels][col].range.events.second = context.deferedEvents.size();
-                    state.headers[state.levels][col].range.primitives.second = context.deferedRenderer->TotalEnqueued();
-
-                    if (vstate == ItemDescendentVisualState::Expanded && children > 0)
                     {
-                        state.cellIndent += config.config.indent;
-                        state.depth++;
-                        auto res = PopulateData(children);
-                        if (res.event != WidgetEvent::None) result = res;
-                        state.cellIndent -= config.config.indent;
-                        state.depth--;
+                        DrawItemDescendentSymbol(context, state, vstate, align);
+                        state.nextpos.x += config.cellpadding.x;
                     }
 
+                    context.adhocLayout.top().nextpos = state.nextpos;
+                    config.celldata(bounds, row, col, state.depth);
+                    auto height = state.maxCellExtent.y - state.nextpos.y;
+                    maxh = std::max(maxh, height);
+
+                    auto& cellGeometry = state.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
+                    cellGeometry.offset = { state.maxCellExtent.x - bounds.first, height };
+                    cellGeometry.content.Min.x = header.extent.Min.x + config.cellpadding.x;
+                    cellGeometry.content.Min.y = state.nextpos.y;
+                    cellGeometry.content.Max.x = header.extent.Max.x - config.cellpadding.x;
+                    cellGeometry.extent.Min.x = header.extent.Min.x;
+                    cellGeometry.extent.Min.y = state.nextpos.y - config.cellpadding.y;
+                    cellGeometry.extent.Max.x = header.extent.Max.x;
+
+                    header.alignment = align;
+                    header.range.events.second = context.deferedEvents.size();
+                    header.range.primitives.second = context.deferedRenderer->TotalEnqueued();
+
+                    state.childState = std::make_pair(vstate, children);
                     coloffset = colspan;
                     state.maxCellExtent = ImVec2{};
                 }
             }
 
-            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
+            context.ToggleDeferedRendering(false, false);
+            context.deferEvents = false;
+
+            // Draw frozen columns first
+            ImVec2 frozensz;
+            auto vcol = 0;
+            for (; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
             {
                 auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
-
-                if (col < state.movingCols.first || col > state.movingCols.second)
+                if (col < config.frozencols)
                 {
-                    auto& extent = state.headers[state.levels - 1][col].extent;
-                    auto hdiff = HAlignCellContent(state, config, col, extent.GetWidth());
-                    auto vdiff = VAlignCellContent(state, config, col, maxh, extent.GetHeight());
-                    const auto& range = state.headers[state.levels][col].range;
-
-                    context.ToggleDeferedRendering(false, false);
-                    context.deferEvents = false;
-                    Config.renderer->DrawRect(extent.Min - ImVec2{ config.gridwidth, config.gridwidth },
-                        extent.Max + ImVec2{ config.gridwidth, config.gridwidth }, config.gridcolor, false,
-                        config.gridwidth);
-                    context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, vdiff },
-                        range.primitives.first, range.primitives.second);
-                    auto res = context.HandleEvents(ImVec2{ hdiff, vdiff }, range.events.first, range.events.second);
-                    if (res.event != WidgetEvent::None) state.event = res;
+                    auto sz = RenderItemGridCell(context, state, gridstate, config, maxh, col, result);
+                    frozensz = ImMax(frozensz, sz);
                 }
+                else break;
             }
 
+            // Draw non-frozen columns after setting appropriate clipping rect for frozen part
+            Config.renderer->SetClipRect(state.origin + ImVec2{ frozensz.x, 0.f }, state.origin + state.size);
+            for (; vcol < state.headers[state.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+                if (col < state.movingCols.first || col > state.movingCols.second)
+                    RenderItemGridCell(context, state, gridstate, config, maxh, col, result);
+            }
+            Config.renderer->ResetClipRect();
             state.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
-            GetContext().adhocLayout.top().nextpos.y = state.nextpos.y;
+            state.nextpos.x = startx;
+            context.adhocLayout.top().nextpos = state.nextpos;
+
+            // Draw child rows
+            if (state.childState.first == ItemDescendentVisualState::Expanded &&
+                state.childState.second > 0)
+            {
+                state.cellIndent += config.config.indent;
+                state.depth++;
+                auto res = PopulateData(state.childState.second);
+                if (res.event != WidgetEvent::None) result = res;
+                state.cellIndent -= config.config.indent;
+                state.depth--;
+            }
+
+            context.ClearDeferredData();
             --totalRows;
             ++row;
         }
 
-        state.totalsz = state.nextpos;
+        state.totalsz.y = state.nextpos.y;
+        state.totalsz.x = state.headers[state.currlevel].back().extent.Max.x + config.gridwidth;
     }
 
     static void AddColumnData(WidgetContextData& context, CurrentItemGridState& state,
@@ -4612,7 +4728,7 @@ namespace glimmer
         std::pair<float, float> bounds;
         auto extent = state.headers[state.levels - 1][col].extent;
         const auto totalw = extent.GetWidth() - (2.f * config.cellpadding.x);
-        bounds.first = extent.Min.x + config.cellpadding.x;
+        bounds.first = extent.Min.x + config.cellpadding.x + ((col == 0) ? state.cellIndent : 0.f);
         bounds.second = extent.Max.x - config.cellpadding.x;
 
         for (auto row = 0; row < totalRows; ++row)
@@ -4624,7 +4740,10 @@ namespace glimmer
             context.adhocLayout.top().nextpos = state.nextpos;
 
             if (vstate != ItemDescendentVisualState::NoDescendent)
-                DrawItemDescendentSymbol(context, state, vstate);
+            {
+                DrawItemDescendentSymbol(context, state, vstate, alignment);
+                state.nextpos.x += config.cellpadding.x;
+            }
 
             int32_t ws = WS_Default;
             for (auto idx = 0; idx < WSI_Total; ++idx)
@@ -4633,19 +4752,19 @@ namespace glimmer
                     ws = gridstate.cellstate.state; break;
                 }
 
-            auto style = WidgetContextData::CurrentItemGridContext->GetStyle(ws);
+            auto style = WidgetContextData::GetStyle(ws);
 
             context.ToggleDeferedRendering(true, false);
             context.deferEvents = true;
             RendererEventIndexRange range;
             range.events.first = context.deferedEvents.size();
             range.primitives.first = context.deferedRenderer->TotalEnqueued();
-            auto res = config.celldata(bounds, row, col, state.depth);
-            if (res.event != WidgetEvent::None) result = res;
+            config.celldata(bounds, row, col, state.depth);
             range.events.second = context.deferedEvents.size();
             range.primitives.second = context.deferedRenderer->TotalEnqueued();
 
-            auto hdiff = HAlignCellContent(state, config, col, state.maxCellExtent.x - bounds.first);
+            auto hdiff = HAlignCellContent(state, config, col, state.maxCellExtent.x - bounds.first, 
+                state.headers[state.levels - 1][col].content.GetWidth());
             context.ToggleDeferedRendering(false, false);
             context.deferEvents = false;
             extent.Min.y = state.nextpos.y - config.cellpadding.y;
@@ -4659,7 +4778,7 @@ namespace glimmer
             Config.renderer->SetClipRect(extent.Min, extent.Max);
             context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, 0.f }, range.primitives.first,
                 range.primitives.second);
-            res = context.HandleEvents(ImVec2{ hdiff, 0.f }, range.events.first, range.events.second);
+            auto res = context.HandleEvents(ImVec2{ hdiff, 0.f }, range.events.first, range.events.second);
             if (res.event != WidgetEvent::None) state.event = res;
             Config.renderer->ResetClipRect();
 
@@ -4703,8 +4822,9 @@ namespace glimmer
         auto& renderer = context.GetRenderer();
         auto io = Config.platform->CurrentIO();
         auto& ctx = GetContext();
+        assert(config.celldata != nullptr);
 
-        if (state.inRow) AddRowData(ctx, state, gridstate, config, result, totalRows);
+        if (state.method == ItemGridPopulateMethod::ByRows) AddRowData(ctx, state, gridstate, config, result, totalRows);
         else
         {
             state.phase = ItemGridConstructPhase::Columns;
@@ -4712,17 +4832,43 @@ namespace glimmer
             Config.renderer->SetClipRect({ state.origin.x, state.origin.y + state.headerHeight }, 
                 state.origin + state.size);
 
-            for (auto vcol = 0; vcol < state.headers[state.levels - 1].size(); vcol++)
+            auto vcol = 0;
+            float frozenWidth = 0.f;
+            for (; vcol < state.headers[state.levels - 1].size(); vcol++)
             {
                 auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
-                auto ystart = state.nextpos.y;
-                if (col < state.movingCols.first || col > state.movingCols.second)
-                    AddColumnData(ctx, state, gridstate, config, result, io, totalRows, col);
-                state.nextpos.y = ystart;
-                state.nextpos.x += state.headers[state.levels - 1][col].extent.GetWidth() +
-                    config.gridwidth - config.cellpadding.x;
-                ctx.adhocLayout.top().nextpos = state.nextpos;
+                if (col < config.frozencols)
+                {
+                    auto ystart = state.nextpos.y;
+                    if (col < state.movingCols.first || col > state.movingCols.second)
+                        AddColumnData(ctx, state, gridstate, config, result, io, totalRows, col);
+                    state.nextpos.y = ystart;
+                    auto width = state.headers[state.levels - 1][col].extent.GetWidth() +
+                        config.gridwidth - config.cellpadding.x;
+                    state.nextpos.x += width;
+                    ctx.adhocLayout.top().nextpos = state.nextpos;
+                    frozenWidth += width;
+                }
+                else break;
             }
+
+            Config.renderer->SetClipRect(state.origin + ImVec2{ frozenWidth, 0.f }, state.origin + state.size);
+            for (; vcol < state.headers[state.levels - 1].size(); vcol++)
+            {
+                auto col = gridstate.colmap[state.levels - 1].vtol[vcol];
+                if (col < state.movingCols.first || col > state.movingCols.second)
+                {
+                    auto ystart = state.nextpos.y;
+                    if (col < state.movingCols.first || col > state.movingCols.second)
+                        AddColumnData(ctx, state, gridstate, config, result, io, totalRows, col);
+                    state.nextpos.y = ystart;
+                    auto width = state.headers[state.levels - 1][col].extent.GetWidth() +
+                        config.gridwidth - config.cellpadding.x;
+                    state.nextpos.x += width;
+                    ctx.adhocLayout.top().nextpos = state.nextpos;
+                }
+            }
+            Config.renderer->ResetClipRect();
 
             state.totalsz.x = state.nextpos.x;
             Config.renderer->ResetClipRect();
@@ -4794,7 +4940,7 @@ namespace glimmer
         return result;
     }
 
-    WidgetDrawResult EndItemGrid(int totalRows)
+    WidgetDrawResult EndItemGrid()
     {
         WidgetDrawResult result;
         auto& context = *WidgetContextData::CurrentItemGridContext;
@@ -4806,8 +4952,30 @@ namespace glimmer
 
         ImRect viewport{ state.origin + ImVec2{ 0.f, state.headerHeight }, state.origin + state.size };
         renderer.SetClipRect(viewport.Min, viewport.Max);
-        result = PopulateData(totalRows);
+        result = PopulateData(state.rowcount);
         state.phase = ItemGridConstructPhase::None;
+
+        if (config.frozencols > 0)
+        {
+            const auto& lastFrozenHeader = state.headers[state.currlevel][config.frozencols - 1];
+            viewport.Min.x = lastFrozenHeader.extent.Max.x + config.gridwidth;
+            state.totalsz.x -= (viewport.Min.x - state.origin.x);
+
+            // Determine if any col content in frozen part exceeds the available space w.r.t column widths
+            // Enable horizontal scrollbar in that case
+            if (state.maxColWidth > lastFrozenHeader.extent.GetWidth())
+            {
+                gridstate.altscroll.viewport.Min = state.origin;
+                gridstate.altscroll.viewport.Max = { lastFrozenHeader.extent.Max.x, state.size.y + state.origin.y };
+
+                ImVec2 sz;
+                gridstate.altscroll.content.y = gridstate.altscroll.viewport.GetHeight();
+                gridstate.altscroll.content.x = (config.frozencols - 1) > 0 ? state.headers[state.currlevel][config.frozencols - 2].extent.Max.x +
+                    state.maxColWidth : state.maxColWidth;
+                HandleHScroll(gridstate.altscroll, renderer, io, Config.scrollbarSz);
+            }
+        }
+
         HandleScrollBars(gridstate.scroll, renderer, viewport,
             state.totalsz - state.origin - ImVec2{ 0.f, state.headerHeight }, io);
         renderer.ResetClipRect();
@@ -5272,14 +5440,39 @@ namespace glimmer
         return Widget(id, WT_Label, geometry, neighbors);
     }
 
+    WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Label);
+        GetWidgetConfig(wid).state.label.text = content;
+        return Widget(wid, WT_Label, geometry, neighbors);
+    }
+
     WidgetDrawResult Button(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_Button, geometry, neighbors);
     }
 
+    WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Button);
+        GetWidgetConfig(wid).state.button.text = content;
+        return Widget(wid, WT_Label, geometry, neighbors);
+    }
+
     WidgetDrawResult ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_ToggleButton, geometry, neighbors);
+    }
+
+    // TODO: Fix this
+    static std::unordered_map<bool*, int32_t> ToggleButtonIds;
+
+    WidgetDrawResult ToggleButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto it = ToggleButtonIds.find(state);
+        if (it == ToggleButtonIds.end()) it = ToggleButtonIds.emplace(state, GetNextId(WT_ToggleButton)).first;
+        return Widget(it->second, WT_ToggleButton, geometry, neighbors);
+        // TODO: Add the pointers to widget state -> update in HandleEvent* family functions
     }
 
     WidgetDrawResult RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

@@ -17,6 +17,10 @@
 #define GLIMMER_MAX_WIDGET_SPECIFIC_STYLES 4
 #endif
 
+#ifndef GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL
+#define GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL 4
+#endif
+
 namespace glimmer
 {
     // =============================================================================================
@@ -94,6 +98,7 @@ namespace glimmer
         BiDirMap colmap[8];
         HeaderCellDragState drag;
         ScrollableRegion scroll;
+        ScrollableRegion altscroll;
         ImVec2 totalsz;
         ItemGridCurrentState state = ItemGridCurrentState::Default;
         
@@ -253,19 +258,22 @@ namespace glimmer
         ImVec2 totalsz;
         float cellIndent = 0.f;
         float headerHeight = 0.f;
+        float maxColWidth = 0.f;
+        int32_t rowcount = 0;
         NeighborWidgets neighbors;
         ItemGridConstructPhase phase = ItemGridConstructPhase::None;
-        Vector<ColumnProps, int16_t, 32> headers[4 + 1] = {
+        Vector<ColumnProps, int16_t, 32> headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL + 1] = {
             Vector<ColumnProps, int16_t, 32>{ true },
             Vector<ColumnProps, int16_t, 32>{ false },
             Vector<ColumnProps, int16_t, 32>{ false },
             Vector<ColumnProps, int16_t, 32>{ false },
             Vector<ColumnProps, int16_t, 32>{ false },
         };
-        float headerHeights[4] = { 0.f, 0.f, 0.f, 0.f };
+        std::pair<ItemDescendentVisualState, int16_t> childState;
+        float headerHeights[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL] = { 0.f, 0.f, 0.f, 0.f };
         int32_t currRow = 0, currCol = 0;
         WidgetDrawResult event;
-        bool inRow = true;
+        ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows;
         bool contentInteracted = false;
         bool addedBounds = false;
 
@@ -776,6 +784,7 @@ namespace glimmer
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
         void ResetLayoutData();
+        void ClearDeferredData();
 
         const ImRect& GetGeometry(int32_t id) const;
         ImRect GetLayoutSize() const;

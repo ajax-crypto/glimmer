@@ -180,7 +180,7 @@ namespace glimmer
             else if (_capacity < count)
             {
                 auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * count);
-                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
+                assert(ptr != nullptr);
                 _data = ptr;
             }
 
@@ -197,7 +197,7 @@ namespace glimmer
             else if (_capacity < count)
             {
                 auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * count);
-                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
+                assert(ptr != nullptr);
                 _data = ptr;
             }
 
@@ -218,7 +218,7 @@ namespace glimmer
             if (_capacity < targetsz)
             {
                 auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * targetsz);
-                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _size);
+                assert(ptr != nullptr);
                 _data = ptr;
                 _capacity = targetsz;
             }
@@ -280,7 +280,6 @@ namespace glimmer
 
             if (ptr != nullptr)
             {
-                if (ptr != _data) memmove(ptr, _data, sizeof(T) * _capacity);
                 _data = ptr;
                 if (initialize) _default_init(_capacity, _capacity + blocksz);
                 _capacity += blocksz;

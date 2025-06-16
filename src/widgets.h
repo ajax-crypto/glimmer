@@ -12,15 +12,38 @@ namespace glimmer
     WidgetConfigData& GetWidgetConfig(int32_t id);
 
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    
     WidgetDrawResult Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    
     WidgetDrawResult ToggleButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult ToggleButton(bool* state, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult RadioButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult RadioButton(bool* state, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult Checkbox(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Checkbox(CheckState* state, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult Spinner(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Spinner(int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Spinner(float* value, float step, std::pair<float, float> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Spinner(double* value, double step, std::pair<double, double> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult Slider(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Slider(int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Slider(float* value, std::pair<float, float> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Slider(double* value, std::pair<double, double> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult TextInput(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult TextInput(std::string_view content, std::string_view placeholder, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult DropDown(int& selection, bool(*options)(), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult StaticItemGrid(std::string_view id, const ItemGridState::Configuration& config, std::string_view (*cell)(int32_t, int16_t, int16_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -55,8 +78,8 @@ namespace glimmer
     void CategorizeColumns();
     void AddColumnCategory(const ItemGridState::ColumnConfig& config, int16_t from, int16_t to);
     WidgetDrawResult EndItemGridHeader();
-    void PopulateItemGrid(bool byRows);
-    WidgetDrawResult EndItemGrid(int totalRows);
+    void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows);
+    WidgetDrawResult EndItemGrid();
 
     bool StartPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
     WidgetDrawResult EndPlot();

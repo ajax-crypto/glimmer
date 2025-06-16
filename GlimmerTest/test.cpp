@@ -134,8 +134,8 @@ void TestWindow(glimmer::UIConfig& config)
         glimmer::GetWidgetConfig(id);
         result = glimmer::Checkbox(id);
 
-        glimmer::PopStyle(1, glimmer::WS_Default);
-        return result;
+        PopStyle(1, glimmer::WS_Default);
+        result;
         };
     grid.cellprops = [](int16_t row, int16_t) {
         glimmer::ItemGridItemProps props;
@@ -161,8 +161,7 @@ void TestWindow(glimmer::UIConfig& config)
             case 3: glimmer::GetWidgetConfig(id).state.label.text = "Header#2.2"; break;
             }
         }
-        result = glimmer::Label(id);
-        return result;
+        glimmer::Label(id);
         };
     /* grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
          static glimmer::ItemGridState::CellData data;
@@ -289,8 +288,8 @@ void TestWindow(glimmer::UIConfig& config)
             AddColumnCategory(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
 
             EndItemGridHeader();
-            PopulateItemGrid(false);
-            EndItemGrid(32);
+            PopulateItemGrid(32, ItemGridPopulateMethod::ByColumns);
+            EndItemGrid();
         }
 
         EndSplitRegion();

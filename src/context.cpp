@@ -107,7 +107,7 @@ namespace glimmer
         headerHeights[0] = headerHeights[1] = headerHeights[2] = headerHeights[3] = headerHeight = 0.f;
         currRow = currCol = 0;
         event = WidgetDrawResult{};
-        inRow = contentInteracted = addedBounds = false;
+        contentInteracted = addedBounds = false;
     }
 
     void AccordionBuilder::reset()
@@ -389,8 +389,8 @@ namespace glimmer
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
 
-        if (index >= (int)itemGeometries[wtype].size())
-            itemGeometries[wtype].resize(index + 128);
+        if (index >= itemGeometries[wtype].size())
+            itemGeometries[wtype].expand(128, true);
 
         itemGeometries[wtype][index] = geometry;
         adhocLayout.top().lastItemId = id;
@@ -538,6 +538,12 @@ namespace glimmer
 
         layouts.clear(false);
         layoutItems.clear(true);
+    }
+
+    void WidgetContextData::ClearDeferredData()
+    {
+        deferedEvents.clear(true);
+        deferedRenderer->Reset();
     }
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const

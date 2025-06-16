@@ -166,7 +166,7 @@ namespace glimmer
 
         if (style.dimension.x > 0.f)
         {
-            // TODO: Fix it!
+            // TODO: Implement multiple box sizing modes?
             auto w = clamp(style.dimension.x, style.mindim.x, style.maxdim.x);
 
             if (layoutItem.sizing & FromRight) [[unlikely]]
@@ -655,21 +655,10 @@ namespace glimmer
             }
             break;
         }
-
-        case Layout::Grid:
-        {
-            break;
-        }
         default:
             break;
         }
 
-        // This offsetting is not required, TODO: Remove it?
-        /*item.margin.Translate(offset);
-        item.border.Translate(offset);
-        item.padding.Translate(offset);
-        item.content.Translate(offset);
-        item.text.Translate(offset);*/
         layout.extent.Min = ImMin(layout.extent.Min, item.margin.Min);
         layout.extent.Max = ImMax(layout.extent.Max, item.margin.Max);
 
@@ -1216,18 +1205,22 @@ namespace glimmer
                     }
                 }
  
-                if (!(layout.fill & ExpandH))
+                if (!(layout.fill & FD_Horizontal) || 
+                    ((layout.type == Layout::Horizontal) && (layout.alignment & TextAlignBottom)))
                 {
                     layout.geometry.Min.x = min.x - layout.spacing.x;
                     layout.geometry.Max.x = max.x + layout.spacing.x;
                 }
 
-                if (!(layout.fill & ExpandV))
+                if (!(layout.fill & FD_Vertical) ||
+                    ((layout.type == Layout::Vertical) && (layout.alignment & TextAlignRight)))
                 {
                     layout.geometry.Min.y = min.y - layout.spacing.y;
                     layout.geometry.Max.y = max.y + layout.spacing.y;
                 }
                 
+                if (layout.geometry.Max.x == FLT_MAX) layout.geometry.Max.x = max.x;
+                if (layout.geometry.Max.y == FLT_MAX) layout.geometry.Max.y = max.y;
                 geometry = layout.geometry;
                 context.AddItemGeometry(layout.id, geometry);
 
@@ -1239,16 +1232,13 @@ namespace glimmer
             }
 
             --depth;
+            context.adhocLayout.top().lastItemId = layout.id;
             layout.reset();
             context.layouts.pop(1, false);
             context.nestedContextStack.pop(1, true);
         }
 
-        if (context.layouts.empty())
-        {
-            context.ResetLayoutData();
-        }
-
+        if (context.layouts.empty()) context.ResetLayoutData();
         return result;
     }
 

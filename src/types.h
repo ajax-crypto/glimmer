@@ -289,6 +289,7 @@ namespace glimmer
         Direction direction = DIR_Horizontal;
         float btnspacing = 5.f;
         float btnsize = 0.75f; // 75% of tab text height
+        int selected = -1;
         bool expandTabs = false;
         bool circularButtons = true;
         bool createNewTabs = false;
@@ -353,6 +354,11 @@ namespace glimmer
         bool newTab = false;
     };
 
+    enum ItemGridPopulateMethod
+    {
+        ByRows, ByColumns
+    };
+
     struct ItemGridState : public CommonWidgetData
     {
         struct CellData
@@ -400,11 +406,12 @@ namespace glimmer
         uint32_t gridcolor = ToRGBA(100, 100, 100);
         int16_t sortedcol = -1;
         int16_t coldrag = -1;
+        int16_t frozencols = 0;
         bool uniformRowHeights = false;
 
         ItemGridItemProps (*cellprops)(int16_t, int16_t) = nullptr;
-        WidgetDrawResult (*celldata)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
-        WidgetDrawResult (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
+        void (*celldata)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
+        void (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
 
         void setColumnResizable(int16_t col, bool resizable);
         void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);
