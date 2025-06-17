@@ -227,6 +227,22 @@ namespace glimmer
             if (initialize) _default_init(_size, targetsz);
         }
 
+        void expand_and_create(Sz count, bool initialize = true)
+        {
+            auto targetsz = _size + count;
+
+            if (_capacity < targetsz)
+            {
+                auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * targetsz);
+                assert(ptr != nullptr);
+                _data = ptr;
+                _capacity = targetsz;
+            }
+            
+            _size = targetsz;
+            if (initialize) _default_init(_size, targetsz);
+        }
+
         template <typename... ArgsT>
         T& emplace_back(ArgsT&&... args)
         {

@@ -22,7 +22,7 @@ namespace glimmer
     // STYLING
     // =============================================================================================
 
-    [[nodiscard]] inline uint32_t ToRGBA(int r, int g, int b, int a = 255)
+    [[nodiscard]] inline constexpr uint32_t ToRGBA(int r, int g, int b, int a = 255)
     {
         return (((uint32_t)(a) << 24) |
             ((uint32_t)(b) << 16) |
@@ -30,30 +30,41 @@ namespace glimmer
             ((uint32_t)(r) << 0));
     }
 
-    [[nodiscard]] inline uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
+    [[nodiscard]] inline constexpr uint32_t ToRGBA(const std::tuple<int, int, int>& rgb)
     {
         return ToRGBA(std::get<0>(rgb), std::get<1>(rgb), std::get<2>(rgb), 255);
     }
 
-    [[nodiscard]] inline std::tuple<int, int, int, int> DecomposeColor(uint32_t color)
+    [[nodiscard]] inline constexpr std::tuple<int, int, int, int> DecomposeColor(uint32_t color)
     {
         return { color & 0xff, (color & 0xff00) >> 8, (color & 0xff0000) >> 16, (color & 0xff000000) >> 24 };
     }
 
-    [[nodiscard]] inline uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
+    [[nodiscard]] inline constexpr uint32_t ToRGBA(const std::tuple<int, int, int, int>& rgba)
     {
         return ToRGBA(std::get<0>(rgba), std::get<1>(rgba), std::get<2>(rgba), std::get<3>(rgba));
     }
 
-    [[nodiscard]] inline uint32_t ToRGBA(float r, float g, float b, float a)
+    [[nodiscard]] inline constexpr uint32_t ToRGBA(float r, float g, float b, float a)
     {
         return ToRGBA((int)(r * 255.f), (int)(g * 255.f), (int)(b * 255.f), (int)(a * 255.f));
     }
 
-    [[nodiscard]] inline uint32_t DarkenColor(uint32_t rgba)
+    [[nodiscard]] inline constexpr uint32_t DarkenColor(uint32_t rgba, float amount = 2)
     {
         auto [r, g, b, a] = DecomposeColor(rgba);
-        r = r / 2; g = g / 2; b = b / 2;
+        r = std::min((int)((float)r / amount), 255); 
+        g = std::min((int)((float)g / amount), 255);
+        b = std::min((int)((float)b / amount), 255);
+        return ToRGBA(r, g, b, a);
+    }
+
+    [[nodiscard]] inline constexpr uint32_t LightenColor(uint32_t rgba, float amount = 2)
+    {
+        auto [r, g, b, a] = DecomposeColor(rgba);
+        r = std::min((int)((float)r * amount), 255); 
+        g = std::min((int)((float)g * amount), 255);
+        b = std::min((int)((float)b * amount), 255);
         return ToRGBA(r, g, b, a);
     }
 
@@ -306,6 +317,10 @@ namespace glimmer
         COL_WidthAbsolute = 1 << 5,
         COL_WrapHeader = 1 << 6,
         COL_Moveable = 1 << 7,
+        COL_SortOnlyAscending = 1 << 8,
+        COL_SortOnlyDescending = 1 << 9,
+        COL_InitialSortedAscending = 1 << 10,
+        COL_InitialSortedDescending = 1 << 11
     };
 
     enum TextAlignment
@@ -332,6 +347,12 @@ namespace glimmer
         int16_t children = 0;
         ItemDescendentVisualState vstate = ItemDescendentVisualState::NoDescendent;
         int32_t alignment = TextAlignCenter;
+        uint32_t highlighBgColor = ToRGBA(255, 255, 255);
+        uint32_t highlightFgColor = ToRGBA(0, 0, 0);
+        bool highlightCell = false;
+        bool wrapText = false;
+        bool isContentWidget = false;
+        bool disabled = false;
     };
 
     enum class WidgetEvent
@@ -352,11 +373,31 @@ namespace glimmer
         ImRect geometry, content;
         float wheel = 0.f;
         bool newTab = false;
+        bool order = false;
     };
 
-    enum ItemGridPopulateMethod
+    enum class ItemGridPopulateMethod
     {
         ByRows, ByColumns
+    };
+
+    enum class ItemGridSelectionType
+    {
+        SingleRow,
+        ContiguousRow,
+        DisjointRow,
+        SingleColumn,
+        ContiguosColumn,
+        DisjoinColumn,
+        SingleCell,
+        MultiCell
+    };
+
+    enum ItemGridHighlightType
+    {
+        IG_HighlightRows = 1, 
+        IG_HighlightColumns = 2,
+        IG_HighlightCell = 4
     };
 
     struct ItemGridState : public CommonWidgetData
@@ -401,16 +442,23 @@ namespace glimmer
         } config;
 
         CellData& (*cell)(int32_t, int16_t, int16_t) = nullptr;
-        ImVec2 cellpadding{ 5.f, 5.f };
+        ImVec2 cellpadding{ 2.f, 2.f };
         float gridwidth = 1.f;
         uint32_t gridcolor = ToRGBA(100, 100, 100);
+        uint32_t highlightBgColor = ToRGBA(186, 244, 250);
+        uint32_t highlightFgColor = ToRGBA(0, 0, 0);
+        uint32_t selectionBgColor = ToRGBA(0, 0, 120);
+        uint32_t selectionFgColor = ToRGBA(255, 255, 255);
         int16_t sortedcol = -1;
         int16_t coldrag = -1;
         int16_t frozencols = 0;
+        ItemGridSelectionType selection = ItemGridSelectionType::SingleRow;
+        int32_t highlights = 0;
         bool uniformRowHeights = false;
 
-        ItemGridItemProps (*cellprops)(int16_t, int16_t) = nullptr;
-        void (*celldata)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
+        ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t) = nullptr;
+        void (*cellwidget)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
+        std::string_view (*cellcontent)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
         void (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
 
         void setColumnResizable(int16_t col, bool resizable);

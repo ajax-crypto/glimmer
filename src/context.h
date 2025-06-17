@@ -85,6 +85,7 @@ namespace glimmer
             ImVec2 startPos;
             int16_t column = -1;
             int16_t level = -1;
+            int16_t potentialColumn = -1;
             bool mouseDown = false;
         };
 
@@ -101,10 +102,14 @@ namespace glimmer
         ScrollableRegion altscroll;
         ImVec2 totalsz;
         ItemGridCurrentState state = ItemGridCurrentState::Default;
+        int16_t sortedCol = -1;
+        int16_t sortedLevel = -1;
+        bool sortedAscending = false;
         
         struct {
             int32_t row = -1;
             int16_t col = -1;
+            int16_t depth = 0;
             int32_t state = WS_Default;
         } cellstate;
 
@@ -237,7 +242,9 @@ namespace glimmer
         Vector<ItemGridUIOperation, int16_t, 2> uiops{ false };
         Vector<StyleDescriptor, int16_t, 2> styles{ false };
         RendererEventIndexRange range;
+        RendererEventIndexRange sortIndicatorRange;
         int32_t alignment = TextAlignCenter;
+        uint32_t bgcolor = 0;
     };
 
     struct CurrentItemGridState
@@ -259,6 +266,7 @@ namespace glimmer
         float cellIndent = 0.f;
         float headerHeight = 0.f;
         float maxColWidth = 0.f;
+        float btnsz = 0.f;
         int32_t rowcount = 0;
         NeighborWidgets neighbors;
         ItemGridConstructPhase phase = ItemGridConstructPhase::None;

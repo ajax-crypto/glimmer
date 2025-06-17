@@ -390,7 +390,10 @@ namespace glimmer
         auto wtype = (WidgetType)(id >> 16);
 
         if (index >= itemGeometries[wtype].size())
-            itemGeometries[wtype].expand(128, true);
+        {
+            auto sz = std::max((int16_t)128, (int16_t)(index - itemGeometries[wtype].size() + 1));
+            itemGeometries[wtype].expand_and_create(sz, true);
+        }
 
         itemGeometries[wtype][index] = geometry;
         adhocLayout.top().lastItemId = id;
@@ -656,9 +659,6 @@ namespace glimmer
     
     WidgetContextData::WidgetContextData()
     {
-        memset(maxids, 0, WT_TotalTypes);
-        memset(tempids, INT_MAX, WT_TotalTypes);
-
         gridStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ItemGrid) : 4);
         tabStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 8);
         toggleStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ToggleButton) : 32);
@@ -675,7 +675,7 @@ namespace glimmer
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
-            maxids[idx] = 0;
+            maxids[idx] = tempids[idx] = 0;
             states[idx].resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 32, 
                 WidgetConfigData{ (WidgetType)idx });
         }
