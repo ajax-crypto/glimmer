@@ -3,6 +3,10 @@
 *.log
 *.tlog
 *.recipe
+*.ipdb
+*.ilk
+*.iobj
+*.idb
 
 # Compiled Object files
 *.slo

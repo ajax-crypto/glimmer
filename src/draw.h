@@ -11,8 +11,11 @@ namespace glimmer
 
     enum class SymbolIcon 
     {
-        DownArrow, UpArrow, DownTriangle, UpTriangle, RightTriangle, 
-        Search, Browse, Pin, Plus, Minus, Cross, Spanner, Cut, Copy, Paste, Home
+        // These icons are drawn directly
+        DownArrow, UpArrow, DownTriangle, UpTriangle, RightTriangle, Plus, Minus, Cross,
+
+        // Below icons are by default SVGs
+        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste
     };
 
     IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);

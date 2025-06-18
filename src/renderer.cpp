@@ -11,7 +11,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <libs/inc/stb_image/stb_image.h>
-#include "libs/inc/imgui/imgui_impl_opengl3_loader.h"
+
 #undef min
 #undef max
 #undef DrawText
@@ -56,28 +56,6 @@ namespace glimmer
     }
 
 #pragma region ImGui Renderer
-
-    ImTextureID UploadImage(ImVec2 pos, ImVec2 size, unsigned char* pixels, ImDrawList& dl)
-    {
-        GLint last_texture;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
-
-        GLuint image_texture;
-        glGenTextures(1, &image_texture);
-        glBindTexture(GL_TEXTURE_2D, image_texture);
-
-        // Setup filtering parameters for display
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        // Upload pixels into texture
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size.x, size.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-
-        //dl.AddImage((ImTextureID)(intptr_t)image_texture, pos, pos + size);
-        glBindTexture(GL_TEXTURE_2D, last_texture);
-        return (ImTextureID)(intptr_t)image_texture;
-    }
 
     struct ImGuiRenderer final : public IRenderer
     {
@@ -527,7 +505,7 @@ namespace glimmer
 
             if (fromFile)
             {
-#ifdef WIN32
+#ifdef _WIN32
                 FILE* fptr = nullptr;
                 fopen_s(&fptr, content.data(), "r");
 #else
@@ -551,7 +529,7 @@ namespace glimmer
                 auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
                 bitmap.convertToRGBA();
                 auto pixels = bitmap.data();
-                auto texid = UploadImage(pos, size, pixels, dl);
+                auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
                 entry.second = texid;
                 dl.AddImage(texid, pos, pos + size);
             }
@@ -577,7 +555,7 @@ namespace glimmer
 
         if (!found)
         {
-#ifdef WIN32
+#ifdef _WIN32
             FILE* fptr = nullptr;
             fopen_s(&fptr, file.data(), "r");
 #else
@@ -602,7 +580,7 @@ namespace glimmer
 
                     int width = 0, height = 0;
                     auto pixels = stbi_load_from_memory((const unsigned char*)buffer, csz, &width, &height, NULL, 4);
-                    auto texid = UploadImage(pos, size, pixels, dl);
+                    auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
                     entry.second = texid;
                     dl.AddImage(texid, pos, pos + size);
                     std::free(buffer);

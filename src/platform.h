@@ -1,13 +1,5 @@
 #pragma once
 
-#define GLIMMER_GLFW_PLATFORM 0
-#define GLIMMER_SDL3_PLATFORM 1
-// Add other platforms...
-
-#ifndef GLIMMER_PLATFORM
-#define GLIMMER_PLATFORM GLIMMER_GLFW_PLATFORM
-#endif
-
 #ifndef GLIMMER_NKEY_ROLLOVER_MAX
 #define GLIMMER_NKEY_ROLLOVER_MAX 8
 #endif
@@ -37,7 +29,6 @@ inline bool operator>(ImVec2 lhs, ImVec2 rhs)
 
 namespace glimmer
 {
-#if GLIMMER_PLATFORM == GLIMMER_GLFW_PLATFORM
     enum class MouseButton
     {
         LeftMouseButton = ImGuiMouseButton_Left,
@@ -127,7 +118,6 @@ namespace glimmer
         Key_AppForwardl,     // Browser Forward
         Key_Total
     };
-#endif
 
     enum class ButtonStatus : int16_t
     {
@@ -197,24 +187,34 @@ namespace glimmer
 
     struct IPlatform
     {
+        friend int64_t FramesRendered();
+
         virtual void SetClipboardText(std::string_view input) = 0;
         virtual std::string_view GetClipboardText() = 0;
-
-        virtual IODescriptor CurrentIO() = 0;
-        virtual void SetMouseCursor(MouseCursor cursor) = 0;
-
         virtual bool CreateWindow(const WindowParams& params) = 0;
         virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
+        virtual ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels) = 0;
 
+        IODescriptor CurrentIO() const;
+        void SetMouseCursor(MouseCursor cursor);
         float fps() const;
         UIConfig* config() const;
+
+        IODescriptor desc;
+
+    protected:
+
+        void EnterFrame();
+        void ExitFrame();
 
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;
         float totalTime = 0.f;
         float totalDeltaTime = 0.f;
         float maxFrameTime = 0.f;
-        IODescriptor desc;
+        MouseCursor cursor;
+        float bgcolor[4];
+        bool softwareCursor = false;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });

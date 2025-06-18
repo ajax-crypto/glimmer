@@ -40,9 +40,6 @@
     <Filter Include="Header Files\glfw">
       <UniqueIdentifier>{943de1f7-4814-432d-a565-77d8fd79e4be}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\glfw">
-      <UniqueIdentifier>{b2288e6d-fb12-4776-84a8-bfcb526ffc4f}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Source Files\yoga">
       <UniqueIdentifier>{e6546d0e-ca3a-432e-ac39-9aad8a357415}</UniqueIdentifier>
     </Filter>
@@ -167,9 +164,6 @@
     <ClCompile Include="..\..\src\layout.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\platform.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -199,12 +193,6 @@
     </ClCompile>
     <ClCompile Include="..\..\src\libs\inc\implot\implot_items.cpp">
       <Filter>Source Files\implot</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_glfw.cpp">
-      <Filter>Source Files\glfw</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_opengl3.cpp">
-      <Filter>Source Files\glfw</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\libs\inc\yoga\YGConfig.cpp">
       <Filter>Source Files\yoga</Filter>
@@ -262,6 +250,9 @@
     </ClCompile>
     <ClCompile Include="..\..\src\libs\inc\yoga\node\Node.cpp">
       <Filter>Source Files\yoga</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\platform.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

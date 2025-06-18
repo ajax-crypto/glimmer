@@ -84,8 +84,6 @@
     <ClCompile Include="..\..\src\libs\inc\yoga\YGValue.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui_draw.cpp" />
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_glfw.cpp" />
-    <ClCompile Include="..\..\src\libs\src\imgui_impl_opengl3.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui_tables.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui_widgets.cpp" />
     <ClCompile Include="..\..\src\platform.cpp" />
