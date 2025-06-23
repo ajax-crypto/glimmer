@@ -43,7 +43,7 @@ namespace glimmer
     WidgetDrawResult DropDown(int& selection, bool(*options)(), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult StaticItemGrid(std::string_view id, const ItemGridState::Configuration& config, std::string_view (*cell)(int32_t, int16_t, int16_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult StaticItemGrid(std::string_view id, const ItemGridConfig::Configuration& config, std::string_view (*cell)(int32_t, int16_t, int16_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -74,9 +74,9 @@ namespace glimmer
 
     bool StartItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool StartItemGridHeader(int levels = 1);
-    void AddHeaderColumn(const ItemGridState::ColumnConfig& config);
+    void AddHeaderColumn(const ItemGridConfig::ColumnConfig& config);
     void CategorizeColumns();
-    void AddColumnCategory(const ItemGridState::ColumnConfig& config, int16_t from, int16_t to);
+    void AddColumnCategory(const ItemGridConfig::ColumnConfig& config, int16_t from, int16_t to);
     WidgetDrawResult EndItemGridHeader();
     void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows);
     WidgetDrawResult EndItemGrid();

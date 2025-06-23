@@ -222,7 +222,6 @@ namespace glimmer
                 _data = ptr;
                 _capacity = targetsz;
             }
-            else _size = targetsz;
 
             if (initialize) _default_init(_size, targetsz);
         }

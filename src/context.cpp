@@ -77,7 +77,7 @@ namespace glimmer
         newTabButton = false;
     }
 
-    void CurrentItemGridState::reset()
+    void ItemGridBuilder::reset()
     {
         id = -1;
         origin = size = nextpos = maxHeaderExtent = maxCellExtent = totalsz = ImVec2{};
@@ -86,13 +86,16 @@ namespace glimmer
         selectedCol = -1;
         movingCols = std::make_pair<int16_t, int16_t>(-1, -1);
         phase = ItemGridConstructPhase::None;
+        perDepthRowCount.clear(true);
+        rowYs.clear(true);
+        clickedItem.row = clickedItem.col = clickedItem.depth = -1;
 
         for (auto idx = 0; idx < 5; ++idx)
         {
             for (auto hidx = 0; hidx < headers[idx].size(); ++hidx)
             {
-                headers[idx][hidx].styles.clear(true);
-                headers[idx][hidx].uiops.clear(true);
+                //headers[idx][hidx].styles.clear(true);
+                //headers[idx][hidx].uiops.clear(true);
                 headers[idx][hidx].content = headers[idx][hidx].extent = ImRect{};
                 headers[idx][hidx].range = RendererEventIndexRange{};
                 headers[idx][hidx].alignment = TextAlignCenter;
@@ -126,7 +129,7 @@ namespace glimmer
         isRichText = hscroll = vscroll = false;
     }
 
-    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    /*void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         el.type = UIOperationType::Widget;
         el.data.widget.id = id; el.data.widget.geometry = geometry; el.data.widget.neighbors = neighbors;
@@ -194,7 +197,7 @@ namespace glimmer
     void RecordPopupEnd(ItemGridUIOperation& el)
     {
         el.type = UIOperationType::PopupEnd;
-    }
+    }*/
 
     ImVec2 WidgetContextData::NextAdHocPos() const
     {

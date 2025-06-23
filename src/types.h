@@ -347,9 +347,12 @@ namespace glimmer
         int16_t children = 0;
         ItemDescendentVisualState vstate = ItemDescendentVisualState::NoDescendent;
         int32_t alignment = TextAlignCenter;
-        uint32_t highlighBgColor = ToRGBA(255, 255, 255);
+        uint32_t highlightBgColor = ToRGBA(186, 244, 250);
         uint32_t highlightFgColor = ToRGBA(0, 0, 0);
+        uint32_t selectionBgColor = ToRGBA(0, 0, 120);
+        uint32_t selectionFgColor = ToRGBA(255, 255, 255);
         bool highlightCell = false;
+        bool selectCell = false;
         bool wrapText = false;
         bool isContentWidget = false;
         bool disabled = false;
@@ -381,18 +384,6 @@ namespace glimmer
         ByRows, ByColumns
     };
 
-    enum class ItemGridSelectionType
-    {
-        SingleRow,
-        ContiguousRow,
-        DisjointRow,
-        SingleColumn,
-        ContiguosColumn,
-        DisjoinColumn,
-        SingleCell,
-        MultiCell
-    };
-
     enum ItemGridHighlightType
     {
         IG_HighlightRows = 1, 
@@ -400,7 +391,22 @@ namespace glimmer
         IG_HighlightCell = 4
     };
 
-    struct ItemGridState : public CommonWidgetData
+    enum ItemGridSelectionType
+    {
+        IG_SelectCell = 1,
+        IG_SelectRow = 2,
+        IG_SelectColumn = 4,
+        IG_SelectSingleItem = 8,
+        IG_SelectContiguosItem = 16,
+        IG_SelectMultiItem = 32
+    };
+
+    enum ItemGridNodeProperty
+    {
+        IG_Selected = 1, IG_Highlighted = 2
+    };
+
+    struct ItemGridConfig : public CommonWidgetData
     {
         struct CellData
         {
@@ -449,14 +455,15 @@ namespace glimmer
         uint32_t highlightFgColor = ToRGBA(0, 0, 0);
         uint32_t selectionBgColor = ToRGBA(0, 0, 120);
         uint32_t selectionFgColor = ToRGBA(255, 255, 255);
+        
         int16_t sortedcol = -1;
         int16_t coldrag = -1;
         int16_t frozencols = 0;
-        ItemGridSelectionType selection = ItemGridSelectionType::SingleRow;
         int32_t highlights = 0;
+        int32_t selection = 0;
         bool uniformRowHeights = false;
 
-        ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t) = nullptr;
+        ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t, int32_t, int32_t) = nullptr;
         void (*cellwidget)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
         std::string_view (*cellcontent)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
         void (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
@@ -480,7 +487,7 @@ namespace glimmer
             TextInputState input;
             DropDownState dropdown;
             TabBarState tab;
-            ItemGridState grid;
+            ItemGridConfig grid;
             ScrollableRegion scroll;
             // Add others...
 

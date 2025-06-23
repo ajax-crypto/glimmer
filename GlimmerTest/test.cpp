@@ -121,7 +121,7 @@ void TestWindow(glimmer::UIConfig& config)
 
     auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
     auto& grid = glimmer::GetWidgetConfig(gridid).state.grid;
-    grid.celldata = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) {
+    grid.cellwidget = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) {
         static char buffer[128];
         auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
 
@@ -137,7 +137,7 @@ void TestWindow(glimmer::UIConfig& config)
         PopStyle(1, glimmer::WS_Default);
         result;
         };
-    grid.cellprops = [](int16_t row, int16_t) {
+    grid.cellprops = [](int32_t row, int16_t, int16_t, int32_t, int32_t) {
         glimmer::ItemGridItemProps props;
         row % 2 ? glimmer::PushStyle("background-color: white") :
             glimmer::PushStyle("background-color: rgb(200, 200, 200)");
@@ -278,14 +278,14 @@ void TestWindow(glimmer::UIConfig& config)
 
             StartItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
             StartItemGridHeader(2);
-            AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
 
             CategorizeColumns();
-            AddColumnCategory(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 0, 1);
-            AddColumnCategory(ItemGridState::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
+            AddColumnCategory(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 0, 1);
+            AddColumnCategory(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
 
             EndItemGridHeader();
             PopulateItemGrid(32, ItemGridPopulateMethod::ByColumns);

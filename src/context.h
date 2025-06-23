@@ -69,7 +69,7 @@ namespace glimmer
         Default, ResizingColumns, ReorderingColumns
     };
 
-    struct ItemGridInternalState
+    struct ItemGridPersistentState
     {
         struct HeaderCellResizeState
         {
@@ -80,7 +80,7 @@ namespace glimmer
 
         struct HeaderCellDragState
         {
-            ItemGridState::ColumnConfig config;
+            ItemGridConfig::ColumnConfig config;
             ImVec2 lastPos;
             ImVec2 startPos;
             int16_t column = -1;
@@ -96,17 +96,30 @@ namespace glimmer
         };
 
         Vector<HeaderCellResizeState, int16_t> cols[4];
-        BiDirMap colmap[8];
+        BiDirMap colmap[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
         HeaderCellDragState drag;
         ScrollableRegion scroll;
         ScrollableRegion altscroll;
         ImVec2 totalsz;
         ItemGridCurrentState state = ItemGridCurrentState::Default;
+
         int16_t sortedCol = -1;
         int16_t sortedLevel = -1;
         bool sortedAscending = false;
+
+        struct ItemId 
+        {
+            int32_t row = -1;
+            int32_t col = -1;
+            int32_t depth = -1;
+        };
+
+        Vector<ItemId, int16_t> selections{ false };
+        float lastSelection = -1.f;
+        float currentSelection = -1.f;
         
-        struct {
+        struct 
+        {
             int32_t row = -1;
             int16_t col = -1;
             int16_t depth = 0;
@@ -163,91 +176,34 @@ namespace glimmer
         }
     };
 
-    struct WidgetContextData;
-
-    enum class ItemGridConstructPhase
-    {
-        None, Headers, HeaderCells, HeaderPlacement, Rows, Columns
-    };
-
-    enum class UIOperationType
-    {
-        Invalid, Widget, Movement, LayoutBegin, LayoutEnd, PopupBegin, PopupEnd
-    };
-
-    struct ItemGridUIOperation 
-    { 
-        union OpData {
-            struct {
-                int32_t id;
-                int32_t geometry;
-                ImRect bounds;
-                ImRect text;
-                NeighborWidgets neighbors;
-            } widget;
-            
-            struct {
-                Layout layout;
-                int32_t fill;
-                int32_t alignment;
-                ImVec2 spacing;
-                NeighborWidgets neighbors;
-                bool wrap = false;
-            } layoutBegin;
-
-            struct {
-                int depth = 1;
-            } layoutEnd;
-
-            struct {
-                int32_t direction = 0;
-                int32_t hid = -1, vid = -1;
-                ImVec2 amount;
-            } movement;
-
-            struct {
-                int32_t id = -1;
-                ImVec2 origin;
-            } popupBegin;
-
-            OpData() {}
-        } data;
-        UIOperationType type = UIOperationType::Invalid;
-
-        ItemGridUIOperation() {}
-    };
-
-    struct LayoutItemDescriptor;
-    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
-    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom);
-    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction);
-    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap,
-        ImVec2 spacing, const NeighborWidgets& neighbors);
-    void RecordEndLayout(ItemGridUIOperation& el, int depth);
-    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin);
-    void RecordPopupEnd(ItemGridUIOperation& el);
-
     struct RendererEventIndexRange
     {
         std::pair<int, int> primitives{ -1, -1 };
         std::pair<int, int> events{ -1, -1 };
     };
 
-    struct ColumnProps : public ItemGridState::ColumnConfig
+    struct ColumnProps : public ItemGridConfig::ColumnConfig
     {
         ImVec2 offset;
-        Vector<ItemGridUIOperation, int16_t, 2> uiops{ false };
-        Vector<StyleDescriptor, int16_t, 2> styles{ false };
+        //Vector<ItemGridUIOperation, int16_t, 2> uiops{ false };
+        //Vector<StyleDescriptor, int16_t, 2> styles{ false };
         RendererEventIndexRange range;
         RendererEventIndexRange sortIndicatorRange;
         int32_t alignment = TextAlignCenter;
         uint32_t bgcolor = 0;
+        uint32_t fgcolor = 0;
+        bool selected = false;
+        bool highlighted = false;
     };
 
-    struct CurrentItemGridState
+    enum class ItemGridConstructPhase
+    {
+        None, Headers, HeaderCells, HeaderPlacement, Rows, Columns
+    };
+
+    struct WidgetContextData;
+
+    struct ItemGridBuilder
     {
         int32_t id = -1;
         ImVec2 origin;
@@ -277,6 +233,18 @@ namespace glimmer
             Vector<ColumnProps, int16_t, 32>{ false },
             Vector<ColumnProps, int16_t, 32>{ false },
         };
+        Vector<int32_t, int16_t> perDepthRowCount{ false };
+
+        struct RowYToIndexMapping
+        {
+            float from, to = 0.f;
+            int32_t depth = 0; 
+            int32_t row = 0;
+        };
+        float currentY = 0.f, startY = 0.f;
+        Vector<RowYToIndexMapping, int32_t> rowYs{ false };
+        ItemGridPersistentState::ItemId clickedItem;
+
         std::pair<ItemDescendentVisualState, int16_t> childState;
         float headerHeights[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL] = { 0.f, 0.f, 0.f, 0.f };
         int32_t currRow = 0, currCol = 0;
@@ -606,7 +574,7 @@ namespace glimmer
     {
         // This is quasi-persistent
         std::vector<WidgetConfigData> states[WT_TotalTypes];
-        std::vector<ItemGridInternalState> gridStates;
+        std::vector<ItemGridPersistentState> gridStates;
         std::vector<TabBarInternalState> tabStates;
         std::vector<ToggleButtonInternalState> toggleStates;
         std::vector<RadioButtonInternalState> radioStates;
@@ -623,7 +591,7 @@ namespace glimmer
         TabBarDescriptor currentTab;
 
         // Stack of current item grids
-        DynamicStack<CurrentItemGridState, int16_t, 4> itemGrids{ false };
+        DynamicStack<ItemGridBuilder, int16_t, 4> itemGrids{ false };
         DynamicStack<NestedContextSource, int16_t, 16> nestedContextStack{ false };
         static WidgetContextData* CurrentItemGridContext;
 
@@ -702,7 +670,7 @@ namespace glimmer
             return states[wtype][index];
         }
 
-        ItemGridInternalState& GridState(int32_t id)
+        ItemGridPersistentState& GridState(int32_t id)
         {
             auto index = id & 0xffff;
             return gridStates[index];
@@ -811,4 +779,68 @@ namespace glimmer
     void Cleanup();
 
     inline NestedContextSource InvalidSource{};
+
+    /*
+    struct WidgetContextData;
+
+    enum class UIOperationType
+    {
+        Invalid, Widget, Movement, LayoutBegin, LayoutEnd, PopupBegin, PopupEnd
+    };
+
+    struct ItemGridUIOperation 
+    { 
+        union OpData {
+            struct {
+                int32_t id;
+                int32_t geometry;
+                ImRect bounds;
+                ImRect text;
+                NeighborWidgets neighbors;
+            } widget;
+            
+            struct {
+                Layout layout;
+                int32_t fill;
+                int32_t alignment;
+                ImVec2 spacing;
+                NeighborWidgets neighbors;
+                bool wrap = false;
+            } layoutBegin;
+
+            struct {
+                int depth = 1;
+            } layoutEnd;
+
+            struct {
+                int32_t direction = 0;
+                int32_t hid = -1, vid = -1;
+                ImVec2 amount;
+            } movement;
+
+            struct {
+                int32_t id = -1;
+                ImVec2 origin;
+            } popupBegin;
+
+            OpData() {}
+        } data;
+        UIOperationType type = UIOperationType::Invalid;
+
+        ItemGridUIOperation() {}
+    };
+
+    struct LayoutItemDescriptor;
+    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
+    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction);
+    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom);
+    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction);
+    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap,
+        ImVec2 spacing, const NeighborWidgets& neighbors);
+    void RecordEndLayout(ItemGridUIOperation& el, int depth);
+    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin);
+    void RecordPopupEnd(ItemGridUIOperation& el);
+    */
 }
