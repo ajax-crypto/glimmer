@@ -144,7 +144,6 @@ void TestWindow(glimmer::UIConfig& config)
         return props;
         };
     grid.header = [](ImVec2, float, int16_t level, int16_t col, int16_t) {
-        glimmer::WidgetDrawResult result;
         auto id = glimmer::GetNextId(glimmer::WT_Label);
         if (level == 0)
         {
@@ -162,16 +161,7 @@ void TestWindow(glimmer::UIConfig& config)
             }
         }
         glimmer::Label(id);
-        };
-    /* grid.cell = [](int32_t row, int16_t col, int16_t) -> glimmer::ItemGridState::CellData& {
-         static glimmer::ItemGridState::CellData data;
-         static char buffer[128];
-         auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
-         row % 2 ? glimmer::SetNextStyle("background-color: white") :
-             glimmer::SetNextStyle("background-color: rgb(200, 200, 200)");
-         data.state.label.text = std::string_view{ buffer, (size_t)sz };
-         return data;
-         };*/
+    };
     widgets[GRID] = gridid;
 
     /*auto& root = grid.config.headers.emplace_back();

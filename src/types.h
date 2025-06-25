@@ -136,6 +136,7 @@ namespace glimmer
         float scrollAppearAnimationDuration = 0.3f;
         float splitterSize = 5.f;
         float sliderSize = 20.f;
+        float minScrollGripSz = 20.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
@@ -226,17 +227,15 @@ namespace glimmer
         ST_Vertical = 2,
         ST_Always_H = 4,
         ST_Always_V = 8,
-        ST_ReserveForHScroll = 16,
-        ST_ReserveForVScroll = 32,
-        ST_NoMouseWheel_V = 64,
-        ST_ShowScrollBarInsideViewport = 128
+        ST_NoMouseWheel_V = 16,
+        ST_ShowScrollBarInsideViewport = 32
     };
 
     struct ScrollBarState
     {
         ImVec2 pos;
         ImVec2 lastMousePos;
-        float opacity = 0.f;
+        ImVec2 opacity;
         bool mouseDownOnVGrip = false;
         bool mouseDownOnHGrip = false;
     };
@@ -244,9 +243,9 @@ namespace glimmer
     struct ScrollableRegion
     {
         //std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
-        int32_t type = 0; // scroll bar properties
+        int32_t type = ST_ShowScrollBarInsideViewport; // scroll bar properties
         ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
-        ImVec2 content; // maximum coordinates of the widgets inside region
+        ImVec2 content; // total occupied size of the widgets inside region
         ImVec2 extent{ FLT_MAX, FLT_MAX }; // total available space inside the scroll region, default is infinite if scroll enabled
         ScrollBarState state;
     };
@@ -408,28 +407,6 @@ namespace glimmer
 
     struct ItemGridConfig : public CommonWidgetData
     {
-        struct CellData
-        {
-            WidgetType wtype = WT_Label;
-            union CellState
-            {
-                LabelState label;
-                ButtonState button;
-                ToggleButtonState toggle;
-                RadioButtonState radio;
-                ImVec2(*CustomWidget)(ImVec2, ImVec2);
-                // add support for custom combinations of widgets
-
-                CellState() {}
-                ~CellState() {}
-            } state;
-            int16_t colspan = 1;
-            int16_t children = 0;
-
-            CellData() { state.label = LabelState{}; }
-            ~CellData() {}
-        };
-
         struct ColumnConfig
         {
             ImRect extent;
@@ -447,7 +424,6 @@ namespace glimmer
             float indent = 10.f;
         } config;
 
-        CellData& (*cell)(int32_t, int16_t, int16_t) = nullptr;
         ImVec2 cellpadding{ 2.f, 2.f };
         float gridwidth = 1.f;
         uint32_t gridcolor = ToRGBA(100, 100, 100);
@@ -461,7 +437,10 @@ namespace glimmer
         int16_t frozencols = 0;
         int32_t highlights = 0;
         int32_t selection = 0;
+        int32_t scrollprops = ST_Always_H | ST_Always_V;
+        ItemGridPopulateMethod populateMethod = ItemGridPopulateMethod::ByRows;
         bool uniformRowHeights = false;
+        bool isTree = false;
 
         ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t, int32_t, int32_t) = nullptr;
         void (*cellwidget)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;

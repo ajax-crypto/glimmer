@@ -262,14 +262,14 @@ namespace glimmer
         if (layoutItem.wtype == WT_Scrollable)
         {
             auto type = context.GetState(layoutItem.id).state.scroll.type;
-            if (type & ST_ReserveForVScroll)
+            if (type & ST_Always_H)
             {
                 layoutItem.border.Max.x -= Config.scrollbarSz;
                 layoutItem.padding.Max.x -= Config.scrollbarSz;
                 layoutItem.content.Max.x -= Config.scrollbarSz;
             }
 
-            if (type & ST_ReserveForHScroll)
+            if (type & ST_Always_V)
             {
                 layoutItem.border.Max.y -= Config.scrollbarSz;
                 layoutItem.padding.Max.y -= Config.scrollbarSz;

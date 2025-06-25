@@ -43,7 +43,8 @@ namespace glimmer
     WidgetDrawResult DropDown(int& selection, bool(*options)(), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult StaticItemGrid(std::string_view id, const ItemGridConfig::Configuration& config, std::string_view (*cell)(int32_t, int16_t, int16_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::string_view (*cell)(int32_t, int16_t, int16_t), 
+        int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});

@@ -185,8 +185,6 @@ namespace glimmer
     struct ColumnProps : public ItemGridConfig::ColumnConfig
     {
         ImVec2 offset;
-        //Vector<ItemGridUIOperation, int16_t, 2> uiops{ false };
-        //Vector<StyleDescriptor, int16_t, 2> styles{ false };
         RendererEventIndexRange range;
         RendererEventIndexRange sortIndicatorRange;
         int32_t alignment = TextAlignCenter;

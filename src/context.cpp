@@ -94,8 +94,6 @@ namespace glimmer
         {
             for (auto hidx = 0; hidx < headers[idx].size(); ++hidx)
             {
-                //headers[idx][hidx].styles.clear(true);
-                //headers[idx][hidx].uiops.clear(true);
                 headers[idx][hidx].content = headers[idx][hidx].extent = ImRect{};
                 headers[idx][hidx].range = RendererEventIndexRange{};
                 headers[idx][hidx].alignment = TextAlignCenter;
@@ -444,8 +442,8 @@ namespace glimmer
         IRenderer& renderer, WidgetDrawResult& result);
     void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
-        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    /*void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
+        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);*/
     void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
@@ -516,9 +514,10 @@ namespace glimmer
                 HandleDropDownEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, io, renderer, result);
                 break;
             case WT_ItemGrid:
-                ev.padding.Translate(origin);
+                /*ev.padding.Translate(origin);
                 ev.content.Translate(origin);
-                HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);
+                HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);*/
+                assert(false); // Not supported yet
                 break;
             case WT_TabBar:
                 ev.extent.Translate(origin);
@@ -586,6 +585,8 @@ namespace glimmer
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x : region.viewport.GetWidth(),
                     (region.type & ST_Vertical) ? region.extent.y : region.viewport.GetHeight() };
+                if (region.type & ST_Always_H) sz.y -= Config.scrollbarSz;
+                if (region.type & ST_Always_V) sz.x -= Config.scrollbarSz;
                 return sz;
             }
             else if (wtype == WT_Accordion)
@@ -630,6 +631,8 @@ namespace glimmer
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
                     (region.type & ST_Vertical) ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
+                if (region.type & ST_Always_H) sz.y -= Config.scrollbarSz;
+                if (region.type & ST_Always_V) sz.x -= Config.scrollbarSz;
                 return sz;
             }
             else if (wtype == WT_Accordion)

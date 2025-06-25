@@ -217,55 +217,72 @@ namespace glimmer
 
 #pragma region Scrollbars
 
-    static bool HandleHScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true)
+    static bool HandleHScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true, 
+        std::optional<std::pair<float, float>> xbounds = std::nullopt)
     {
         auto hasHScroll = false;
         float gripExtent = 0.f;
         const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
-        const auto viewport = region.viewport;
+        auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
-        const float vwidth = viewport.GetWidth();
-        const auto width = region.content.x - region.viewport.Min.x;
+        const float vwidth = xbounds.has_value() ? xbounds.value().second - xbounds.value().first : viewport.GetWidth();
+        const auto width = region.content.x;
         const float posrange = width - vwidth;
         auto& scroll = region.state;
 
         if (width > vwidth)
         {
-            auto hasOpacity = scroll.opacity > 0.f;
-            auto checkForHover = (region.type & ST_ShowScrollBarInsideViewport) ? true :
-                (mousepos.y <= viewport.Max.y) && mousepos.y >= (viewport.Max.y - (1.5f * btnsz));
-            auto hasMouseInteraction = (viewport.Contains(mousepos) && checkForHover) || scroll.mouseDownOnHGrip;
+            auto hasMouseInteraction = (region.type & ST_Always_H);
+            auto hasOpacity = scroll.opacity.x > 0.f;
+
+            if (!hasMouseInteraction)
+            {
+                auto checkForHover = (mousepos.y <= viewport.Max.y) && mousepos.y >= (viewport.Max.y - (1.5f * btnsz));
+                auto isActive = xbounds.has_value() ? ImRect{ { xbounds.value().first, viewport.Min.y }, { xbounds.value().second, viewport.Max.y } }.Contains(mousepos) :
+                    viewport.Contains(mousepos);
+                hasMouseInteraction = (isActive && checkForHover) || scroll.mouseDownOnHGrip;
+            }
 
             if (hasMouseInteraction || hasOpacity)
             {
-                if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
-                else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
+                if (!(region.type & ST_Always_H))
+                {
+                    if (hasMouseInteraction && scroll.opacity.x < 255.f)
+                        scroll.opacity.x = std::min((opacityRatio * io.deltaTime) + scroll.opacity.x, 255.f);
+                    else if (!hasMouseInteraction && scroll.opacity.x > 0.f)
+                        scroll.opacity.x = std::max(scroll.opacity.x - (opacityRatio * io.deltaTime), 0.f);
+                }
+                else
+                    scroll.opacity.x = 255.f;
 
                 auto lrsz = showButtons ? btnsz : 0.f;
-                ImRect left{ { viewport.Min.x, viewport.Max.y - lrsz }, { viewport.Min.x + lrsz, viewport.Max.y } };
-                ImRect right{ { viewport.Max.x - lrsz, viewport.Max.y }, viewport.Max };
+                auto startx = xbounds.has_value() ? xbounds.value().first : viewport.Min.x,
+                    endx = xbounds.has_value() ? xbounds.value().second : viewport.Max.x;
+                ImRect left{ { startx, viewport.Max.y - lrsz }, { startx + lrsz, viewport.Max.y } };
+                ImRect right{ { endx - lrsz, viewport.Max.y - lrsz }, { endx, viewport.Max.y } };
                 ImRect path{ { left.Max.x, left.Min.y }, { right.Min.x, right.Max.y } };
 
                 auto pathsz = path.GetWidth();
                 auto sizeOfGrip = (vwidth / width) * pathsz;
                 auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.x;
                 ImRect grip{ { left.Max.x + spos, viewport.Max.y - btnsz },
-                    { left.Max.x + spos + sizeOfGrip, viewport.Max.y } };
+                    { left.Max.x + spos + std::max(sizeOfGrip, Config.minScrollGripSz), viewport.Max.y } };
 
                 if (showButtons)
                 {
-                    renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                    renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.x), true);
                     renderer.DrawTriangle({ left.Min.x + (btnsz * 0.25f), left.Min.y + (0.5f * btnsz) },
                         { left.Max.x - (0.125f * btnsz), left.Min.y + (0.125f * btnsz) },
-                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.x), true);
 
-                    renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                    renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.x), true);
                     renderer.DrawTriangle({ right.Min.x + (btnsz * 0.25f), right.Min.y + (0.125f * btnsz) },
                         { right.Max.x - (0.125f * btnsz), right.Min.y + (0.5f * btnsz) },
-                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.x), true);
                 }
+
+                if (region.type & ST_Always_H)
+                    renderer.DrawRect(path.Min, path.Max, ToRGBA(250, 250, 250), true);
 
                 if (grip.Contains(mousepos))
                 {
@@ -278,26 +295,34 @@ namespace glimmer
                         }
 
                         auto step = mousepos.x - scroll.lastMousePos.x;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                        if (step != 0.f)
+                        {
+                            step = (posrange / (pathsz - sizeOfGrip)) * step;
+                            scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                            scroll.lastMousePos.x = mousepos.x;
+                        }
+
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.x = mousepos.x;
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.x), true);
                 }
                 else
                 {
                     if (scroll.mouseDownOnHGrip)
                     {
                         auto step = mousepos.x - scroll.lastMousePos.x;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                        if (step != 0.f)
+                        {
+                            step = (posrange / (pathsz - sizeOfGrip)) * step;
+                            scroll.pos.x = ImClamp(scroll.pos.x + step, 0.f, posrange);
+                            scroll.lastMousePos.x = mousepos.x;
+                        }
+
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.x = mousepos.x;
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.x), true);
 
                     if (left.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
@@ -318,53 +343,70 @@ namespace glimmer
         return hasHScroll;
     }
 
+    // TODO: Add showbuttons params
     static bool HandleVScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, 
-        bool hasHScroll = false)
+        bool hasHScroll = false, std::optional<std::pair<float, float>> ybounds = std::nullopt)
     {
         const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
         auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
-        const auto vheight = viewport.GetHeight();
-        const auto height = region.content.y - region.viewport.Min.y;
+        const auto vheight = ybounds.has_value() ? ybounds.value().second - ybounds.value().first : viewport.GetHeight();
+        const auto height = region.content.y;
         const float posrange = height - vheight;
         auto& scroll = region.state;
 
-        if (region.type & ST_ReserveForVScroll) viewport.Max.x += btnsz;
-
         if (height > vheight)
         {
-            auto hasOpacity = scroll.opacity > 0.f;
-            auto checkForHover = (region.type & ST_ShowScrollBarInsideViewport) ? true : (mousepos.x <= viewport.Max.x) && mousepos.x >= (viewport.Max.x - (1.5f * btnsz)) &&
-                (!hasHScroll || mousepos.y < (viewport.Max.y - btnsz));
-            auto hasMouseInteraction = (viewport.Contains(mousepos) && checkForHover) || scroll.mouseDownOnVGrip;
+            auto hasOpacity = scroll.opacity.y > 0.f;
+            auto hasMouseInteraction = (region.type & ST_Always_V);
+
+            if (!hasMouseInteraction)
+            {
+                auto checkForHover = (mousepos.x <= viewport.Max.x) && mousepos.x >= (viewport.Max.x - (1.5f * btnsz)) &&
+                    (!hasHScroll || mousepos.y < (viewport.Max.y - btnsz));
+                auto isActive = ybounds.has_value() ? ImRect{ { viewport.Min.x, ybounds.value().first }, { viewport.Max.x, ybounds.value().second } }.Contains(mousepos) :
+                    viewport.Contains(mousepos);
+                hasMouseInteraction = (isActive && checkForHover) || scroll.mouseDownOnVGrip;
+            }
 
             if (hasMouseInteraction || hasOpacity)
             {
-                if (hasMouseInteraction && scroll.opacity < 255.f)
-                    scroll.opacity = std::min((opacityRatio * io.deltaTime) + scroll.opacity, 255.f);
-                else if (!hasMouseInteraction && scroll.opacity > 0.f)
-                    scroll.opacity = std::max(scroll.opacity - (opacityRatio * io.deltaTime), 0.f);
-
-                auto extrah = hasHScroll ? btnsz : 0.f;
-                ImRect top{ { viewport.Max.x - btnsz, viewport.Min.y }, { viewport.Max.x, viewport.Min.y + btnsz } };
-                ImRect bottom{ { viewport.Max.x - btnsz, viewport.Max.y - btnsz - extrah }, viewport.Max };
+                if (!(region.type & ST_Always_V))
+                {
+                    if (hasMouseInteraction && scroll.opacity.y < 255.f)
+                        scroll.opacity.y = std::min((opacityRatio * io.deltaTime) + scroll.opacity.y, 255.f);
+                    else if (!hasMouseInteraction && scroll.opacity.y > 0.f)
+                        scroll.opacity.y = std::max(scroll.opacity.y - (opacityRatio * io.deltaTime), 0.f);
+                }
+                else
+                    scroll.opacity.y = 255.f;
+                
+                // TODO: Is this required?
+                auto extrah = hasHScroll && !(region.type & ST_Always_H) ? btnsz : 0.f;
+                auto starty = ybounds.has_value() ? ybounds.value().first : viewport.Min.y,
+                    endy = ybounds.has_value() ? ybounds.value().second : viewport.Max.y;
+                ImRect top{ { viewport.Max.x - btnsz, starty }, { viewport.Max.x, starty + btnsz } };
+                ImRect bottom{ { viewport.Max.x - btnsz, endy - btnsz - extrah }, { viewport.Max.x, endy - extrah } };
                 ImRect path{ { top.Min.x, top.Max.y }, { bottom.Max.x, bottom.Min.y } };
 
                 auto pathsz = path.GetHeight();
                 auto sizeOfGrip = (vheight / height) * pathsz;
                 auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.y;
                 ImRect grip{ { viewport.Max.x - btnsz, top.Max.y + spos },
-                    { viewport.Max.x, std::max(sizeOfGrip, 20.f) + top.Max.y + spos } };
+                    { viewport.Max.x, std::max(sizeOfGrip, Config.minScrollGripSz) + top.Max.y + spos } };
 
-                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.y), true);
                 renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
                     { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
-                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.y), true);
 
-                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity), true);
+                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.y), true);
                 renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
                     { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
-                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity), true);
+                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.y), true);
+
+                if (region.type & ST_Always_V)
+                    renderer.DrawRect(path.Min, path.Max, ToRGBA(250, 250, 250), true);
 
                 if (grip.Contains(mousepos))
                 {
@@ -376,27 +418,39 @@ namespace glimmer
                             scroll.lastMousePos.y = mousepos.y;
                         }
 
-                        auto step = mousepos.y - scroll.lastMousePos.y;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                        auto movey = mousepos.y - scroll.lastMousePos.y;
+                        if (movey != 0.f)
+                        {
+                            auto step = (posrange / (pathsz - sizeOfGrip)) * movey;
+                            scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                            scroll.lastMousePos.y = mousepos.y;
+                            LOG("Moved by %.2f to %.2f | Scroll position: %.2f [delta: %2.2f] [Max: %.2f] [Movement Range: %.2f]\n", movey, scroll.lastMousePos.y,
+                                scroll.pos.y, step, posrange, pathsz - sizeOfGrip);
+                        }
+
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.y = mousepos.y;
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.y), true);
                 }
                 else
                 {
                     if (scroll.mouseDownOnVGrip)
                     {
-                        auto step = mousepos.y - scroll.lastMousePos.y;
-                        step = (posrange / (pathsz - sizeOfGrip)) * step;
-                        scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                        auto movey = mousepos.y - scroll.lastMousePos.y;
+                        if (movey != 0.f)
+                        {
+                            auto step = (posrange / (pathsz - sizeOfGrip)) * movey;
+                            scroll.pos.y = ImClamp(scroll.pos.y + step, 0.f, posrange);
+                            scroll.lastMousePos.y = mousepos.y;
+                            LOG("Moved by %f to %f | Scroll position: %f [delta: %f] [Max: %f] [Movement Range: %f]\n", movey, scroll.lastMousePos.y, 
+                                scroll.pos.y, step, posrange, pathsz - sizeOfGrip);
+                        }
+
                         renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
-                        scroll.lastMousePos.y = mousepos.y;
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity), true);
+                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.y), true);
 
                     if (top.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
@@ -433,6 +487,7 @@ namespace glimmer
         region.viewport = content;
         region.type |= scrollType;
         region.extent = maxsz;
+        region.content = region.viewport.Min;
         renderer.SetClipRect(content.Min, content.Max);
         context.AddItemGeometry(id, region.viewport);
         context.containerStack.push() = id;
@@ -480,14 +535,23 @@ namespace glimmer
         auto hasHScroll = false;
         auto io = Config.platform->CurrentIO();
         auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.content.x && (region.type & ST_Horizontal))
+        auto width = region.content.x + region.state.pos.x;
+        auto height = region.content.y + region.state.pos.y;
+
+        if (region.viewport.Max.x < width && (region.type & ST_Horizontal))
         {
+            // Convert absolute max coordinates to size
             hasHScroll = true;
+            region.content.x += -region.viewport.Min.x + region.state.pos.x;
             HandleHScroll(region, renderer, io, Config.scrollbarSz);
         }
 
-        if (region.viewport.Max.y < region.content.y && (region.type & ST_Vertical))
+        if (region.viewport.Max.y < height && (region.type & ST_Vertical))
+        {
+            // Convert absolute max coordinates to size
+            region.content.y += -region.viewport.Min.y + region.state.pos.y;
             HandleVScroll(region, renderer, io, Config.scrollbarSz, hasHScroll);
+        }
 
         context.containerStack.pop(1, true);
         context.AddItemGeometry(id, region.viewport);
@@ -496,7 +560,11 @@ namespace glimmer
             context.adhocLayout.top().insideContainer = false;
             context.adhocLayout.top().addedOffset = false;
         }
-        return region.viewport;
+
+        auto res = region.viewport;
+        if (region.type & ST_Always_H) res.Max.y -= Config.scrollbarSz;
+        if (region.type & ST_Always_V) res.Max.x -= Config.scrollbarSz;
+        return res;
     }
 
     ImRect EndScrollableRegion()
@@ -3068,7 +3136,7 @@ namespace glimmer
 
 #pragma endregion
 
-#pragma region Static ItemGrid
+#pragma region ItemGrid
 
     void ItemGridConfig::setColumnResizable(int16_t col, bool resizable)
     {
@@ -3267,843 +3335,53 @@ namespace glimmer
         }
     }
 
-    static void HandleScrollBars(ScrollableRegion& scroll, IRenderer& renderer, const ImRect& content,
-        ImVec2 sz, const IODescriptor& io)
+    static void AddItemGridScrollBars(ItemGridBuilder& builder, ItemGridPersistentState& state, 
+        const ItemGridConfig& config, IRenderer& renderer, ImRect viewport, const IODescriptor& io)
     {
-        scroll.viewport = content;
-        scroll.content = sz;
-        auto hasHScroll = HandleHScroll(scroll, renderer, io, Config.scrollbarSz);
-        HandleVScroll(scroll, renderer, io, Config.scrollbarSz, hasHScroll);
-    }
+        auto& context = *WidgetContextData::CurrentItemGridContext;
 
-    void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
-        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
-    {
-        auto& context = GetContext();
-
-        if (!context.deferEvents)
+        if (config.frozencols > 0)
         {
-            auto& state = context.GetState(id).state.grid;
-            auto& headers = state.config.headers;
-            auto& gridstate = context.GridState(id);
+            const auto& lastFrozenHeader = builder.headers[builder.currlevel][config.frozencols - 1];
+            viewport.Min.x = lastFrozenHeader.extent.Max.x + config.gridwidth;
+            builder.totalsz.x -= (viewport.Min.x - builder.origin.x);
 
-            auto mousepos = io.mousepos;
-            auto ismouseover = padding.Contains(mousepos);
-            state.state = !ismouseover ? WS_Default :
-                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
-            HandleScrollBars(gridstate.scroll, renderer, content, gridstate.totalsz, io);
-
-            // Reset header calculations for next frame
-            for (auto level = 0; level < (int)headers.size(); ++level)
+            // Determine if any col content in frozen part exceeds the available space w.r.t column widths
+            // Enable horizontal scrollbar in that case
+            if (builder.maxColWidth > lastFrozenHeader.extent.GetWidth())
             {
-                for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-                {
-                    auto& hdr = headers[level][col];
-                    hdr.content = ImRect{};
-                    hdr.extent = ImRect{};
-                }
+                state.altscroll.viewport.Min = builder.origin;
+                state.altscroll.viewport.Max = { lastFrozenHeader.extent.Max.x, builder.size.y + builder.origin.y };
+
+                ImVec2 sz;
+                state.altscroll.content.y = state.altscroll.viewport.GetHeight();
+                state.altscroll.content.x = (config.frozencols - 1) > 0 ? builder.headers[builder.currlevel][config.frozencols - 2].extent.Max.x +
+                    builder.maxColWidth : builder.maxColWidth;
+                state.altscroll.type = config.scrollprops;
+                HandleHScroll(state.altscroll, renderer, io, Config.scrollbarSz);
             }
-
-            if (ismouseover && io.clicked())
-                result.event = WidgetEvent::Clicked;
-            else if (ismouseover && io.isLeftMouseDoubleClicked())
-                result.event = WidgetEvent::DoubleClicked;
-        }
-        else context.deferedEvents.emplace_back(WT_ItemGrid, id, padding, content);
-    }
-
-    static void AlignVCenter(float height, int level, ItemGridConfig& state, const StyleDescriptor& style)
-    {
-        auto& headers = state.config.headers;
-
-        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-        {
-            auto& hdr = headers[level][col];
-            hdr.content.Max.y = height;
-
-            auto vdiff = (height - hdr.content.GetHeight() - style.padding.v()) * 0.5f;
-            if (vdiff > 0.f)
-                hdr.content.TranslateY(vdiff);
-        }
-    }
-
-    static ImRect DrawCells(ItemGridConfig& state, std::vector<std::vector<ItemGridConfig::ColumnConfig>>& headers, int32_t row, int16_t col,
-        float miny, const StyleDescriptor& style, IRenderer& renderer)
-    {
-        auto& hdr = headers.back()[col];
-        auto& model = state.cell(row, col, 0);
-        auto itemcontent = hdr.content;
-        auto& context = GetContext();
-        itemcontent.Min.y = miny;
-
-        switch (model.wtype)
-        {
-        case WT_Label:
-        {
-            auto itemstyle = context.GetStyle(model.state.label.state);
-            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
-                itemstyle.font.size, FT_Normal);
-
-            auto textsz = renderer.GetTextSize(model.state.label.text, itemstyle.font.font,
-                itemstyle.font.size, -1.f);
-            itemcontent.Max.y = itemcontent.Min.y + textsz.y + style.padding.v();
-
-            ImVec2 textstart{ itemcontent.Min.x + style.padding.left,
-                itemcontent.Min.y + style.padding.top };
-
-            if (textsz.x < itemcontent.GetWidth())
+            else if (config.scrollprops & ST_Always_H)
             {
-                auto hdiff = (itemcontent.GetWidth() - textsz.x) * 0.5f;
-                textstart.x += hdiff;
-            }
-
-            auto textend = itemcontent.Max - ImVec2{ style.padding.right, style.padding.bottom };
-            DrawBackground(itemcontent.Min, itemcontent.Max, itemstyle, renderer);
-            renderer.DrawRect(itemcontent.Min, itemcontent.Max, ToRGBA(100, 100, 100), false);
-            DrawText(textstart, textend, { textstart, textstart + textsz }, model.state.label.text,
-                model.state.label.state & WS_Disabled, itemstyle, renderer);
-            break;
-        }
-        /*case WT_Custom:
-        {
-            renderer.SetClipRect(itemcontent.Min, itemcontent.Max);
-            auto sz = model.state.CustomWidget(itemcontent.Min, itemcontent.Max);
-            renderer.ResetClipRect();
-
-            itemcontent.Max.y = itemcontent.Min.y + style.padding.v() + sz.y;
-            break;
-        }*/
-        default:
-            break;
-        }
-
-        return itemcontent;
-    }
-
-    WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.grid;
-        auto& gridstate = context.GridState(id);
-        auto mousepos = io.mousepos;
-
-        DrawBoxShadow(border.Min, border.Max, style, renderer);
-        DrawBackground(border.Min, border.Max, style, renderer);
-        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-
-        auto& headers = state.config.headers;
-
-        if (state.cell)
-        {
-            // Determine header geometry
-            for (auto level = (int)headers.size() - 1; level >= 0; --level)
-            {
-                // If this is last level headers, it represents leaves, the upper levels
-                // represent grouping of the headers, whose width is determined by the 
-                // lower levels, hence start with bottom most levels.
-                // We compute the local x-coordinate of each "header cell" and local
-                // "text position" for text content. 
-                // The y-coordinate will be assigned while actual rendering, which will 
-                // start from highest level i.e. root to leaves.
-                if (level == ((int)headers.size() - 1))
-                {
-                    auto sum = 0.f;
-                    auto totalEx = 0;
-                    auto height = 0.f;
-
-                    for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
-                    {
-                        if (gridstate.cols[level].empty())
-                            gridstate.cols[level].fill(ItemGridPersistentState::HeaderCellResizeState{});
-
-                        if (gridstate.colmap[level].vtol[vcol] == -1)
-                        {
-                            gridstate.colmap[level].ltov[vcol] = vcol;
-                            gridstate.colmap[level].vtol[vcol] = vcol;
-                        }
-
-                        auto col = gridstate.colmap[level].vtol[vcol];
-                        auto& hdr = headers[level][col];
-
-                        static char buffer[256];
-                        memset(buffer, ' ', 255);
-                        buffer[255] = 0;
-
-                        auto colwidth = hdr.props & COL_WidthAbsolute ? (float)hdr.width :
-                            renderer.GetTextSize(std::string_view{ buffer, buffer + hdr.width },
-                                style.font.font, style.font.size).x;
-                        auto hasWidth = colwidth > 0.f;
-                        colwidth += gridstate.cols[level][col].modified;
-
-                        auto wrap = (hdr.props & COL_WrapHeader) && hasWidth ? colwidth : -1.f;
-                        auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
-                        hdr.extent.Min.x = sum;
-                        hdr.content.Min.x = hdr.extent.Min.x + style.padding.left;
-                        hdr.content.Max.x = hdr.content.Min.x + textsz.x;
-                        hdr.content.Min.y = style.padding.top;
-                        hdr.content.Max.y = textsz.y;
-                        hdr.extent.Max.x = hdr.extent.Min.x + (hasWidth ? colwidth : colwidth +
-                            textsz.x + style.padding.h());
-
-                        if (hdr.extent.GetWidth() - style.padding.h() > textsz.x)
-                        {
-                            auto hdiff = (hdr.extent.GetWidth() - textsz.x - style.padding.h()) * 0.5f;
-                            hdr.content.TranslateX(hdiff);
-                        }
-
-                        hdr.extent.Max.y = textsz.y + style.padding.v();
-                        sum += hdr.extent.GetWidth();
-                        height = std::max(height, hdr.extent.GetHeight());
-
-                        // If user has resized column, do not expand it
-                        if ((hdr.props & COL_Expandable) && gridstate.cols[level][col].modified == 0.f) totalEx++;
-                    }
-
-                    if (totalEx > 0)
-                    {
-                        auto extra = (content.GetWidth() - sum) / (float)totalEx;
-                        sum = 0.f;
-
-                        if (extra > 0.f)
-                            for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-                            {
-                                auto& hdr = headers[level][col];
-                                auto width = hdr.extent.Min.x;
-                                auto isColExpandable = ((hdr.props & COL_Expandable) &&
-                                    gridstate.cols[level][col].modified == 0.f);
-                                hdr.extent.Min.x = sum;
-                                hdr.extent.Max.x = hdr.extent.Max.x +
-                                    isColExpandable ? extra : 0.f;
-                                if (!(hdr.props & COL_WrapHeader) && hdr.content.GetWidth() <
-                                    (hdr.extent.GetWidth() - style.padding.h()))
-                                {
-                                    auto diff = (hdr.extent.GetWidth() - style.padding.h() - hdr.content.GetWidth()) * 0.5f;
-                                    hdr.content.TranslateX(diff);
-                                }
-                                sum = hdr.extent.Max.x;
-
-                                hdr.extent.Max.y = height;
-                                auto vdiff = (height - hdr.content.GetHeight() - style.padding.v()) * 0.5f;
-                                if (vdiff > 0.f)
-                                    hdr.content.TranslateY(vdiff);
-                            }
-                        else AlignVCenter(height, level, state, style);
-                    }
-                    else AlignVCenter(height, level, state, style);
-                }
-                else
-                {
-                    float lastx = 0.f, height = 0.f;
-                    if (gridstate.cols[level].empty())
-                        gridstate.cols[level].fill(ItemGridPersistentState::HeaderCellResizeState{});
-
-                    for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
-                    {
-                        float sum = 0.f;
-                        if (gridstate.colmap[level].vtol[vcol] == -1)
-                        {
-                            gridstate.colmap[level].ltov[vcol] = vcol;
-                            gridstate.colmap[level].vtol[vcol] = vcol;
-                        }
-
-                        auto col = gridstate.colmap[level].vtol[vcol];
-                        auto& hdr = headers[level][col];
-                        hdr.extent.Min.x = lastx;
-
-                        // Find sum of all descendant headers, which will be this headers width
-                        for (int16_t chcol = 0; chcol < (int16_t)headers[level + 1].size(); ++chcol)
-                            if (headers[level + 1][chcol].parent == col)
-                                sum += headers[level + 1][chcol].extent.GetWidth();
-
-                        auto wrap = hdr.props & COL_WrapHeader ? sum : -1.f;
-                        auto textsz = renderer.GetTextSize(hdr.name, style.font.font, style.font.size, wrap);
-
-                        // The available horizontal size is fixed by sum of descendant widths
-                        // The height of the current level of headers is decided by the max height across all
-                        hdr.extent.Max.x = hdr.extent.Min.x + sum;
-                        hdr.content.Min.x = hdr.extent.Min.x + style.padding.left;
-                        hdr.content.Min.y = hdr.extent.Min.y + style.padding.top;
-                        hdr.content.Max.x = hdr.content.Min.x + std::min(sum, textsz.x);
-
-                        if (!(hdr.props & COL_WrapHeader) && textsz.x < (sum - style.padding.h()))
-                        {
-                            auto diff = (sum - style.padding.h() - textsz.x) * 0.5f;
-                            hdr.content.TranslateX(diff);
-                        }
-
-                        hdr.content.Max.y = hdr.content.Min.y + textsz.y;
-                        hdr.extent.Max.y = hdr.extent.Min.y + textsz.y + style.padding.v();
-                        height = std::max(height, hdr.extent.GetHeight());
-                        lastx += sum;
-                    }
-
-                    AlignVCenter(height, level, state, style);
-                }
-            }
-
-            // Draw Headers
-            auto posy = content.Min.y;
-            auto totalh = 0.f;
-            auto width = headers.back().back().extent.Max.x - headers.back().front().extent.Min.x;
-            auto hshift = -gridstate.scroll.state.pos.x;
-            std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
-
-            for (auto level = 0; level < (int)headers.size(); ++level)
-            {
-                auto maxh = 0.f, posx = content.Min.x + hshift;
-
-                for (int16_t vcol = 0; vcol < (int16_t)headers[level].size(); ++vcol)
-                {
-                    auto col = gridstate.colmap[level].vtol[vcol];
-                    auto& hdr = headers[level][col];
-                    auto isBeingMoved = gridstate.drag.column == vcol && gridstate.drag.level == level;
-
-                    if (isBeingMoved)
-                    {
-                        auto movex = mousepos.x - gridstate.drag.startPos.x;
-                        gridstate.drag.config = hdr;
-                        auto& cfg = gridstate.drag.config;
-
-                        cfg.extent.TranslateY(posy);
-                        cfg.content.TranslateY(posy);
-                        cfg.extent.TranslateX(posx + movex);
-                        cfg.content.TranslateX(posx + movex);
-
-                        maxh = std::max(maxh, hdr.extent.GetHeight());
-                        nextMovingRange = { col, col };
-                    }
-                    else if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
-                    {
-                        // The parent column is being moved in this case, record the range of child columns mapped to that parent range
-                        auto movex = mousepos.x - gridstate.drag.startPos.x;
-                        auto& cfg = gridstate.drag.config;
-
-                        hdr.extent.TranslateY(posy);
-                        hdr.content.TranslateY(posy);
-                        hdr.extent.TranslateX(posx + movex);
-                        hdr.content.TranslateX(posx + movex);
-
-                        maxh = std::max(maxh, hdr.extent.GetHeight());
-                        nextMovingRange.first = std::min(nextMovingRange.first, col);
-                        nextMovingRange.second = std::max(nextMovingRange.second, col);
-                    }
-                    else
-                    {
-                        hdr.extent.TranslateY(posy);
-                        hdr.content.TranslateY(posy);
-                        hdr.extent.TranslateX(posx);
-                        hdr.content.TranslateX(posx);
-                        renderer.DrawRect(hdr.extent.Min, hdr.extent.Max, ToRGBA(100, 100, 100), false);
-
-                        ImVec2 textend{ hdr.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                        DrawText(hdr.content.Min, textend, hdr.content, hdr.name, false, style, renderer);
-                        maxh = std::max(maxh, hdr.extent.GetHeight());
-                    }
-
-                    if (vcol > 0)
-                    {
-                        auto prevcol = gridstate.colmap[level].vtol[vcol - 1];
-                        if (headers[level][prevcol].props & COL_Resizable)
-                            HandleColumnResize(Span{ headers.begin(), headers.end() }, hdr.extent, gridstate, mousepos, level, col, io);
-                    }
-
-                    if (hdr.props & COL_Moveable)
-                        HandleColumnReorder(Span{ headers.begin(), headers.end() }, gridstate, mousepos, level, vcol, io);
-                }
-
-                posy += maxh;
-                totalh += maxh;
-                movingColRange = nextMovingRange;
-                nextMovingRange = { INT16_MAX, -1 };
-            }
-
-            float height = 0.f;
-
-            if (!state.uniformRowHeights)
-            {
-                // As each cell's height may be different, capture cell heights first,
-                // then determine row height as max cell height, align and draw contents
-                //ImVec2 cellGeometries[128];
-                //ItemGridConfig::CellData data[128];
-
-                //for (auto row = 0; row < state.config.rows; ++row)
-                //{
-                //    auto height = 0.f;
-                //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
-                //    {
-                //        auto& hdr = headers.back()[col];
-                //        data[col] = state.cell(row, col, 0);
-
-                //        switch (data[col].wtype)
-                //        {
-                //        case WT_Label:
-                //        {
-                //            auto& itemstyle = context.GetStyle(data[col].state.label.state);
-                //            if (itemstyle.font.font == nullptr) itemstyle.font.font = GetFont(itemstyle.font.family,
-                //                itemstyle.font.size, FT_Normal);
-                //            auto wrap = itemstyle.font.flags & FontStyleNoWrap ? -1.f : hdr.extent.GetWidth();
-                //            auto textsz = renderer.GetTextSize(data[col].state.label.text, itemstyle.font.font,
-                //                itemstyle.font.size, wrap);
-                //            cellGeometries[col] = textsz;
-                //            height = std::max(height, textsz.y + style.padding.v());
-                //            break;
-                //        }
-                //        default:
-                //            break;
-                //        }
-                //    }
-
-                //    for (int16_t col = 0; col < (int16_t)headers.back().size(); ++col)
-                //    {
-                //        auto& hdr = headers.back()[col];
-                //        auto content = hdr.extent;
-                //        content.Max.y = height;
-                //        ImVec2 textstart{ content.Min.x + style.padding.left,
-                //            content.Min.y + style.padding.top };
-
-                //        if (cellGeometries[col].y < height)
-                //        {
-                //            auto vdiff = (height - cellGeometries[col].y) * 0.5f;
-                //            textstart.y += vdiff;
-                //        }
-
-                //        if (cellGeometries[col].x < content.GetWidth())
-                //        {
-                //            auto hdiff = (content.GetWidth() - cellGeometries[col].x) * 0.5f;
-                //            textstart.x += hdiff;
-                //        }
-
-                //        auto textend = content.Max - ImVec2{ style.padding.right, style.padding.bottom };
-                //        renderer.DrawRect(content.Min, content.Max, ToRGBA(100, 100, 100), false);
-                //        
-                //        switch (data[col].wtype)
-                //        {
-                //        case WT_Label:
-                //        {
-                //            const auto& itemstyle = context.GetStyle(data[col].state.label.state);
-                //            DrawText(textstart, textend, { textstart, textstart + cellGeometries[col] }, data[col].state.label.text,
-                //                data[col].state.label.state& WS_Disabled, itemstyle, renderer);
-                //            break;
-                //        }
-                //        }
-
-                //        if (content.Contains(mousepos))
-                //        {
-                //            result.col = col;
-                //            result.row = row;
-                //            // ... add depth
-                //        }
-                //    }
-
-                //    posy += height;
-                //}
-            }
-            else
-            {
-                // Populate column wise for uniform row heights
-                ImVec2 startpos{};
-                startpos.y = -gridstate.scroll.state.pos.y;
-                renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
-                auto maxlevel = (int)headers.size() - 1;
-
-                for (int16_t vcol = 0; vcol < (int16_t)headers.back().size(); ++vcol)
-                {
-                    height = 0.f;
-                    auto col = gridstate.colmap[maxlevel].vtol[vcol];
-
-                    for (auto row = 0; row < state.config.rows; ++row)
-                    {
-                        if (col < movingColRange.first || col > movingColRange.second)
-                        {
-                            auto starty = height + posy + startpos.y;
-                            auto itemrect = DrawCells(state, headers, row, col, starty, style, renderer);
-                            height += itemrect.GetHeight();
-
-                            if (itemrect.Contains(mousepos))
-                            {
-                                result.col = col;
-                                result.row = row;
-                                // ... add depth
-                            }
-
-                            //if (height + posy >= content.Max.y) break; 
-                        }
-                    }
-                }
-
-                renderer.ResetClipRect();
-            }
-
-            totalh += height;
-
-            if (gridstate.drag.column != -1 && gridstate.drag.level != -1)
-            {
-                const auto& cfg = gridstate.drag.config;
-                LOG("Rendering column (v: %d) as moving (%f -> %f)\n", gridstate.drag.column, cfg.extent.Min.x, cfg.extent.Max.x);
-
-                renderer.DrawRectGradient(cfg.extent.Min + ImVec2{ -10.f, 0.f }, { cfg.extent.Min.x, content.Max.y },
-                    ToRGBA(0, 0, 0, 0), ToRGBA(100, 100, 100), Direction::DIR_Horizontal);
-                renderer.DrawRectGradient({ cfg.extent.Max.x, cfg.extent.Min.y }, ImVec2{ cfg.extent.Max.x + 10.f, content.Max.y },
-                    ToRGBA(100, 100, 100), ToRGBA(0, 0, 0, 0), Direction::DIR_Horizontal);
-
-                renderer.DrawRect(cfg.extent.Min, cfg.extent.Max, ToRGBA(100, 100, 100), false);
-                ImVec2 textend{ cfg.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                DrawText(cfg.content.Min, textend, cfg.content, cfg.name, false, style, renderer);
-
-                auto level = gridstate.drag.level + 1;
-
-                if (level < (int16_t)headers.size())
-                {
-                    auto movex = mousepos.x - gridstate.drag.lastPos.x;
-                    auto lcol = gridstate.colmap[level - 1].vtol[gridstate.drag.column];
-                    std::pair<int16_t, int16_t> movingColRange = { lcol, lcol }, nextMovingRange = { INT16_MAX, -1 };
-
-                    for (; level < (int16_t)headers.size(); ++level)
-                    {
-                        for (int16_t col = 0; col < (int16_t)headers[level].size(); ++col)
-                        {
-                            auto& hdr = headers[level][col];
-
-                            if (hdr.parent >= movingColRange.first && hdr.parent <= movingColRange.second)
-                            {
-                                hdr.extent.TranslateX(movex);
-                                hdr.content.TranslateX(movex);
-
-                                renderer.DrawRect(hdr.extent.Min, hdr.extent.Max, ToRGBA(100, 100, 100), false);
-                                ImVec2 textend{ hdr.extent.Max - ImVec2{ style.padding.right, style.padding.bottom } };
-                                DrawText(hdr.content.Min, textend, hdr.content, hdr.name, false, style, renderer);
-
-                                nextMovingRange.first = std::min(nextMovingRange.first, col);
-                                nextMovingRange.second = std::max(nextMovingRange.second, col);
-                            }
-                        }
-
-                        movingColRange = nextMovingRange;
-                        nextMovingRange = { INT16_MAX, -1 };
-                    }
-                }
-
-                ImVec2 startpos{};
-                startpos.y = -gridstate.scroll.state.pos.y;
-                renderer.SetClipRect(ImVec2{ content.Min.x, posy }, content.Max);
-
-                for (int16_t col = movingColRange.first; col <= movingColRange.second; ++col)
-                {
-                    height = 0.f;
-
-                    for (auto row = 0; row < state.config.rows; ++row)
-                    {
-                        if (col >= movingColRange.first && col <= movingColRange.second)
-                        {
-                            auto itemrect = DrawCells(state, headers, row, col, height + posy + startpos.y, style, renderer);
-                            height += itemrect.GetHeight();
-
-                            if (itemrect.Contains(mousepos))
-                            {
-                                result.col = col;
-                                result.row = row;
-                                // ... add depth
-                            }
-                        }
-                    }
-                }
-            }
-
-            gridstate.totalsz.y = totalh;
-            gridstate.totalsz.x = width;
-            HandleItemGridEvent(id, padding, content, io, renderer, result);
-        }
-        else if (state.cellwidget && state.cellprops && state.header)
-        {
-            assert(false); // Use StartItemGrid/EndItemGrid instead
-        }
-
-        result.geometry = margin;
-        return result;
-    }
-
-#pragma endregion
-
-#pragma region Splitter
-
-    void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
-    {
-        auto& context = GetContext();
-        const auto style = WidgetContextData::GetStyle(WS_Default);
-        auto& renderer = context.GetRenderer();
-        LayoutItemDescriptor layoutItem;
-        NeighborWidgets neighbors;
-        if (dir == DIR_Vertical) neighbors.bottom = nextid;
-        else neighbors.right = nextid;
-
-        AddExtent(layoutItem, style, neighbors);
-        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
-
-        region.viewport = layoutItem.content;
-        region.type = dir == DIR_Horizontal ? ST_Horizontal : ST_Vertical;
-        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
-        context.PushContainer(parentid, id);
-    }
-
-    static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
-    {
-        auto& context = GetContext();
-        auto id = context.containerStack.top();
-        auto& renderer = context.GetRenderer();
-        renderer.ResetClipRect();
-
-        auto hasHScroll = false;
-        auto io = Config.platform->CurrentIO();
-        auto mousepos = io.mousepos;
-        if (region.viewport.Max.x < region.content.x && (region.type & ST_Horizontal))
-        {
-            hasHScroll = true;
-            HandleHScroll(region, renderer, io, Config.scrollbarSz);
-        }
-
-        if (region.viewport.Max.y < region.content.y && (region.type & ST_Vertical))
-            HandleVScroll(region, renderer, io, Config.scrollbarSz, hasHScroll);
-
-        context.PopContainer(id);
-
-        auto& layout = context.adhocLayout.top();
-        layout.nextpos = region.viewport.Max;
-        dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
-    }
-
-    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
-        int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert((int)splits.size() < GLIMMER_MAX_SPLITTER_REGIONS);
-
-        LayoutItemDescriptor layoutItem;
-        AddExtent(layoutItem, neighbors);
-        auto& context = GetContext();
-        auto& el = context.splitterStack.push();
-        el.dir = dir;
-        el.extent = layoutItem.margin;
-        el.id = id;
-
-        auto& state = context.SplitterState(id);
-        const auto style = WidgetContextData::GetStyle(WS_Default);
-        state.current = 0;
-
-        auto& renderer = context.GetRenderer();
-        renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-
-        auto idx = 0;
-        auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
-            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
-        if (el.dir == DIR_Horizontal) width -= splittersz * (float)splits.size();
-        if (el.dir == DIR_Vertical) height -= splittersz * (float)splits.size();
-        auto prev = el.extent.Min;
-
-        for (const auto& split : splits)
-        {
-            if (state.spacing[idx].curr == -1.f)
-            {
-                state.spacing[idx].curr = split.initial;      
-            }
-
-            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
-                ImVec2{ state.spacing[idx].curr * width, height });
-
-            auto scid = GetNextId(WT_SplitterRegion);
-            state.viewport[idx] = ImRect{ prev, regionEnd };
-            state.containers[idx] = scid;
-            context.AddItemGeometry(state.containers[idx], state.viewport[idx], true);
-
-            state.spacing[idx].min = split.min;
-            state.spacing[idx].max = split.max;
-            prev = regionEnd;
-            el.dir == DIR_Vertical ? prev.x = layoutItem.margin.Min.x : prev.y = layoutItem.margin.Min.y;
-            el.dir == DIR_Vertical ? prev.y += splittersz : prev.x += splittersz;
-            ++idx;
-        }
-
-        auto& layout = context.adhocLayout.top();
-        layout.nextpos = state.viewport[state.current].Min;
-        context.containerStack.push() = state.containers[state.current];
-        renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
-    }
-
-    void NextSplitRegion()
-    {
-        auto& context = GetContext();
-        auto& el = context.splitterStack.top();
-        auto& state = context.SplitterState(el.id);
-        auto io = Config.platform->CurrentIO();
-        auto mousepos = io.mousepos;
-        const auto style = WidgetContextData::GetStyle(WS_Default);
-        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
-        auto& renderer = context.GetRenderer();
-
-        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
-
-        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
-            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
-        auto scid = state.containers[state.current];
-        renderer.ResetClipRect();
-        context.containerStack.pop(1, true);
-
-        auto nextpos = el.dir == DIR_Vertical ? ImVec2{ el.extent.Min.x, state.viewport[state.current].Max.y } :
-            ImVec2{ state.viewport[state.current].Max.x, el.extent.Min.y };
-        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } : ImVec2{ splittersz, height });
-
-        renderer.SetClipRect(nextpos, nextpos + sz);
-        DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
-        DrawBackground(nextpos, nextpos + sz, style, renderer);
-        auto radius = std::max(splittersz - 2.f, 1.f);
-        if (el.dir == DIR_Vertical)
-        {
-            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
-            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
-            startpos.x += radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.x += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.x += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-        }
-        else
-        {
-            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
-            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
-            startpos.y += radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.y += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-            startpos.y += 3.f * radius;
-            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
-        }
-        renderer.ResetClipRect();
-
-        if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
-        {
-            Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical :
-                MouseCursor::ResizeHorizontal);
-            auto isDrag = io.isLeftMouseDown();
-            state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
-
-            if (isDrag)
-            {
-                if (!state.isdragged[state.current])
-                {
-                    state.isdragged[state.current] = true;
-                    state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
-                }
-                else
-                {
-                    auto amount = el.dir == DIR_Vertical ? (mousepos.y - state.dragstart[state.current]) / height :
-                        (mousepos.x - state.dragstart[state.current]) / width;
-                    auto prev = state.spacing[state.current].curr;
-                    state.spacing[state.current].curr = clamp(prev + amount, state.spacing[state.current].min, state.spacing[state.current].max);
-                    auto diff = prev - state.spacing[state.current].curr;
-
-                    if (diff != 0.f)
-                    {
-                        state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
-                        state.spacing[state.current + 1].curr += diff;
-                    } 
-                }
-            }
-            else state.isdragged[state.current] = false;
-        }
-        else if (!io.isLeftMouseDown())
-        {
-            state.states[state.current] = WS_Default;
-            state.isdragged[state.current] = false;
-        }
-
-        state.current++;
-        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
-
-        auto& layout = context.adhocLayout.top();
-        layout.nextpos = state.viewport[state.current].Min;
-        context.containerStack.push() = state.containers[state.current];
-        renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
-    }
-
-    void EndSplitRegion()
-    {
-        auto& context = GetContext();
-        auto el = context.splitterStack.top();
-        auto& state = context.SplitterState(el.id);
-        auto& renderer = context.GetRenderer();
-
-        renderer.ResetClipRect();
-        context.containerStack.pop(1, true);
-        context.splitterStack.pop(1, true);
-        context.AddItemGeometry(el.id, el.extent);
-        renderer.ResetClipRect();
-    }
-
-#pragma endregion
-
-#pragma region Popups
-
-    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size)
-    {
-        auto io = Config.platform->CurrentIO();
-        if (!io.isKeyPressed(Key_Escape))
-        {
-            auto& overlayctx = PushContext(id);
-            overlayctx.ToggleDeferedRendering(true);
-            overlayctx.deferEvents = true;
-            overlayctx.popupOrigin = origin;
-            overlayctx.popupTarget = id;
-            overlayctx.popupSize = size;
-            overlayctx.RecordDeferRange(overlayctx.popupRange, true);
-            return true;
-        }
-        else
-            GetContext().activePopUpRegion = ImRect{};
-
-        return false;
-    }
-
-    WidgetDrawResult EndPopUp()
-    {
-        auto& overlayctx = GetContext();
-        WidgetDrawResult result;
-        overlayctx.RecordDeferRange(overlayctx.popupRange, false);
-
-        if (overlayctx.deferedRenderer->size.y > 0.f)
-        {
-            auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
-            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
-
-            if ((origin + size) > overlayctx.WindowSize())
-                origin.y = origin.y - size.y;
-
-            if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
-            {
-                renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
-
-                overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
-                overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first, 
-                    overlayctx.popupRange.primitives.second);
-                
-                overlayctx.deferEvents = false;
-                result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
-                    overlayctx.popupRange.events.second);
-               
-                renderer.EndOverlay();
+                auto max = builder.origin + builder.size;
+                renderer.DrawRect(ImVec2{ builder.origin.x, max.y - Config.scrollbarSz }, ImVec2{ lastFrozenHeader.extent.Max.x, max.y },
+                    ToRGBA(255, 255, 255), true);
             }
         }
 
-        overlayctx.ToggleDeferedRendering(false);
-        overlayctx.deferedEvents.clear(true);
-        PopContext();
-        return result;
+        // builder.totalsz is in absolute coordinates, convert it to size
+        // state.scroll.content is adjusted in y-axis because y-absolute coordinates are
+        // shifted by scroll amount in y-direction, whereas x-coordiantes are not
+        auto sz = builder.totalsz - builder.origin - ImVec2{ 0.f, builder.headerHeight };
+        if (config.scrollprops & ST_Always_H) viewport.Max.y += Config.scrollbarSz;
+        if (config.scrollprops & ST_Always_V) viewport.Max.x += Config.scrollbarSz;
+        state.scroll.viewport = viewport;
+        state.scroll.content = sz + ImVec2{ 0.f,  state.scroll.state.pos.y };
+        state.scroll.type = config.scrollprops;
+
+        auto hasHScroll = HandleHScroll(state.scroll, renderer, io, Config.scrollbarSz);
+        HandleVScroll(state.scroll, renderer, io, Config.scrollbarSz, hasHScroll,
+            std::make_pair(builder.origin.y, builder.origin.y + builder.size.y));
     }
-
-#pragma endregion
-
-#pragma region Dynamic ItemGrid
 
     void RecordItemGeometry(const LayoutItemDescriptor& layoutItem)
     {
@@ -4129,6 +3407,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto& builder = context.itemGrids.push();
+        const auto& config = context.GetState(id).state.grid;
         const auto style = WidgetContextData::GetStyle(WS_Default);
 
         builder.id = id;
@@ -4140,6 +3419,8 @@ namespace glimmer
 
         LayoutItemDescriptor item;
         AddExtent(item, style, neighbors);
+        if (config.scrollprops & ST_Always_H) item.content.Max.y -= Config.scrollbarSz;
+        if (config.scrollprops & ST_Always_V) item.content.Max.x -= Config.scrollbarSz;
         builder.size = item.content.GetSize();
 
         context.CurrentItemGridContext = &context;
@@ -4499,8 +3780,8 @@ namespace glimmer
                     else if (col < config.frozencols)
                         frozenWidth = (hdr.extent.Max.x - builder.origin.x);
 
-                    ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth + hshift, config.gridwidth };
-                    Config.renderer->DrawRect(hdr.extent.Min - gridline, hdr.extent.Max + gridline, 
+                    ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
+                    Config.renderer->DrawRect(hdr.extent.Min - gridline + shift, hdr.extent.Max + gridline + shift,
                         config.gridcolor, false, config.gridwidth);
                     renderer.SetClipRect(hdr.extent.Min + shift, hdr.extent.Max + shift);
                     DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
@@ -4512,7 +3793,7 @@ namespace glimmer
                         ctx.deferedRenderer->Render(*Config.renderer, ImVec2{ hdr.offset.x, vdiff } + shift,
                             hdr.sortIndicatorRange.primitives.first, hdr.sortIndicatorRange.primitives.second);
                     }
-                    
+
                     ctx.deferedRenderer->Render(*Config.renderer, hdr.offset + shift,
                         hdr.range.primitives.first, hdr.range.primitives.second);
                     auto res = ctx.HandleEvents(hdr.offset + shift, hdr.range.events.first, hdr.range.events.second);
@@ -4525,12 +3806,12 @@ namespace glimmer
                         {
                             auto prevcol = state.colmap[level].vtol[vcol - 1];
                             if (headers[level][prevcol].props & COL_Resizable)
-                                HandleColumnResize(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL }, 
+                                HandleColumnResize(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL },
                                     hdr.extent, state, io.mousepos, level, col, io);
                         }
 
                         if (hdr.props & COL_Moveable)
-                            HandleColumnReorder(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL }, 
+                            HandleColumnReorder(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL },
                                 state, io.mousepos, level, vcol, io);
 
                         if (hdr.extent.Contains(io.mousepos) && (hdr.props & COL_Sortable))
@@ -4547,7 +3828,7 @@ namespace glimmer
                                 result.col = col; result.row = -1;
                                 result.order = state.sortedAscending;
                             }
-                            
+
                             Config.platform->SetMouseCursor(MouseCursor::Grab);
                         }
                     }
@@ -4659,7 +3940,7 @@ namespace glimmer
         auto selectRow = (config.selection & IG_SelectRow) != 0;
         auto selectCol = (config.selection & IG_SelectColumn) != 0;
         auto selectCell = (config.selection & IG_SelectCell) != 0;
-        
+
         for (auto idx = 0; idx < state.selections.size(); ++idx)
         {
             if (selectCell)
@@ -4683,13 +3964,13 @@ namespace glimmer
         return false;
     }
 
-    static void ExtractColumnProps(ColumnProps& colprops, const ItemGridPersistentState& state, ItemGridBuilder& builder, 
-        const ItemGridConfig& config, const ItemGridItemProps& props, const std::pair<float, float>& bounds, int16_t col, 
+    static void ExtractColumnProps(ColumnProps& colprops, const ItemGridPersistentState& state, ItemGridBuilder& builder,
+        const ItemGridConfig& config, const ItemGridItemProps& props, const std::pair<float, float>& bounds, int16_t col,
         int32_t row, int16_t depth, bool selected, bool highlighted)
     {
         colprops.selected = selected;
         colprops.highlighted = highlighted;
-        auto style = WidgetContextData::GetStyle(props.disabled ? WS_Disabled : 
+        auto style = WidgetContextData::GetStyle(props.disabled ? WS_Disabled :
             colprops.selected ? WS_Selected : colprops.highlighted ? WS_Hovered : WS_Default);
 
         if (props.highlightCell)
@@ -4719,15 +4000,19 @@ namespace glimmer
         }
     }
 
-    static void InvokeItemGridCellContent(WidgetContextData& context, ItemGridBuilder& builder, 
-        const ItemGridPersistentState& state, const ItemGridConfig& config, const ItemGridItemProps& props, 
+    static void InvokeItemGridCellContent(WidgetContextData& context, ItemGridBuilder& builder,
+        const ItemGridPersistentState& state, const ItemGridConfig& config, const ItemGridItemProps& props,
         ColumnProps& colprops, const std::pair<float, float>& bounds, int16_t col, int32_t row)
     {
-        if (props.isContentWidget) config.cellwidget(bounds, row, col, builder.depth);
+        assert(config.cellwidget || config.cellcontent);
+        assert(!props.isContentWidget || (props.isContentWidget && config.cellwidget));
+
+        if (props.isContentWidget || (!config.cellcontent && config.cellwidget))
+            config.cellwidget(bounds, row, col, builder.depth);
         else
         {
             auto text = config.cellcontent(bounds, row, col, builder.depth);
-            auto style = WidgetContextData::GetStyle(props.disabled ? WS_Disabled : 
+            auto style = WidgetContextData::GetStyle(props.disabled ? WS_Disabled :
                 colprops.selected ? WS_Selected : colprops.highlighted ? WS_Hovered : WS_Default);
             auto textsz = Config.renderer->GetTextSize(text, style.font.font, style.font.size,
                 props.wrapText ? (bounds.second - builder.nextpos.x - config.cellpadding.x) : -1.f);
@@ -4865,7 +4150,12 @@ namespace glimmer
         }
     }
 
-    static ImVec2 RenderItemGridCell(WidgetContextData& context, ItemGridBuilder& builder, 
+    static int32_t GetRowId(const ItemGridBuilder& builder, const ItemGridConfig& config, int32_t row)
+    {
+        return config.isTree ? builder.perDepthRowCount[builder.depth] : row;
+    }
+
+    static ImVec2 RenderItemGridCell(WidgetContextData& context, ItemGridBuilder& builder,
         ItemGridPersistentState& state, const ItemGridConfig& config, float maxh, int16_t col,
         int32_t row, WidgetDrawResult& result)
     {
@@ -4882,8 +4172,8 @@ namespace glimmer
             (config.frozencols <= col) ? -state.scroll.state.pos.x : 0.f;
         const auto& range = header.range;
 
-        ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth + hshift, config.gridwidth };
-        Config.renderer->DrawRect(cellGeometry.extent.Min - gridline, cellGeometry.extent.Max + gridline, 
+        ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
+        Config.renderer->DrawRect(cellGeometry.extent.Min - gridline + shift, cellGeometry.extent.Max + gridline + shift,
             config.gridcolor, false, config.gridwidth);
 
         if (IsColorVisible(cellGeometry.bgcolor))
@@ -4923,12 +4213,12 @@ namespace glimmer
                 cellGeometry.extent.TranslateX(hshift);
                 if (cellGeometry.extent.Contains(io.mousepos) && !itemToggled)
                 {
-                    if (isClicked)
+                    if (isClicked && !state.scroll.state.mouseDownOnVGrip && !state.scroll.state.mouseDownOnHGrip)
                     {
                         state.lastSelection = state.currentSelection;
                         state.currentSelection = io.mousepos.y - builder.startY;
                         state.cellstate.state |= WS_Selected;
-                        builder.clickedItem.row = builder.perDepthRowCount[builder.depth];
+                        builder.clickedItem.row = GetRowId(builder, config, row);
                         builder.clickedItem.col = col;
                         builder.clickedItem.depth = builder.depth;
                     }
@@ -4946,17 +4236,29 @@ namespace glimmer
         return cellGeometry.extent.GetSize();
     }
 
-    static void RecordRowYRange(ItemGridBuilder& builder, const ItemGridConfig& config, float height, int32_t totalRows)
+    static void RecordRowYRange(ItemGridBuilder& builder, const ItemGridConfig& config, float height, int32_t totalRows, int32_t row)
     {
         if (config.selection & IG_SelectRow)
         {
             if (builder.rowYs.empty()) builder.rowYs.expand(totalRows, true);
             auto& range = builder.rowYs.emplace_back();
-            range.depth = builder.depth; range.row = builder.perDepthRowCount[builder.depth];
+            range.depth = builder.depth; range.row = GetRowId(builder, config, row);
             range.from = builder.currentY - builder.startY; range.to = range.from + height + config.cellpadding.y;
             builder.currentY = range.to;
             builder.perDepthRowCount[builder.depth]++;
         }
+    }
+
+    static void RecordCellContentDimension(ItemGridBuilder& builder, ColumnProps& colprops, const ItemGridConfig& config,
+        const std::pair<float, float>& bounds, const ImRect& extent, float height)
+    {
+        colprops.offset = { builder.maxCellExtent.x - bounds.first, height };
+        colprops.content.Min.x = extent.Min.x + config.cellpadding.x;
+        colprops.content.Min.y = builder.nextpos.y;
+        colprops.content.Max.x = extent.Max.x - config.cellpadding.x;
+        colprops.extent.Min.x = extent.Min.x;
+        colprops.extent.Min.y = builder.nextpos.y - config.cellpadding.y;
+        colprops.extent.Max.x = extent.Max.x;
     }
 
     static void AddRowData(WidgetContextData& context, ItemGridBuilder& builder,
@@ -4967,7 +4269,7 @@ namespace glimmer
         auto startx = builder.headers[builder.levels - 1][0].content.Min.x;
         builder.phase = ItemGridConstructPhase::Rows;
         builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
-        if ((config.selection & IG_SelectRow) && (builder.perDepthRowCount.empty()))
+        if ((config.selection & IG_SelectRow) && (builder.perDepthRowCount.empty()) && config.isTree)
         {
             builder.perDepthRowCount.resize(32, false);
             builder.perDepthRowCount[builder.depth] = 0;
@@ -4990,13 +4292,14 @@ namespace glimmer
 
                 if (col < builder.movingCols.first || col > builder.movingCols.second)
                 {
-                    auto selected = IsItemSelected(state, config, builder.perDepthRowCount[builder.depth], col, builder.depth);
+                    auto rowid = GetRowId(builder, config, row);
+                    auto selected = IsItemSelected(state, config, rowid, col, builder.depth);
                     auto highlighted = IsItemHighlighted(state, config, row, col, builder.depth);
                     auto itemprops = selected ? IG_Selected : 0;
                     itemprops |= highlighted ? IG_Highlighted : 0;
-                    auto props = config.cellprops(row, col, builder.depth, builder.perDepthRowCount[builder.depth], itemprops);
+                    auto props = config.cellprops ? config.cellprops(row, col, builder.depth, rowid, itemprops) : ItemGridItemProps{};
                     auto& colprops = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
-                    
+
                     builder.currCol = col;
                     builder.currRow = row;
                     context.ToggleDeferedRendering(true, false);
@@ -5017,21 +4320,15 @@ namespace glimmer
                         DrawItemDescendentSymbol(context, builder, props, colprops);
                         builder.nextpos.x += config.cellpadding.x;
                     }
-                    
+
                     InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
                     context.RecordDeferRange(header.range, false);
 
                     auto height = builder.maxCellExtent.y - builder.nextpos.y;
                     maxh = std::max(maxh, height);
-
-                    colprops.offset = { builder.maxCellExtent.x - bounds.first, height };
-                    colprops.content.Min.x = header.extent.Min.x + config.cellpadding.x;
-                    colprops.content.Min.y = builder.nextpos.y;
-                    colprops.content.Max.x = header.extent.Max.x - config.cellpadding.x;
-                    colprops.extent.Min.x = header.extent.Min.x;
-                    colprops.extent.Min.y = builder.nextpos.y - config.cellpadding.y;
-                    colprops.extent.Max.x = header.extent.Max.x;
+                    RecordCellContentDimension(builder, colprops, config, bounds, header.extent, height);
                     header.alignment = props.alignment;
+
                     if (vcol == 0)
                         builder.childState = std::make_pair(props.vstate, props.children);
                     coloffset = props.colspan;
@@ -5064,12 +4361,13 @@ namespace glimmer
                 if (col < builder.movingCols.first || col > builder.movingCols.second)
                     RenderItemGridCell(context, builder, state, config, maxh, col, row, result);
             }
+
             Config.renderer->ResetClipRect();
             builder.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
             builder.nextpos.x = startx;
             context.adhocLayout.top().nextpos = builder.nextpos;
 
-            RecordRowYRange(builder, config, maxh, totalRows);
+            RecordRowYRange(builder, config, maxh, totalRows, row);
 
             // Draw child rows
             if (builder.childState.first == ItemDescendentVisualState::Expanded &&
@@ -5097,7 +4395,8 @@ namespace glimmer
         const IODescriptor& io, int totalRows, int col)
     {
         std::pair<float, float> bounds;
-        auto extent = builder.headers[builder.levels - 1][col].extent;
+        auto& header = builder.headers[builder.levels - 1][col];
+        auto extent = header.extent;
         const auto totalw = extent.GetWidth() - (2.f * config.cellpadding.x);
         bounds.first = extent.Min.x + config.cellpadding.x + ((col == 0) ? builder.cellIndent : 0.f);
         bounds.second = extent.Max.x - config.cellpadding.x;
@@ -5106,11 +4405,12 @@ namespace glimmer
 
         for (auto row = 0; row < totalRows; ++row)
         {
-            auto selected = IsItemSelected(state, config, builder.perDepthRowCount[builder.depth], col, builder.depth);
+            auto rowid = GetRowId(builder, config, row);
+            auto selected = IsItemSelected(state, config, rowid, col, builder.depth);
             auto highlighted = IsItemHighlighted(state, config, row, col, builder.depth);
             auto itemprops = selected ? IG_Selected : 0;
             itemprops |= highlighted ? IG_Highlighted : 0;
-            auto props = config.cellprops(row, col, builder.depth, builder.perDepthRowCount[builder.depth], itemprops);
+            auto props = config.cellprops ? config.cellprops(row, col, builder.depth, rowid, itemprops) : ItemGridItemProps{};
 
             builder.currCol = col;
             builder.currRow = row;
@@ -5120,25 +4420,21 @@ namespace glimmer
             auto& colprops = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
             ExtractColumnProps(colprops, state, builder, config, props, bounds, col, row, builder.depth, selected, highlighted);
 
-            if (props.vstate != ItemDescendentVisualState::NoDescendent)
-            {
-                DrawItemDescendentSymbol(context, builder, props, colprops);
-                builder.nextpos.x += config.cellpadding.x;
-            }
-
             context.ToggleDeferedRendering(true, false);
             context.deferEvents = true;
 
-            auto& range = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col].range;
-            context.RecordDeferRange(range, true);
+            context.RecordDeferRange(header.range, true);
             InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
-            context.RecordDeferRange(range, false);
+            context.RecordDeferRange(header.range, false);
 
-            auto rowh = extent.GetHeight();
-            RenderItemGridCell(context, builder, state, config, rowh - (2.f * config.cellpadding.y), col, row, result);
-            RecordRowYRange(builder, config, rowh, totalRows);
+            auto rowh = builder.maxCellExtent.y - builder.nextpos.y;
+            RecordCellContentDimension(builder, colprops, config, bounds, extent, rowh);
+            header.alignment = props.alignment;
 
-            builder.nextpos.y += extent.GetHeight() - config.cellpadding.y + config.gridwidth;
+            RenderItemGridCell(context, builder, state, config, rowh, col, row, result);
+            RecordRowYRange(builder, config, rowh, totalRows, row);
+
+            builder.nextpos.y += rowh + config.cellpadding.y + config.gridwidth;
             builder.maxCellExtent = ImVec2{};
         }
 
@@ -5161,8 +4457,9 @@ namespace glimmer
         else
         {
             builder.phase = ItemGridConstructPhase::Columns;
+            builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
             builder.nextpos.x += config.cellpadding.x + config.gridwidth;
-            Config.renderer->SetClipRect({ builder.origin.x, builder.origin.y + builder.headerHeight }, 
+            Config.renderer->SetClipRect({ builder.origin.x, builder.origin.y + builder.headerHeight },
                 builder.origin + builder.size);
 
             auto vcol = 0;
@@ -5207,7 +4504,8 @@ namespace glimmer
             Config.renderer->ResetClipRect();
         }
 
-        if (state.drag.column != -1)
+        // Fix column dragging
+        /*if (state.drag.column != -1)
         {
             auto col = state.colmap[builder.levels - 1].vtol[state.drag.column];
             auto hshift = -state.scroll.state.pos.x;
@@ -5266,7 +4564,7 @@ namespace glimmer
                 if (col >= builder.movingCols.first && col <= builder.movingCols.second)
                     AddColumnData(context, builder, state, config, result, io, totalRows, col);
             }
-        }
+        }*/
 
         if (builder.clickedItem.depth != -1)
             UpdateItemSelection(state, builder, config, io, builder.clickedItem.col, builder.clickedItem.row, builder.clickedItem.depth);
@@ -5289,33 +4587,13 @@ namespace glimmer
         ImRect viewport{ builder.origin + ImVec2{ 0.f, builder.headerHeight }, builder.origin + builder.size };
         renderer.SetClipRect(viewport.Min, viewport.Max);
         result = PopulateData(builder.rowcount);
-        builder.phase = ItemGridConstructPhase::None;
-
-        if (config.frozencols > 0)
-        {
-            const auto& lastFrozenHeader = builder.headers[builder.currlevel][config.frozencols - 1];
-            viewport.Min.x = lastFrozenHeader.extent.Max.x + config.gridwidth;
-            builder.totalsz.x -= (viewport.Min.x - builder.origin.x);
-
-            // Determine if any col content in frozen part exceeds the available space w.r.t column widths
-            // Enable horizontal scrollbar in that case
-            if (builder.maxColWidth > lastFrozenHeader.extent.GetWidth())
-            {
-                state.altscroll.viewport.Min = builder.origin;
-                state.altscroll.viewport.Max = { lastFrozenHeader.extent.Max.x, builder.size.y + builder.origin.y };
-
-                ImVec2 sz;
-                state.altscroll.content.y = state.altscroll.viewport.GetHeight();
-                state.altscroll.content.x = (config.frozencols - 1) > 0 ? builder.headers[builder.currlevel][config.frozencols - 2].extent.Max.x +
-                    builder.maxColWidth : builder.maxColWidth;
-                HandleHScroll(state.altscroll, renderer, io, Config.scrollbarSz);
-            }
-        }
-
-        state.scroll.content = builder.totalsz;
-        HandleScrollBars(state.scroll, renderer, viewport,
-            builder.totalsz - builder.origin - ImVec2{ 0.f, builder.headerHeight }, io);
         renderer.ResetClipRect();
+
+        builder.phase = ItemGridConstructPhase::None;
+        AddItemGridScrollBars(builder, state, config, renderer, viewport, io);
+        if (!ImRect{ builder.origin, builder.origin + builder.size }.Contains(io.mousepos))
+            state.cellstate.state &= ~WS_Hovered;
+
         renderer.DrawLine(viewport.Min, { viewport.Min.x, viewport.Max.y }, config.gridcolor, config.gridwidth);
         renderer.DrawLine({ viewport.Max.x, viewport.Min.y }, viewport.Max, config.gridcolor, config.gridwidth);
         context.adhocLayout.top().nextpos = builder.origin;
@@ -5334,6 +4612,340 @@ namespace glimmer
                 break;
             }
 
+        PopContext();
+        return result;
+    }
+
+    WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
+    {
+        static Vector<std::pair<int16_t, int16_t>, int16_t> colmap[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
+
+        auto& context = GetContext();
+        const auto& config = context.GetState(id).state.grid;
+        auto& gridstate = context.GridState(id);
+        auto& builder = context.itemGrids.push();
+
+        builder.id = id;
+        builder.origin = content.Min;
+        builder.nextpos = builder.origin;
+        builder.size = content.GetSize();
+
+        context.CurrentItemGridContext = &context;
+        auto& ctx = PushContext(id);
+        auto& el = ctx.nestedContextStack.push();
+        el.base = &context;
+        el.source = NestedContextSourceType::ItemGrid;
+        
+        int16_t currparent = -1;
+        auto hlevels = (int32_t)config.config.headers.size();
+        StartItemGridHeader(hlevels);
+
+        for (auto level = hlevels - 1; level >= 0; --level)
+        {
+            int16_t col = 0;
+            colmap[level - 1].resize(config.config.headers[level].size());
+
+            for (const auto& hconfig : config.config.headers[level])
+            {
+                if (level == hlevels - 1)
+                {
+                    AddHeaderColumn(hconfig);
+                    if (currparent != hconfig.parent)
+                        colmap[level - 1][hconfig.parent] = std::make_pair(col, col);
+                    else
+                        colmap[level - 1][hconfig.parent].second = col;
+                    currparent = hconfig.parent;
+                }
+                else
+                    AddColumnCategory(hconfig, colmap[level][col].first, colmap[level][col].second);
+                ++col;
+            }
+
+            if (level < hlevels - 1) CategorizeColumns();
+        }
+
+        for (auto level = hlevels - 1; level >= 0; --level)
+            colmap[level].clear(false);
+
+        EndItemGridHeader();
+        PopulateItemGrid(config.config.rows, config.populateMethod);
+        return EndItemGrid();
+    }
+
+#pragma endregion
+
+#pragma region Splitter
+
+    void StartSplitterScrollableRegion(int32_t id, int32_t nextid, int32_t parentid, Direction dir, ScrollableRegion& region)
+    {
+        auto& context = GetContext();
+        const auto style = WidgetContextData::GetStyle(WS_Default);
+        auto& renderer = context.GetRenderer();
+        LayoutItemDescriptor layoutItem;
+        NeighborWidgets neighbors;
+        if (dir == DIR_Vertical) neighbors.bottom = nextid;
+        else neighbors.right = nextid;
+
+        AddExtent(layoutItem, style, neighbors);
+        DrawBorderRect(layoutItem.border.Min, layoutItem.border.Max, style.border, style.bgcolor, renderer);
+
+        region.viewport = layoutItem.content;
+        region.type = dir == DIR_Horizontal ? ST_Horizontal : ST_Vertical;
+        renderer.SetClipRect(layoutItem.content.Min, layoutItem.content.Max);
+        context.PushContainer(parentid, id);
+    }
+
+    static void EndSplitterScrollableRegion(ScrollableRegion& region, Direction dir, const ImRect& parent)
+    {
+        auto& context = GetContext();
+        auto id = context.containerStack.top();
+        auto& renderer = context.GetRenderer();
+        renderer.ResetClipRect();
+
+        auto hasHScroll = false;
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        if (region.viewport.Max.x < region.content.x && (region.type & ST_Horizontal))
+        {
+            hasHScroll = true;
+            HandleHScroll(region, renderer, io, Config.scrollbarSz);
+        }
+
+        if (region.viewport.Max.y < region.content.y && (region.type & ST_Vertical))
+            HandleVScroll(region, renderer, io, Config.scrollbarSz, hasHScroll);
+
+        context.PopContainer(id);
+
+        auto& layout = context.adhocLayout.top();
+        layout.nextpos = region.viewport.Max;
+        dir == DIR_Horizontal ? layout.nextpos.y = parent.Min.y : layout.nextpos.x = parent.Min.x;
+    }
+
+    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+        int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((int)splits.size() < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        LayoutItemDescriptor layoutItem;
+        AddExtent(layoutItem, neighbors);
+        auto& context = GetContext();
+        auto& el = context.splitterStack.push();
+        el.dir = dir;
+        el.extent = layoutItem.margin;
+        el.id = id;
+
+        auto& state = context.SplitterState(id);
+        const auto style = WidgetContextData::GetStyle(WS_Default);
+        state.current = 0;
+
+        auto& renderer = context.GetRenderer();
+        renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+
+        auto idx = 0;
+        auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
+            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
+        if (el.dir == DIR_Horizontal) width -= splittersz * (float)splits.size();
+        if (el.dir == DIR_Vertical) height -= splittersz * (float)splits.size();
+        auto prev = el.extent.Min;
+
+        for (const auto& split : splits)
+        {
+            if (state.spacing[idx].curr == -1.f)
+            {
+                state.spacing[idx].curr = split.initial;      
+            }
+
+            auto regionEnd = prev + (el.dir == DIR_Vertical ? ImVec2{ width, state.spacing[idx].curr * height } :
+                ImVec2{ state.spacing[idx].curr * width, height });
+
+            auto scid = GetNextId(WT_SplitterRegion);
+            state.viewport[idx] = ImRect{ prev, regionEnd };
+            state.containers[idx] = scid;
+            context.AddItemGeometry(state.containers[idx], state.viewport[idx], true);
+
+            state.spacing[idx].min = split.min;
+            state.spacing[idx].max = split.max;
+            prev = regionEnd;
+            el.dir == DIR_Vertical ? prev.x = layoutItem.margin.Min.x : prev.y = layoutItem.margin.Min.y;
+            el.dir == DIR_Vertical ? prev.y += splittersz : prev.x += splittersz;
+            ++idx;
+        }
+
+        auto& layout = context.adhocLayout.top();
+        layout.nextpos = state.viewport[state.current].Min;
+        context.containerStack.push() = state.containers[state.current];
+        renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+    }
+
+    void NextSplitRegion()
+    {
+        auto& context = GetContext();
+        auto& el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
+        auto io = Config.platform->CurrentIO();
+        auto mousepos = io.mousepos;
+        const auto style = WidgetContextData::GetStyle(WS_Default);
+        const auto width = el.extent.GetWidth(), height = el.extent.GetHeight();
+        auto& renderer = context.GetRenderer();
+
+        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        auto splittersz = el.dir == DIR_Vertical ? (style.dimension.y > 0.f ? style.dimension.y : Config.splitterSize) :
+            style.dimension.x > 0.f ? style.dimension.x : Config.splitterSize;
+        auto scid = state.containers[state.current];
+        renderer.ResetClipRect();
+        context.containerStack.pop(1, true);
+
+        auto nextpos = el.dir == DIR_Vertical ? ImVec2{ el.extent.Min.x, state.viewport[state.current].Max.y } :
+            ImVec2{ state.viewport[state.current].Max.x, el.extent.Min.y };
+        auto sz = (el.dir == DIR_Vertical ? ImVec2{ width, splittersz } : ImVec2{ splittersz, height });
+
+        renderer.SetClipRect(nextpos, nextpos + sz);
+        DrawBorderRect(nextpos, nextpos + sz, style.border, style.bgcolor, renderer);
+        DrawBackground(nextpos, nextpos + sz, style, renderer);
+        auto radius = std::max(splittersz - 2.f, 1.f);
+        if (el.dir == DIR_Vertical)
+        {
+            auto xstart = std::max((sz.x - (8.f * radius)) * 0.5f, 0.f);
+            auto startpos = ImVec2{ nextpos.x + xstart, nextpos.y + 1.f };
+            startpos.x += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.x += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        else
+        {
+            auto ystart = std::max(nextpos.y + ((sz.y - (8.f * radius)) * 0.5f), 0.f);
+            auto startpos = ImVec2{ nextpos.x + 1.f, ystart };
+            startpos.y += radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+            startpos.y += 3.f * radius;
+            renderer.DrawCircle(startpos, radius, ToRGBA(100, 100, 100), true);
+        }
+        renderer.ResetClipRect();
+
+        if (ImRect{ nextpos, nextpos + sz }.Contains(mousepos) || state.isdragged[state.current])
+        {
+            Config.platform->SetMouseCursor(el.dir == DIR_Vertical ? MouseCursor::ResizeVertical :
+                MouseCursor::ResizeHorizontal);
+            auto isDrag = io.isLeftMouseDown();
+            state.states[state.current] = isDrag ? WS_Pressed | WS_Hovered : WS_Hovered;
+
+            if (isDrag)
+            {
+                if (!state.isdragged[state.current])
+                {
+                    state.isdragged[state.current] = true;
+                    state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
+                }
+                else
+                {
+                    auto amount = el.dir == DIR_Vertical ? (mousepos.y - state.dragstart[state.current]) / height :
+                        (mousepos.x - state.dragstart[state.current]) / width;
+                    auto prev = state.spacing[state.current].curr;
+                    state.spacing[state.current].curr = clamp(prev + amount, state.spacing[state.current].min, state.spacing[state.current].max);
+                    auto diff = prev - state.spacing[state.current].curr;
+
+                    if (diff != 0.f)
+                    {
+                        state.dragstart[state.current] = el.dir == DIR_Vertical ? mousepos.y : mousepos.x;
+                        state.spacing[state.current + 1].curr += diff;
+                    } 
+                }
+            }
+            else state.isdragged[state.current] = false;
+        }
+        else if (!io.isLeftMouseDown())
+        {
+            state.states[state.current] = WS_Default;
+            state.isdragged[state.current] = false;
+        }
+
+        state.current++;
+        assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);
+
+        auto& layout = context.adhocLayout.top();
+        layout.nextpos = state.viewport[state.current].Min;
+        context.containerStack.push() = state.containers[state.current];
+        renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+    }
+
+    void EndSplitRegion()
+    {
+        auto& context = GetContext();
+        auto el = context.splitterStack.top();
+        auto& state = context.SplitterState(el.id);
+        auto& renderer = context.GetRenderer();
+
+        renderer.ResetClipRect();
+        context.containerStack.pop(1, true);
+        context.splitterStack.pop(1, true);
+        context.AddItemGeometry(el.id, el.extent);
+        renderer.ResetClipRect();
+    }
+
+#pragma endregion
+
+#pragma region Popups
+
+    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size)
+    {
+        auto io = Config.platform->CurrentIO();
+        if (!io.isKeyPressed(Key_Escape))
+        {
+            auto& overlayctx = PushContext(id);
+            overlayctx.ToggleDeferedRendering(true);
+            overlayctx.deferEvents = true;
+            overlayctx.popupOrigin = origin;
+            overlayctx.popupTarget = id;
+            overlayctx.popupSize = size;
+            overlayctx.RecordDeferRange(overlayctx.popupRange, true);
+            return true;
+        }
+        else
+            GetContext().activePopUpRegion = ImRect{};
+
+        return false;
+    }
+
+    WidgetDrawResult EndPopUp()
+    {
+        auto& overlayctx = GetContext();
+        WidgetDrawResult result;
+        overlayctx.RecordDeferRange(overlayctx.popupRange, false);
+
+        if (overlayctx.deferedRenderer->size.y > 0.f)
+        {
+            auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
+            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
+
+            if ((origin + size) > overlayctx.WindowSize())
+                origin.y = origin.y - size.y;
+
+            if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
+            {
+                renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
+
+                overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
+                overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first, 
+                    overlayctx.popupRange.primitives.second);
+                
+                overlayctx.deferEvents = false;
+                result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
+                    overlayctx.popupRange.events.second);
+               
+                renderer.EndOverlay();
+            }
+        }
+
+        overlayctx.ToggleDeferedRendering(false);
+        overlayctx.deferedEvents.clear(true);
         PopContext();
         return result;
     }
