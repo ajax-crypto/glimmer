@@ -513,6 +513,8 @@ namespace glimmer
 
         Span(T* from, int size) : source{ from }, sz{ size } {}
 
+        Span() {}
+
         T* begin() { return source; }
         T* end() { return source + sz; }
 

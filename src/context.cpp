@@ -89,6 +89,7 @@ namespace glimmer
         perDepthRowCount.clear(true);
         rowYs.clear(true);
         clickedItem.row = clickedItem.col = clickedItem.depth = -1;
+        resizecol = -1;
 
         for (auto idx = 0; idx < 5; ++idx)
         {

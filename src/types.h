@@ -162,7 +162,9 @@ namespace glimmer
         WS_PartialCheck = 1 << 5,
         WS_Selected = 1 << 6,
         WS_Dragged = 1 << 7,
-        WS_Disabled = 1 << 8
+        WS_Disabled = 1 << 8,
+        WS_AllStates = WS_Default | WS_Focused | WS_Hovered | WS_Pressed | WS_Checked | 
+            WS_PartialCheck | WS_Selected | WS_Dragged | WS_Disabled
     };
 
     enum class TextType { PlainText, RichText, SVG, ImagePath, SVGPath };
@@ -170,9 +172,9 @@ namespace glimmer
     struct CommonWidgetData
     {
         int32_t state = WS_Default;
+        int32_t id = -1;
         std::string_view tooltip = "";
         float _hoverDuration = 0; // for tooltip, in seconds
-        bool floating = false;
     };
 
     struct ButtonState : public CommonWidgetData
@@ -186,6 +188,7 @@ namespace glimmer
     struct ToggleButtonState : public CommonWidgetData
     {
         bool checked = false;
+        bool* out = nullptr;
     };
 
     using RadioButtonState = ToggleButtonState;
@@ -198,9 +201,15 @@ namespace glimmer
     struct CheckboxState : public CommonWidgetData
     {
         CheckState check = CheckState::Unchecked;
+        CheckState* out = nullptr;
     };
 
     enum class SpinnerButtonPlacement { VerticalLeft, VerticalRight, EitherSide };
+
+    enum class OutPtrType
+    {
+        Invalid, i32, f32, f64
+    };
 
     struct SpinnerState : public CommonWidgetData
     {
@@ -211,6 +220,8 @@ namespace glimmer
         float repeatRate = 0.5; // in seconds
         float repeatTrigger = 1.f; // in seconds
         bool isInteger = true;
+        void* out = nullptr;
+        OutPtrType outType = OutPtrType::Invalid;
     };
 
     struct SliderState : public CommonWidgetData
@@ -219,6 +230,8 @@ namespace glimmer
         float min = 0.f, max = FLT_MAX, delta = 1.f;
         uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
         Direction dir = DIR_Horizontal;
+        void* out = nullptr;
+        OutPtrType outType = OutPtrType::Invalid;
     };
 
     enum ScrollType : int32_t
@@ -253,6 +266,7 @@ namespace glimmer
     struct TextInputState : public CommonWidgetData
     {
         std::vector<char> text;
+        Span<char> out;
         std::string_view placeholder;
         std::string_view prefix, suffix;
         std::pair<int, int> selection{ -1, -1 };
@@ -267,10 +281,11 @@ namespace glimmer
         TextInputState input;
         int32_t inputId = -1;
         int32_t selected = -1;
+        int32_t* out = nullptr;
         std::span<std::pair<WidgetType, std::string_view>> options;
         bool isComboBox = false;
         bool opened = false;
-        void (*ShowList)(ImVec2, ImVec2, DropDownState&) = nullptr;
+        bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
     };
 
     enum TabItemProperty

@@ -290,6 +290,17 @@ namespace glimmer
             return isRelative ? ToRGBA(r.value, g.value, b.value, a.value) :
                 ToRGBA((int)r.value, (int)g.value, (int)b.value, (int)a.value);
         }
+        else if (AreSame(stylePropVal, "transparent"))
+        {
+            return ToRGBA(0, 0, 0, 0);
+        }
+        else if (NamedColor != nullptr)
+        {
+            static char buffer[32] = { 0 };
+            memset(buffer, 0, 32);
+            memcpy(buffer, stylePropVal.data(), std::min((int)stylePropVal.size(), 31));
+            return NamedColor(buffer, userData);
+        }
         else if (stylePropVal.size() >= 3u && AreSame(stylePropVal.substr(0, 3), "hsv"))
         {
             IntOrFloat h, s, v;
@@ -313,13 +324,6 @@ namespace glimmer
         else if (stylePropVal.size() >= 1u && stylePropVal[0] == '#')
         {
             return (uint32_t)ExtractIntFromHex(stylePropVal.substr(1), 0);
-        }
-        else if (NamedColor != nullptr)
-        {
-            static char buffer[32] = { 0 };
-            memset(buffer, 0, 32);
-            memcpy(buffer, stylePropVal.data(), std::min((int)stylePropVal.size(), 31));
-            return NamedColor(buffer, userData);
         }
         else
         {
@@ -1297,7 +1301,7 @@ namespace glimmer
         PushStyle(css, context.StyleStack);
     }
 
-    void PushStyleFmt(WidgetState state, std::string_view fmt, ...)
+    void PushStyleFmt(int32_t state, std::string_view fmt, ...)
     {
         static char buffer[4096] = { 0 };
 
@@ -1311,24 +1315,30 @@ namespace glimmer
         PushStyle(state, buffer);
     }
 
-    void PushStyle(WidgetState state, std::string_view css)
+    void PushStyle(int32_t state, std::string_view css)
     {
-        auto idx = log2((unsigned)state);
         auto& context = GetContext();
 
-        if (!context.layouts.empty())
+        for (auto style = 0; style < WSI_Total; ++style)
         {
-            auto& layout = context.layouts.top();
-            PushStyle(state, css, layout.styles);
-
-            if (!css.empty())
+            if ((1 << style) & state)
             {
-                auto sz = (int64_t)(layout.styles[idx].size() - 1);
-                layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+                if (!context.layouts.empty())
+                {
+                    auto& layout = context.layouts.top();
+                    PushStyle((WidgetState)(1 << style), css, layout.styles);
+
+                    if (!css.empty())
+                    {
+                        auto idx = style;
+                        auto sz = (int64_t)(layout.styles[idx].size() - 1);
+                        layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+                    }
+                }
+
+                PushStyle((WidgetState)(1 << style), css, context.StyleStack);
             }
         }
-
-        PushStyle(state, css, context.StyleStack);
     }
 
     void PopStyle(int depth, int32_t state)

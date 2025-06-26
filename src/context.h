@@ -95,7 +95,8 @@ namespace glimmer
             Vector<int16_t, int16_t> vtol{ 128, -1 };
         };
 
-        Vector<HeaderCellResizeState, int16_t> cols[4];
+        Vector<HeaderCellResizeState, int16_t, 32> cols[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
+        Vector<int32_t, int16_t, 32> headerStates[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
         BiDirMap colmap[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
         HeaderCellDragState drag;
         ScrollableRegion scroll;
@@ -114,7 +115,7 @@ namespace glimmer
             int32_t depth = -1;
         };
 
-        Vector<ItemId, int16_t> selections{ false };
+        Vector<ItemId, int16_t, 32> selections{ false };
         float lastSelection = -1.f;
         float currentSelection = -1.f;
         
@@ -222,6 +223,7 @@ namespace glimmer
         float maxColWidth = 0.f;
         float btnsz = 0.f;
         int32_t rowcount = 0;
+        int16_t resizecol = -1;
         NeighborWidgets neighbors;
         ItemGridConstructPhase phase = ItemGridConstructPhase::None;
         Vector<ColumnProps, int16_t, 32> headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL + 1] = {

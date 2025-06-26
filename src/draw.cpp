@@ -3,13 +3,13 @@
 #include "style.h"
 
 auto HomeIconSVG = R"(
-<svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+<svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
   <path fill-rule="evenodd" d="M11.293 3.293a1 1 0 0 1 1.414 0l6 6 2 2a1 1 0 0 1-1.414 1.414L19 12.414V19a2 2 0 0 1-2 2h-3a1 1 0 0 1-1-1v-3h-2v3a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2v-6.586l-.293.293a1 1 0 0 1-1.414-1.414l2-2 6-6Z" clip-rule="evenodd"/>
 </svg>
 )";
 
 auto BrowseIconSVG = R"(
-<svg width="800px" height="800px" viewBox="0 0 32 32" id="OBJECT" xmlns="http://www.w3.org/2000/svg">
+<svg width="800px" height="800px" viewBox="0 0 32 32" id="OBJECT">
 <defs><style>.cls-1{fill:#b2b2b2;}</style></defs>
 <path class="cls-1" d="M24,8H12.54L10.83,5.45A1,1,0,0,0,10,5H8A3,3,0,0,0,5,8v5a1,1,0,0,0,1,1H26a1,1,0,0,0,1-1V11A3,3,0,0,0,24,8Z"/>
 <rect height="6" rx="1" ry="1" width="26" x="3" y="12"/>
@@ -19,34 +19,34 @@ auto BrowseIconSVG = R"(
 )";
 
 auto FileCopyIconSVG = R"(
-<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none">
 <path d="M6.59961 11.3974C6.59961 8.67119 6.59961 7.3081 7.44314 6.46118C8.28667 5.61426 9.64432 5.61426 12.3596 5.61426H15.2396C17.9549 5.61426 19.3125 5.61426 20.1561 6.46118C20.9996 7.3081 20.9996 8.6712 20.9996 11.3974V16.2167C20.9996 18.9429 20.9996 20.306 20.1561 21.1529C19.3125 21.9998 17.9549 21.9998 15.2396 21.9998H12.3596C9.64432 21.9998 8.28667 21.9998 7.44314 21.1529C6.59961 20.306 6.59961 18.9429 6.59961 16.2167V11.3974Z" fill="#1C274C"/>
 <path opacity="0.5" d="M4.17157 3.17157C3 4.34315 3 6.22876 3 10V12C3 15.7712 3 17.6569 4.17157 18.8284C4.78913 19.446 5.6051 19.738 6.79105 19.8761C6.59961 19.0353 6.59961 17.8796 6.59961 16.2167V11.3974C6.59961 8.6712 6.59961 7.3081 7.44314 6.46118C8.28667 5.61426 9.64432 5.61426 12.3596 5.61426H15.2396C16.8915 5.61426 18.0409 5.61426 18.8777 5.80494C18.7403 4.61146 18.4484 3.79154 17.8284 3.17157C16.6569 2 14.7712 2 11 2C7.22876 2 5.34315 2 4.17157 3.17157Z" fill="#1C274C"/>
 </svg>
 )";
 
 auto SearchIconSVG = R"(
-<svg fill="#000000" width="800px" height="800px" viewBox="0 0 24 24" id="search-alt" data-name="Flat Line" xmlns="http://www.w3.org/2000/svg" class="icon flat-line">
+<svg fill="#000000" width="800px" height="800px" viewBox="0 0 24 24" id="search-alt" data-name="Flat Line" class="icon flat-line">
 <circle id="secondary" cx="10.5" cy="10.5" r="7.5" style="fill: #b2b2b2; stroke-width: 2;"></circle>
 <path id="primary" d="M21,21l-5.2-5.2M10.5,3A7.5,7.5,0,1,0,18,10.5,7.5,7.5,0,0,0,10.5,3Z" style="fill: none; stroke: #1C274C; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2;"></path>
 </svg>
 )";
 
 auto PinIconSVG = R"(
-<svg width="800px" height="800px" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="800px" height="800px" viewBox="0 0 64 64" fill="none">
 <path d="M33.9434 39.42V55.806C33.9434 56.3365 33.7327 56.8452 33.3576 57.2203C32.9826 57.5953 32.4739 57.806 31.9434 57.806C31.413 57.806 30.9043 57.5953 30.5292 57.2203C30.1541 56.8452 29.9434 56.3365 29.9434 55.806V39.42H33.9434Z" fill="#000000"/>
 <path d="M44.7334 32.62L41.4334 29.26L44.5534 10.66C44.6493 10.0873 44.6192 9.50056 44.4654 8.9406C44.3116 8.38064 44.0377 7.86088 43.6628 7.41744C43.2879 6.974 42.8209 6.6175 42.2943 6.37273C41.7677 6.12797 41.1941 6.00079 40.6134 6.00003H23.2734C22.6914 5.9976 22.1158 6.12256 21.5871 6.36614C21.0584 6.60972 20.5895 6.96603 20.2131 7.41006C19.8367 7.85409 19.562 8.37509 19.4084 8.93652C19.2547 9.49796 19.2257 10.0862 19.3234 10.66L22.4434 29.26L19.1434 32.62C18.5918 33.1828 18.2187 33.8959 18.071 34.67C17.9232 35.444 18.0073 36.2444 18.3129 36.9708C18.6184 37.6972 19.1316 38.3172 19.7882 38.7529C20.4448 39.1886 21.2154 39.4207 22.0034 39.42H41.8834C42.6716 39.4211 43.4425 39.189 44.0991 38.7529C44.7557 38.3168 45.2686 37.6962 45.5733 36.9693C45.8779 36.2423 45.9608 35.4415 45.8113 34.6676C45.6619 33.8937 45.2869 33.1813 44.7334 32.62Z" fill="#999999"/>
 </svg>
 )";
 
 auto SpannerIconSVG = R"(
-<svg width="800px" height="800px" viewBox="0 0 14 14" role="img" focusable="false" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<svg width="800px" height="800px" viewBox="0 0 14 14" role="img" focusable="false" aria-hidden="true">
 <path fill="#607d8b" d="M12.874998 3.3650124l-2.480791 2.452277s-.7413861 0-1.4827721-.741386-.741386-1.482772-.741386-1.482772l2.4807921-2.480791c-1.3972281-.34217801-3.0796036.114059-4.1061379 1.140594-1.5398016 1.539801-.1710891 3.507325-.5702969 3.906533-2.1671281 2.252673-4.3912858 3.9635626-4.4483155 4.0491076-.6558414.655841-.6843562 1.71089-.05703 2.338217.6273266.627326 1.6823758.598812 2.3382171-.05703.085545-.08554 1.9104945-2.395247 4.0491078-4.5338596.3992083-.399208 2.2811874 1.055049 3.8780194-.513267.998019-1.026534 1.482771-2.680395 1.140593-4.077623zM2.8092586 11.94798c-.3992078 0-.712871-.313663-.712871-.712871 0-.427723.3136632-.741386.712871-.741386.3992078 0 .7128711.313663.7128711.712871s-.3136633.741386-.7128711.741386z"/>
 </svg>
 )";
 
 auto GearsIconSVG = R"(
-<svg version="1.1" id="gear" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px"
+<svg version="1.1" id="gear" x="0px"
 	 y="0px" width="800px" height="800px" viewBox="0 0 256 256" xml:space="preserve">
 <style type="text/css">
 	.st0{fill:#464646;}
@@ -102,6 +102,27 @@ auto GearsIconSVG = R"(
 	c-2.08,2.205-4.188,4.382-6.313,6.543c-3.01,3.065-6.059,6.091-8.996,9.225C196.652,209.797,196.24,210.004,195.82,210.063z
 	 M172.083,126.68c0.065-23.207-18.606-42.196-41.567-42.272c-23.586-0.079-42.52,18.377-42.604,41.532
 	c-0.087,23.701,18.489,42.607,41.895,42.64C153.2,168.614,172.018,149.965,172.083,126.68z"/>
+</svg>
+)";
+
+auto WarningIconSVG = R"(
+<svg width="800px" height="800px" viewBox="0 0 32 32" fill="none">
+  <path stroke="#535358" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.12 4.623a1 1 0 011.76 0l11.32 20.9A1 1 0 0127.321 27H4.679a1 1 0 01-.88-1.476l11.322-20.9zM16 18v-6"/>
+  <path fill="#535358" d="M17.5 22.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+</svg>
+)";
+
+auto ErrorIconSVG = R"(
+<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none"">
+    <path d="M3.23 7.913 7.91 3.23c.15-.15.35-.23.57-.23h7.05c.21 0 .42.08.57.23l4.67 4.673c.15.15.23.35.23.57v7.054c0 .21-.08.42-.23.57L16.1 20.77c-.15.15-.35.23-.57.23H8.47a.81.81 0 0 1-.57-.23l-4.67-4.673a.793.793 0 0 1-.23-.57V8.473c0-.21.08-.42.23-.57v.01Z" fill="#000000" fill-opacity=".16" stroke="#000000" stroke-width="1.5" stroke-miterlimit="10" stroke-linejoin="round"/>
+    <path d="M12 16h.008M12 8v5" stroke="#000000" stroke-width="1.5" stroke-miterlimit="10" stroke-linecap="round"/>
+</svg>
+)";
+
+auto InfoIconSVG = R"(
+<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none">
+<path opacity="0.15" d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" fill="#000000"/>
+<path d="M12 7.01001V7.00002M12 17L12 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 )";
 
@@ -494,6 +515,21 @@ namespace glimmer
         case SymbolIcon::Pin:
         {
             renderer.DrawSVG(startpos, size, outlineColor, PinIconSVG, false);
+            break;
+        }
+        case SymbolIcon::Warning:
+        {
+            renderer.DrawSVG(startpos, size, outlineColor, WarningIconSVG, false);
+            break;
+        }
+        case SymbolIcon::Error:
+        {
+            renderer.DrawSVG(startpos, size, outlineColor, ErrorIconSVG, false);
+            break;
+        }
+        case SymbolIcon::Info:
+        {
+            renderer.DrawSVG(startpos, size, outlineColor, InfoIconSVG, false);
             break;
         }
         default:

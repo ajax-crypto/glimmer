@@ -101,16 +101,6 @@ void TestWindow(glimmer::UIConfig& config)
     tid = glimmer::GetNextId(glimmer::WT_DropDown);
     auto& dd = glimmer::GetWidgetConfig(tid).state.dropdown;
     dd.text = "DropDown";
-    /*dd.ShowList = [](ImVec2, ImVec2 sz, glimmer::DropDownState&) {
-        static int lid1 = glimmer::GetNextId(glimmer::WT_Label);
-        static int lid2 = glimmer::GetNextId(glimmer::WT_Label);
-
-        glimmer::GetWidgetConfig(lid1).state.label.text = "First";
-        glimmer::Label(lid1);
-        glimmer::Move(glimmer::FD_Vertical);
-        glimmer::GetWidgetConfig(lid2).state.label.text = "Second";
-        glimmer::Label(lid2);
-    };*/
     std::vector<std::pair<glimmer::WidgetType, std::string_view>> options;
     options.emplace_back(glimmer::WT_Checkbox, "Option 1");
     options.emplace_back(glimmer::WT_Checkbox, "Option 2");
@@ -288,7 +278,7 @@ void TestWindow(glimmer::UIConfig& config)
     }, data);
 }
 
-#if !defined(_DEBUG) && defined(WIN32)
+#if !defined(_DEBUG) && defined(_WIN32)
 int CALLBACK WinMain(
     HINSTANCE   hInstance,
     HINSTANCE   hPrevInstance,

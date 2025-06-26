@@ -30,6 +30,7 @@ namespace glimmer
     static Vector<char, int32_t> IdStringBackingStore{ GLIMMER_TOTAL_ID_SIZE, 0 };
     static int32_t IdStringBackingStoreSize = 0;
     static std::unordered_map<std::string_view, int32_t> NamedIds[WT_TotalTypes];
+    static std::unordered_map<void*, int32_t> OutPtrIds[WT_TotalTypes];
 
     static std::string_view CreatePermanentCopy(std::string_view input)
     {
@@ -48,6 +49,15 @@ namespace glimmer
             auto key = CreatePermanentCopy(id);
             it = NamedIds[type].emplace(key, GetNextId(type)).first;
         }
+        return it->second;
+    }
+
+    static int32_t GetIdFromOutPtr(void* ptr, WidgetType type)
+    {
+        assert(ptr != nullptr);
+        auto it = OutPtrIds[type].find(ptr);
+        if (it == OutPtrIds[type].end())
+            it = OutPtrIds[type].emplace(ptr, GetNextId(type)).first;
         return it->second;
     }
 
@@ -455,7 +465,7 @@ namespace glimmer
                     if (top.Contains(mousepos) && io.isLeftMouseDown())
                         scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
                     else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
+                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange); 
                 }
 
                 if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
@@ -960,6 +970,7 @@ namespace glimmer
         {
             auto& state = context.GetState(id).state.label;
             auto ismouseover = padding.Contains(io.mousepos);
+            state.state = !ismouseover ? WS_Default : WS_Hovered;
             if (ismouseover && !state.tooltip.empty() && !io.isMouseDown())
                 ShowTooltip(state._hoverDuration, margin, margin.Min, state.tooltip, io, renderer);
             else state._hoverDuration == 0;
@@ -1081,6 +1092,7 @@ namespace glimmer
             state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
                 mouseover ? WS_Hovered : WS_Default;
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+            if (state.out) *state.out = state.checked;
         }
         else context.deferedEvents.emplace_back(WT_ToggleButton, id, center, extent);
     }
@@ -1176,6 +1188,7 @@ namespace glimmer
             state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
                 mouseover ? WS_Hovered : WS_Default;
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+            if (state.out) *state.out = state.checked;
         }
         else context.deferedEvents.emplace_back(WT_RadioButton, id, extent, maxrad);
     }
@@ -1242,6 +1255,8 @@ namespace glimmer
                 check.animate = state.check != CheckState::Unchecked;
                 check.progress = 0.f;
             }
+
+            if (state.out) *state.out = state.check;
         }
         else context.deferedEvents.emplace_back(WT_Checkbox, id, extent);
     }
@@ -1401,6 +1416,17 @@ namespace glimmer
                 }
             }
             else spinner.lastChangeTime = 0.f;
+
+            if (state.out)
+            {
+                switch (state.outType)
+                {
+                case OutPtrType::i32: *(int32_t*)(state.out) = (int32_t)state.data; break;
+                case OutPtrType::f32: *(float*)(state.out) = state.data; break;
+                case OutPtrType::f64: *(double*)(state.out) = state.data; break;
+                default: break;
+                }
+            }
         }
         else
             context.deferedEvents.emplace_back(WT_Spinner, id, extent, incbtn, decbtn);
@@ -1588,7 +1614,18 @@ namespace glimmer
             {
                 state.state &= ~WS_Hovered;
                 state.state &= ~WS_Dragged;
-            }  
+            }
+
+            if (state.out)
+            {
+                switch (state.outType)
+                {
+                case OutPtrType::i32: *(int32_t*)(state.out) = (int32_t)state.data; break;
+                case OutPtrType::f32: *(float*)(state.out) = state.data; break;
+                case OutPtrType::f64: *(double*)(state.out) = state.data; break;
+                default: break;
+                }
+            }
         }
         else context.deferedEvents.emplace_back(WT_Slider, id, extent, thumb);
     }
@@ -2121,6 +2158,9 @@ namespace glimmer
                 input.scroll.viewport = content;
                 HandleHScroll(input.scroll, renderer, io, 5.f, false);
             }
+
+            if (state.out.source)
+                memcpy(state.out.source, state.text.data(), std::min((int)state.text.size(), state.out.size()));
         }
         else context.deferedEvents.emplace_back(WT_TextInput, id, content);
     }
@@ -2273,7 +2313,11 @@ namespace glimmer
                 if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
                 {
                     if (state.ShowList)
-                        state.ShowList(available1, available2, state);
+                    {
+                        int32_t index = 0;
+                        while (state.ShowList(index, available1, available2, state))
+                            index++;
+                    }
                     else
                     {
                         auto& optstates = GetContext().parentContext->dropDownOptions[id & 0xffff];
@@ -2331,6 +2375,8 @@ namespace glimmer
 
                     EndPopUp();
                 }
+
+                // TODO: update out ptr
             }
             else context.activePopUpRegion = ImRect{};
         }
@@ -3201,17 +3247,21 @@ namespace glimmer
     }
 
     template <typename ContainerT>
-    static void HandleColumnResize(Span<ContainerT> headers, const ImRect& content,
+    static bool HandleColumnResize(Span<ContainerT> headers, const ImRect& content,
         ItemGridPersistentState& gridstate, ImVec2 mousepos, int level, int col, const IODescriptor& io)
     {
-        if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return;
+        bool res = false;
+        if (gridstate.state != ItemGridCurrentState::Default && gridstate.state != ItemGridCurrentState::ResizingColumns) return res;
 
         auto isMouseNearColDrag = IsBetween(mousepos.x, content.Min.x, content.Min.x, 5.f) &&
             IsBetween(mousepos.y, content.Min.y, content.Max.y);
         auto& evprop = gridstate.cols[level][col - 1];
 
         if (!evprop.mouseDown && isMouseNearColDrag)
+        {
             Config.platform->SetMouseCursor(MouseCursor::ResizeHorizontal);
+            res = true;
+        }
 
         if (io.isLeftMouseDown())
         {
@@ -3222,7 +3272,7 @@ namespace glimmer
                     evprop.mouseDown = true;
                     evprop.lastPos = mousepos;
                     gridstate.state = ItemGridCurrentState::ResizingColumns;
-                    LOG("Drag start at %f for column #%d\n", mousepos.x, col);
+                    res = true;
                 }
             }
             else
@@ -3233,6 +3283,7 @@ namespace glimmer
                 UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, true);
                 Config.platform->SetMouseCursor(MouseCursor::ResizeHorizontal);
                 gridstate.state = ItemGridCurrentState::ResizingColumns;
+                res = true;
             }
         }
         else if (!io.isLeftMouseDown() && evprop.mouseDown)
@@ -3243,12 +3294,13 @@ namespace glimmer
                 evprop.modified += (mousepos.x - evprop.lastPos.x);
                 evprop.lastPos = mousepos;
                 UpdateSubHeadersResize(headers, gridstate, extendRect, col - 1, level + 1, false);
-                LOG("Drag end at %f for column #%d\n", mousepos.x, col);
             }
 
             evprop.mouseDown = false;
             gridstate.state = ItemGridCurrentState::Default;
         }
+
+        return res;
     }
 
     template <typename ContainerT>
@@ -3591,7 +3643,9 @@ namespace glimmer
             std::memset(buffer, 0, 64);
             auto sz = std::snprintf(buffer, 63, "[itemgrid-%d][header-%dx%d]",
                 builder.id, builder.currCol, builder.currlevel);
+            PushStyle(WS_AllStates, "background-color: transparent");
             Label(std::string_view{ buffer, (size_t)sz }, config.name);
+            PopStyle(1, WS_AllStates);
         }
 
         ctx.RecordDeferRange(header.range, false);
@@ -3689,7 +3743,6 @@ namespace glimmer
         auto& config = context.GetState(builder.id).state.grid;
         auto& headers = builder.headers;
         auto& renderer = context.GetRenderer();
-        const auto style = WidgetContextData::GetStyle(config.state);
         auto io = Config.platform->CurrentIO();
 
         CategorizeColumns();
@@ -3733,6 +3786,8 @@ namespace glimmer
 
             ypos += builder.headerHeights[level] + config.gridwidth;
             builder.headerHeight += builder.headerHeights[level] + config.gridwidth;
+            if (state.headerStates[level].size() <= builder.headers[level].size())
+                state.headerStates[level].expand_and_create(builder.headers[level].size());
         }
 
         auto& ctx = GetContext();
@@ -3784,7 +3839,17 @@ namespace glimmer
                     Config.renderer->DrawRect(hdr.extent.Min - gridline + shift, hdr.extent.Max + gridline + shift,
                         config.gridcolor, false, config.gridwidth);
                     renderer.SetClipRect(hdr.extent.Min + shift, hdr.extent.Max + shift);
-                    DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
+
+                    if (config.header == nullptr)
+                    {
+                        const auto style = WidgetContextData::GetStyle(state.headerStates[level][col]);
+                        DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
+                    }
+                    else
+                    {
+                        const auto style = WidgetContextData::GetStyle(config.state);
+                        DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
+                    }
 
                     if (hdr.props & COL_Sortable)
                     {
@@ -3800,14 +3865,19 @@ namespace glimmer
                     auto interacted = res.event != WidgetEvent::None;
                     renderer.ResetClipRect();
 
+                    auto ishovered = ImRect{ hdr.extent.Min + shift, hdr.extent.Max + shift }.Contains(io.mousepos);
+                    state.headerStates[level][col] = io.isLeftMouseDown() && ishovered ? WS_Pressed | WS_Hovered :
+                        ishovered ? WS_Hovered : WS_Default;
+
                     if (!interacted)
                     {
                         if (vcol > 0)
                         {
                             auto prevcol = state.colmap[level].vtol[vcol - 1];
                             if (headers[level][prevcol].props & COL_Resizable)
-                                HandleColumnResize(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL },
-                                    hdr.extent, state, io.mousepos, level, col, io);
+                                if (HandleColumnResize(Span{ headers, headers + GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL },
+                                    hdr.extent, state, io.mousepos, level, col, io))
+                                    builder.resizecol = col;
                         }
 
                         if (hdr.props & COL_Moveable)
@@ -4598,7 +4668,20 @@ namespace glimmer
         renderer.DrawLine({ viewport.Max.x, viewport.Min.y }, viewport.Max, config.gridcolor, config.gridwidth);
         context.adhocLayout.top().nextpos = builder.origin;
         context.adhocLayout.top().lastItemId = builder.id;
-        context.AddItemGeometry(builder.id, { builder.origin, builder.origin + builder.size });
+
+        // Highlight the column border which is being dragged for resize
+        if (builder.resizecol != -1)
+        {
+            auto hshift = builder.resizecol < config.frozencols ? -state.altscroll.state.pos.x : -state.scroll.state.pos.x;
+            auto xpos = builder.headers[builder.currlevel][builder.resizecol - 1].extent.Max.x + config.gridwidth;
+            Config.renderer->DrawLine(ImVec2{ xpos, builder.origin.y }, ImVec2{ xpos, builder.origin.y + builder.size.y }, 
+                ToRGBA(100, 100, 255), config.gridwidth);
+        }
+
+        auto sz = builder.origin + builder.size;
+        if (config.scrollprops & ST_Always_H) sz.y += Config.scrollbarSz;
+        if (config.scrollprops & ST_Always_V) sz.x += Config.scrollbarSz;
+        context.AddItemGeometry(builder.id, { builder.origin, sz });
 
         builder.reset();
         context.itemGrids.pop(1, false);
@@ -5364,11 +5447,12 @@ namespace glimmer
             }
             else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
-                auto& layout = context.layouts.top();
+                /*auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem, style);
+                AddItemToLayout(layout, layoutItem, style);*/
+                assert(false); // Not implemented...
             }
             else if (nestedCtx.source == NestedContextSourceType::ItemGrid && !nestedCtx.base->itemGrids.empty())
             {
@@ -5412,19 +5496,24 @@ namespace glimmer
         return Widget(id, WT_ToggleButton, geometry, neighbors);
     }
 
-    // TODO: Fix this
-    static std::unordered_map<bool*, int32_t> ToggleButtonIds;
-
     WidgetDrawResult ToggleButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        auto it = ToggleButtonIds.find(state);
-        if (it == ToggleButtonIds.end()) it = ToggleButtonIds.emplace(state, GetNextId(WT_ToggleButton)).first;
-        return Widget(it->second, WT_ToggleButton, geometry, neighbors);
-        // TODO: Add the pointers to widget state -> update in HandleEvent* family functions
+        auto id = GetIdFromOutPtr(state, WT_ToggleButton);
+        auto& config = GetWidgetConfig(id).state.toggle;
+        config.checked = *state; config.out = state;
+        return Widget(id, WT_ToggleButton, geometry, neighbors);
     }
 
     WidgetDrawResult RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
+        return Widget(id, WT_RadioButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult RadioButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(state, WT_RadioButton);
+        auto& config = GetWidgetConfig(id).state.radio;
+        config.checked = *state; config.out = state;
         return Widget(id, WT_RadioButton, geometry, neighbors);
     }
 
@@ -5433,8 +5522,43 @@ namespace glimmer
         return Widget(id, WT_Checkbox, geometry, neighbors);
     }
 
+    WidgetDrawResult Checkbox(CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(state, WT_Checkbox);
+        auto& config = GetWidgetConfig(id).state.checkbox;
+        config.check = *state; config.out = state;
+        return Widget(id, WT_Checkbox, geometry, neighbors);
+    }
+
     WidgetDrawResult Spinner(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner);
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner);
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner);
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
         return Widget(id, WT_Spinner, geometry, neighbors);
     }
 
@@ -5443,8 +5567,45 @@ namespace glimmer
         return Widget(id, WT_Slider, geometry, neighbors);
     }
 
+    WidgetDrawResult Slider(int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider);
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider);
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider);
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
     WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
+        return Widget(id, WT_TextInput, geometry, neighbors);
+    }
+
+    WidgetDrawResult TextInput(Span<char> out, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(out.source, WT_TextInput);
+        auto& config = GetWidgetConfig(id).state.input;
+        config.placeholder = placeholder; config.out = out; 
+        config.text.resize(out.size());
+        memcpy(config.text.data(), out.source, out.size());
         return Widget(id, WT_TextInput, geometry, neighbors);
     }
 
@@ -5453,9 +5614,57 @@ namespace glimmer
         return Widget(id, WT_DropDown, geometry, neighbors);
     }
 
+    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static auto fptr = options;
+        auto id = GetIdFromOutPtr(selection, WT_DropDown);
+        auto& config = GetWidgetConfig(id).state.dropdown;
+        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState&) { return fptr(index); };
+        config.text = text;
+        return Widget(id, WT_DropDown, geometry, neighbors);
+    }
+
+    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
+
+        auto id = GetIdFromOutPtr(selection, WT_DropDown);
+        auto& config = GetWidgetConfig(id).state.dropdown;
+
+        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back(WT_Invalid, option);
+        config.options = OptionsMap.at(id);
+        config.text = text;
+        return Widget(id, WT_DropDown, geometry, neighbors);
+    }
+
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         return Widget(id, WT_ItemGrid, geometry, neighbors);
+    }
+
+    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, 
+        std::string_view(*cell)(int32_t, int16_t), int32_t totalRows, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static auto fptr = cell;
+
+        auto wid = GetIdFromString(id, WT_ItemGrid);
+        auto& grid = GetWidgetConfig(wid).state.grid;
+        grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
+
+        StartItemGrid(wid, geometry, neighbors);
+        StartItemGridHeader(1);
+
+        for (const auto hname : headers)
+        {
+            ItemGridConfig::ColumnConfig col;
+            col.name = hname;
+            col.props = COL_Resizable;
+            AddHeaderColumn(col);
+        }
+
+        EndItemGridHeader();
+        PopulateItemGrid(totalRows);
+        return EndItemGrid();
     }
 
     UIConfig& GetUIConfig()
@@ -5527,6 +5736,19 @@ namespace glimmer
             context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
 
         auto& state = context.GetState(wid);
+        switch (type)
+        {
+            case WT_Label: state.state.label.id = wid; break; 
+            case WT_Button: state.state.button.id = wid; break;
+            case WT_RadioButton: state.state.radio.id = wid; break;
+            case WT_ToggleButton: state.state.toggle.id = wid; break;
+            case WT_Checkbox: state.state.checkbox.id = wid; break;
+            case WT_Spinner: state.state.spinner.id = wid; break;
+            case WT_Slider: state.state.slider.id = wid; break;
+            case WT_TextInput: state.state.input.id = wid; break;
+            case WT_DropDown: state.state.dropdown.id = wid; break;
+            case WT_ItemGrid: state.state.grid.id = wid; break;
+        }
         return state;
     }
 

@@ -15,7 +15,7 @@ namespace glimmer
         DownArrow, UpArrow, DownTriangle, UpTriangle, RightTriangle, Plus, Minus, Cross,
 
         // Below icons are by default SVGs
-        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste
+        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
     };
 
     IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
