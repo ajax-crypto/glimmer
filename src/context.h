@@ -395,6 +395,16 @@ namespace glimmer
         void reset();
     };
 
+    struct GridLayoutItem
+    {
+        ImVec2 maxdim;
+        ImRect bbox;
+        int16_t row = -1, col = -1;
+        int16_t rowspan = 1, colspan = 1;
+        int32_t alignment = TextAlignLeading;
+        int16_t index = -1;
+    };
+
     struct LayoutDescriptor
     {
         Layout type = Layout::Invalid;
@@ -413,6 +423,12 @@ namespace glimmer
         ImRect extent{}; // max coords of widgets inside layout
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
+        Vector<GridLayoutItem, int16_t> griditems{ false };
+        Vector<float, int16_t> rowratios{ false };
+        Vector<float, int16_t> colratios{ false };
+        std::pair<int, int> gridsz;
+        std::pair<int16_t, int16_t> currspan;
+        ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;

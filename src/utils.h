@@ -98,7 +98,7 @@ namespace glimmer
     template <typename T, typename Sz, Sz blocksz = 128>
     struct Vector
     {
-        template <typename T, typename S, S v> friend struct DynamicStack;
+        template <typename Ty, typename S, S v> friend struct DynamicStack;
 
         static_assert(blocksz > 0, "Block size has to non-zero");
         static_assert(std::is_integral_v<Sz>, "Sz must be integral type");

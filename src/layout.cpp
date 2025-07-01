@@ -1,8 +1,10 @@
 #include "layout.h"
 
 #include "context.h"
+#include "libs/inc/imgui/imgui.h"
 #include "style.h"
 #include "draw.h"
+#include "types.h"
 
 #define GLIMMER_FLAT_LAYOUT_ENGINE 0
 #define GLIMMER_CLAY_LAYOUT_ENGINE 1
@@ -689,31 +691,56 @@ namespace glimmer
 
 #elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
         
-        YGNodeRef child = YGNodeNew();
-        YGNodeStyleSetWidth(child, item.margin.GetWidth());
-        YGNodeStyleSetHeight(child, item.margin.GetHeight());
-        if (style.maxdim.x != FLT_MAX) YGNodeStyleSetMaxWidth(child, style.maxdim.x);
-        if (style.maxdim.y != FLT_MAX) YGNodeStyleSetMaxHeight(child, style.maxdim.y);
-        if (style.mindim.x != 0) YGNodeStyleSetMinWidth(child, style.mindim.x);
-        if (style.mindim.y != 0) YGNodeStyleSetMinHeight(child, style.mindim.y);
-        
-        // Main-axis flex growth/shrink
-        if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandH)) YGNodeStyleSetFlexGrow(child, 1);
-        else if ((layout.type == Layout::Vertical) && (item.sizing & ExpandV)) YGNodeStyleSetFlexGrow(child, 1);
-        else YGNodeStyleSetFlexGrow(child, 0);
+        if (layout.type != Layout::Grid)  
+        {
+            YGNodeRef child = YGNodeNew();
+            YGNodeStyleSetWidth(child, item.margin.GetWidth());
+            YGNodeStyleSetHeight(child, item.margin.GetHeight());
+            if (style.maxdim.x != FLT_MAX) YGNodeStyleSetMaxWidth(child, style.maxdim.x);
+            if (style.maxdim.y != FLT_MAX) YGNodeStyleSetMaxHeight(child, style.maxdim.y);
+            if (style.mindim.x != 0) YGNodeStyleSetMinWidth(child, style.mindim.x);
+            if (style.mindim.y != 0) YGNodeStyleSetMinHeight(child, style.mindim.y);
+            
+            // Main-axis flex growth/shrink
+            if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandH)) YGNodeStyleSetFlexGrow(child, 1);
+            else if ((layout.type == Layout::Vertical) && (item.sizing & ExpandV)) YGNodeStyleSetFlexGrow(child, 1);
+            else YGNodeStyleSetFlexGrow(child, 0);
 
-        if ((layout.type == Layout::Horizontal) && (item.sizing & ShrinkH)) YGNodeStyleSetFlexShrink(child, 1);
-        else if ((layout.type == Layout::Vertical) && (item.sizing & ShrinkV)) YGNodeStyleSetFlexShrink(child, 1);
-        else YGNodeStyleSetFlexShrink(child, 0);
+            if ((layout.type == Layout::Horizontal) && (item.sizing & ShrinkH)) YGNodeStyleSetFlexShrink(child, 1);
+            else if ((layout.type == Layout::Vertical) && (item.sizing & ShrinkV)) YGNodeStyleSetFlexShrink(child, 1);
+            else YGNodeStyleSetFlexShrink(child, 0);
 
-        // Cross-axis override aligment
-        if ((layout.type == Layout::Vertical) && (item.sizing & ExpandH)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
-        else if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandV)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
+            // Cross-axis override aligment
+            if ((layout.type == Layout::Vertical) && (item.sizing & ExpandH)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
+            else if ((layout.type == Layout::Horizontal) && (item.sizing & ExpandV)) YGNodeStyleSetAlignSelf(child, YGAlignStretch);
 
-        YGNodeInsertChild(root, child, YGNodeGetChildCount(root));
-        children.emplace_back(child);
-
+            YGNodeInsertChild(root, child, YGNodeGetChildCount(root));
+            children.emplace_back(child);
+        }
 #endif
+
+        if (layout.type == Layout::Grid)
+        {
+            auto& griditem = layout.griditems.emplace_back();
+            griditem.maxdim = item.margin.GetSize();
+            griditem.row = layout.currow; griditem.col = layout.currcol;
+            griditem.rowspan = layout.currspan.first;
+            griditem.colspan = layout.currspan.second;
+            griditem.index = context.layoutItems.size();
+            
+            if (layout.gpmethod == ItemGridPopulateMethod::ByRows)
+            {
+                layout.currcol += griditem.colspan;
+                layout.maxdim.y = std::max(layout.maxdim.y, griditem.maxdim.y);
+                if (layout.currcol >= layout.gridsz.second)
+                {
+                    layout.rows.emplace_back(layout.maxdim);
+                    layout.maxdim = ImVec2{};
+                    layout.currcol = 0;
+                    layout.currow++;
+                }
+            }
+        }
 
         auto& context = GetContext();
         context.layoutItems.push_back(item);
@@ -823,43 +850,51 @@ namespace glimmer
 
         assert(context.layouts.size() == 1); // TODO: Implement nested layout support...
 
-        root = YGNodeNew();
-        if ((fill & FD_Horizontal) && (available.Max.x != FLT_MAX)) YGNodeStyleSetWidth(root, available.GetWidth());
-        if ((fill & FD_Vertical) && (available.Max.y != FLT_MAX)) YGNodeStyleSetHeight(root, available.GetHeight());
-        YGNodeStyleSetFlexDirection(root, type == Layout::Horizontal ? YGFlexDirectionRow : YGFlexDirectionColumn);
-        YGNodeStyleSetFlexWrap(root, wrap ? YGWrapWrap : YGWrapNoWrap);
-        YGNodeStyleSetPosition(root, YGEdgeLeft, 0.f);
-        YGNodeStyleSetPosition(root, YGEdgeTop, 0.f);
-        YGNodeStyleSetGap(root, YGGutterRow, spacing.x);
-        YGNodeStyleSetGap(root, YGGutterColumn, spacing.y);
-
-        if ((type == Layout::Horizontal))
+        if (layout.type != Layout::Grid)
         {
-            // Main axis alignment
-            if (alignment & TextAlignRight) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
-            else if (alignment & TextAlignHCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
-            else if (alignment & TextAlignJustify) YGNodeStyleSetJustifyContent(root, YGJustifySpaceAround);
-            else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
+            root = YGNodeNew();
+            if ((fill & FD_Horizontal) && (available.Max.x != FLT_MAX)) YGNodeStyleSetWidth(root, available.GetWidth());
+            if ((fill & FD_Vertical) && (available.Max.y != FLT_MAX)) YGNodeStyleSetHeight(root, available.GetHeight());
+            YGNodeStyleSetFlexDirection(root, type == Layout::Horizontal ? YGFlexDirectionRow : YGFlexDirectionColumn);
+            YGNodeStyleSetFlexWrap(root, wrap ? YGWrapWrap : YGWrapNoWrap);
+            YGNodeStyleSetPosition(root, YGEdgeLeft, 0.f);
+            YGNodeStyleSetPosition(root, YGEdgeTop, 0.f);
+            YGNodeStyleSetGap(root, YGGutterRow, spacing.x);
+            YGNodeStyleSetGap(root, YGGutterColumn, spacing.y);
 
-            // Cross axis alignment
-            if (alignment & TextAlignBottom) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
-            else if (alignment & TextAlignVCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
-            else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
+            if ((type == Layout::Horizontal))
+            {
+                // Main axis alignment
+                if (alignment & TextAlignRight) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
+                else if (alignment & TextAlignHCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
+                else if (alignment & TextAlignJustify) YGNodeStyleSetJustifyContent(root, YGJustifySpaceAround);
+                else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
+
+                // Cross axis alignment
+                if (alignment & TextAlignBottom) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
+                else if (alignment & TextAlignVCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
+                else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
+            }
+            else
+            {
+                // Main axis alignment
+                if (alignment & TextAlignBottom) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
+                else if (alignment & TextAlignVCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
+                else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
+
+                // Cross axis alignment
+                if (alignment & TextAlignRight) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
+                else if (alignment & TextAlignHCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
+                else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
+            }
         }
-        else
-        {
-            // Main axis alignment
-            if (alignment & TextAlignBottom) YGNodeStyleSetJustifyContent(root, YGJustifyFlexEnd);
-            else if (alignment & TextAlignVCenter) YGNodeStyleSetJustifyContent(root, YGJustifyCenter);
-            else YGNodeStyleSetJustifyContent(root, YGJustifyFlexStart);
-
-            // Cross axis alignment
-            if (alignment & TextAlignRight) YGNodeStyleSetAlignItems(root, YGAlignFlexEnd);
-            else if (alignment & TextAlignHCenter) YGNodeStyleSetAlignItems(root, YGAlignCenter);
-            else YGNodeStyleSetAlignItems(root, YGAlignFlexStart);
-        }
-
+        
 #endif
+
+        if (layout.type == Layout::Grid)
+        {
+
+        }
 
         layout.geometry = available;
         layout.nextpos = nextpos + layout.spacing;
@@ -1118,23 +1153,84 @@ namespace glimmer
 
             if (context.layouts.size() == 1)
             {
+                auto widgetidx = 0;
+
+                if (layout.type != Layout::Grid)
+                {
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_FLAT_LAYOUT_ENGINE
 
-                AlignLayoutAxisItems(layout);
-                AlignCrossAxisItems(layout, depth);
+                    AlignLayoutAxisItems(layout);
+                    AlignCrossAxisItems(layout, depth);
 
 #elif GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
 
-                Clay__CloseElement();
-                auto renderCommands = Clay_EndLayout();
-                auto widgetidx = 0;
+                    Clay__CloseElement();
+                    auto renderCommands = Clay_EndLayout();
+                    auto widgetidx = 0;
 
 #elif GLIMMER_LAYOUT_ENGINE == GLIMMER_YOGA_LAYOUT_ENGINE
 
-                auto widgetidx = 0;
-                YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
+                    
+                    YGNodeCalculateLayout(root, YGUndefined, YGUndefined, YGDirectionLTR);
 
 #endif
+                }
+                else 
+                {
+                    // #region Grid Layout
+                    if (layout.gpmethod == ItemGridPopulateMethod::ByRows)
+                    {
+                        Vector<float, int16_t> colmaxs{ layout.gridsz.second, 0.f };
+                        for (auto& item : layout.griditems)
+                            colmaxs[item.col] = std::max(colmaxs[item.col], item.maxdim.x);
+
+                        for (auto cidx = 0; cidx < colmaxs.size(); ++cidx)
+                            layout.cols.emplace_back(colmaxs[cidx], 0.f);
+                    }
+
+                    auto currow = 0, currcol = 0;
+                    ImVec2 currpos = layout.geometry.Min + layout.spacing;
+                    for (auto& item : layout.griditems)
+                    {
+                        if (item.row > currow)
+                        {
+                            currpos.y += layout.rows[currow].y + (2.f * layout.spacing.y);
+                            currow = item.row;
+                        }
+
+                        if (item.row == currow)
+                        {
+                            auto totalh = 0.f;
+                            for (auto row = 0; row < item.rowspan; ++row)
+                                totalh += layout.rows[currow + row].y;
+
+                            if (item.aligment & TextALignTop)
+                                item.bbox.Min.y = currpos.y;
+                            else if (item.aligment & TextAlignVCenter)
+                                item.bbox.Min.y = currpos.y + ((totalh - item.maxdim.y) * 0.5f);
+                            else
+                                item.bbox.Min.y = currpos.y + (totalh - item.maxdim.y);
+
+                            item.bbox.Max.y = item.bbox.Min.y + totalh;
+
+                            auto totalw = 0.f;
+                            for (auto col = 0; col < item.colspan; ++col)
+                                totalw += layout.cols[currcol + col].x;
+
+                            if (item.aligment & TextAlignLeft)
+                                item.bbox.Min.x = currpos.x;
+                            else if (item.alignment & TextAlignHCenter)
+                                item.bbox.Min.x = currpos.x + ((totalw - item.maxdim.x) * 0.5f);
+                            else
+                                item.bbox.Min.x = currpos.x + (totalw - item.maxdim.x);
+
+                            item.bbox.Max.x = item.bbox.Min.x + totalw;
+                            currpos.x += item.bbox.Max.x + (2.f * layout.spacing.x);
+                        }
+                    }
+                    // #endregion
+                }
+
                 // This stores the data for replay of style push/pop operations within a layout block
                 static StyleStackT StyleStack[WSI_Total];
 
@@ -1155,6 +1251,8 @@ namespace glimmer
                     {
                         auto& item = context.layoutItems[(int16_t)data];
 
+                        if (layout.type != Layout::Grid)
+                        {
 #if GLIMMER_LAYOUT_ENGINE == GLIMMER_CLAY_LAYOUT_ENGINE
 
                         auto& command = renderCommands.internalArray[widgetidx];
@@ -1177,6 +1275,14 @@ namespace glimmer
                         ++widgetidx;
 
 #endif
+                        }
+                        else 
+                        {
+                            auto bbox = layout.griditems[widgetidx].bbox;
+                            item.margin = bbox;
+                            ++widgetidx;
+                        }
+
                         if (auto res = RenderWidget(layout, item, StyleStack, io); res.event != WidgetEvent::None)
                             result = res;
 
