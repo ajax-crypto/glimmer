@@ -39,15 +39,16 @@ namespace glimmer
     WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags);
     WidgetDrawResult ButtonImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
+        const ImRect& content, const ImRect& text, const ImRect& prefix, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const StyleDescriptor& style, const ImRect& extent, ImVec2 textsz, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, 
+        const ImRect& prefix, const ImRect& suffix, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
+        const ImRect& content, const ImRect& text, const ImRect& prefix, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     void StartScrollableImpl(int32_t id, int32_t flags, ImVec2 maxsz, const StyleDescriptor& style,
@@ -930,8 +931,16 @@ namespace glimmer
         item.padding.Min.x = item.border.Min.x + style.border.left.thickness;
         item.padding.Max.x = item.border.Max.x - style.border.right.thickness;
 
-        item.content.Min.x = item.padding.Min.x + style.padding.left;
-        item.content.Max.x = item.padding.Max.x - style.padding.right;
+        auto pw = item.prefix.GetWidth();
+        item.prefix.Min.x = item.padding.Min.x + style.padding.left;
+        item.prefix.Max.x = item.prefix.Min.x + pw;
+
+        auto sw = item.suffix.GetWidth();
+        item.suffix.Max.x = item.padding.Max.x - style.padding.right;
+        item.suffix.Min.x = item.suffix.Max.x - sw;
+
+        item.content.Min.x = item.prefix.Max.x;
+        item.content.Max.x = item.suffix.Min.x;
 
         auto textw = item.text.GetWidth();
         item.text.Min.x = item.content.Min.x;
@@ -948,6 +957,16 @@ namespace glimmer
 
         item.content.Min.y = item.padding.Min.y + style.padding.top;
         item.content.Max.y = item.padding.Max.y - style.padding.bottom;
+
+        auto ph = item.prefix.GetHeight();
+        auto vdiff = std::max((item.content.GetHeight() - ph) * 0.5f, 0.f);
+        item.prefix.Min.y = item.content.Min.y + vdiff;
+        item.prefix.Max.y = item.prefix.Min.y + ph;
+
+        auto sh = item.suffix.GetHeight();
+        vdiff = std::max((item.content.GetHeight() - sh) * 0.5f, 0.f);
+        item.suffix.Min.y = item.content.Min.y + vdiff;
+        item.suffix.Max.y = item.suffix.Min.y + sh;
 
         auto texth = item.text.GetHeight();
         item.text.Min.y = item.content.Min.y;
@@ -993,7 +1012,7 @@ namespace glimmer
             const auto& style = GetStyle(StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
             if (!context.nestedContextStack.empty())
                 RecordItemGeometry(item);
             break;
@@ -1053,7 +1072,7 @@ namespace glimmer
             const auto& style = GetStyle(StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = TextInputImpl(item.id, state, style, item.margin, item.content, renderer, io);
+            result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
             if (!context.nestedContextStack.empty())
                 RecordItemGeometry(item);
             break;
@@ -1063,7 +1082,7 @@ namespace glimmer
             const auto& style = GetStyle(StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
-            result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+            result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
             if (!context.nestedContextStack.empty())
                 RecordItemGeometry(item);
             break;

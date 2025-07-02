@@ -1119,50 +1119,40 @@ namespace glimmer
                 case glimmer::StyleBackground:
                     dest.bgcolor = src.bgcolor;
                     dest.gradient = src.gradient;
-                    ////if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFgColor:
                     dest.fgcolor = src.fgcolor;
-                    ////if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleFontSize:
                 case glimmer::StyleFontFamily:
                 case glimmer::StyleFontWeight:
                 case glimmer::StyleFontStyle:
                     dest.font = src.font;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHeight:
                     dest.dimension.y = src.dimension.y;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleWidth:
                     dest.dimension.x = src.dimension.x;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleHAlignment:
                     (src.alignment & TextAlignLeft) ? dest.alignment |= TextAlignLeft : dest.alignment &= ~TextAlignLeft;
                     (src.alignment & TextAlignRight) ? dest.alignment |= TextAlignRight : dest.alignment &= ~TextAlignRight;
                     (src.alignment & TextAlignHCenter) ? dest.alignment |= TextAlignHCenter : dest.alignment &= ~TextAlignHCenter;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleVAlignment:
                     (src.alignment & TextAlignTop) ? dest.alignment |= TextAlignTop : dest.alignment &= ~TextAlignTop;
                     (src.alignment & TextAlignBottom) ? dest.alignment |= TextAlignBottom : dest.alignment &= ~TextAlignBottom;
                     (src.alignment & TextAlignVCenter) ? dest.alignment |= TextAlignVCenter : dest.alignment &= ~TextAlignVCenter;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StylePadding:
                     dest.padding = src.padding;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMargin:
                     dest.margin = src.margin;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleBorder:
                     dest.border = src.border;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleOverflow:
                     break;
@@ -1174,7 +1164,6 @@ namespace glimmer
                     dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
                     dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
                     dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 }
                 case glimmer::StyleCellSpacing:
@@ -1183,33 +1172,26 @@ namespace glimmer
                     break;
                 case glimmer::StyleBoxShadow:
                     dest.shadow = src.shadow;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleTextOverflow:
                     break;
                 case glimmer::StyleMinWidth:
                     dest.mindim.x = src.mindim.x;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxWidth:
                     dest.maxdim.x = src.maxdim.x;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMinHeight:
                     dest.mindim.y = src.mindim.y;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 case glimmer::StyleMaxHeight:
                     dest.maxdim.y = src.maxdim.y;
-                    //if (src.specified & prop) dest.specified |= prop;
                     break;
                 default:
                     break;
                 }
             }
         }
-
-        //dest.specified |= StyleUpdatedFromBase;
     }
 
     template <typename StackT>
@@ -1234,9 +1216,6 @@ namespace glimmer
                 }
                 else
                 {
-                    /*auto defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
-                    defstyle.From(css[style]);
-                    stack[style].push() = defstyle;*/
                     stack[style].push().From(css[style]);
                 }
 
@@ -1267,11 +1246,6 @@ namespace glimmer
         }
         else
         {
-            /*const auto& defstyle = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
-            auto& style = stack[idx].push();
-            style = defstyle;
-            style.From(css);*/
-
             stack[idx].push().From(css);
         }
     }

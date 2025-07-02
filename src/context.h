@@ -290,6 +290,7 @@ namespace glimmer
     struct InputTextInternalState
     {
         int caretpos = 0;
+        int32_t clearState = WS_Default;
         bool caretVisible = true;
         bool isSelecting = false;
         float lastCaretShowTime = 0.f;
@@ -357,6 +358,7 @@ namespace glimmer
         WidgetType wtype = WidgetType::WT_Invalid;
         int32_t id = -1;
         ImRect margin, border, padding, content, text;
+        ImRect prefix, suffix;
         ImVec2 relative;
         ImVec2 extent;
         int32_t sizing = 0;
@@ -445,6 +447,7 @@ namespace glimmer
         {
             int16_t state = 0;
             ImRect extent, close, pin, text;
+            float tabHoverDuration = 0.f, pinHoverDuration = 0.f, closeHoverDuration = 0.f;
             bool pinned = false;
             TabItemDescriptor descriptor;
         };
@@ -457,6 +460,7 @@ namespace glimmer
         ImRect create;
         ImRect dropdown;
         ImRect expand;
+        float createHoverDuration = 0.f;
         ScrollableRegion scroll;
         bool expanded = false;
     };
@@ -518,11 +522,83 @@ namespace glimmer
         WidgetType type; 
         int32_t id;
 
-        ImRect margin;
+        union ParamsT {
+            struct {
+                ImRect margin, border, padding, content, text;
+            } label;
+
+            struct {
+                ImRect margin, border, padding, content, text;
+            } button;
+
+            struct {
+                ImRect extent;
+                float maxrad = 0.f;
+            } radio;
+
+            struct {
+                ImRect extent;
+                ImVec2 center;
+            } toggle;
+
+            struct {
+                ImRect extent;
+            } checkbox;
+
+            struct {
+                ImRect extent;
+                ImRect thumb;
+            } slider;
+
+            struct {
+                ImRect content;
+                ImRect clear;
+            } input;
+
+            struct {
+                ImRect margin, border, padding, content;
+            } dropdown;
+
+            struct {
+                ImRect extent;
+                ImRect incbtn, decbtn;
+            } spinner;
+
+            struct {
+                ImRect content;
+            } tabbar;
+
+            struct {
+                ImRect region;
+                int ridx = 0;
+            } accordion;
+
+            ParamsT() {}
+        } params;
+
+        EventDeferInfo() : type{ WT_Invalid }, id{ -1 } {}
+
+        static EventDeferInfo ForLabel(int32_t id, const ImRect& margin, const ImRect& border, 
+            const ImRect& padding, const ImRect& content, const ImRect& text);
+        static EventDeferInfo ForButton(int32_t id, const ImRect& margin, const ImRect& border,
+            const ImRect& padding, const ImRect& content, const ImRect& text);
+        static EventDeferInfo ForCheckbox(int32_t id, const ImRect& extent);
+        static EventDeferInfo ForRadioButton(int32_t id, const ImRect& extent, float maxrad);
+        static EventDeferInfo ForToggleButton(int32_t id, const ImRect& extent, ImVec2 center);
+        static EventDeferInfo ForSpinner(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn);
+        static EventDeferInfo ForSlider(int32_t id, const ImRect& extent, const ImRect& thumb);
+        static EventDeferInfo ForTextInput(int32_t id, const ImRect& extent, const ImRect& clear);
+        static EventDeferInfo ForDropDown(int32_t id, const ImRect& margin, const ImRect& border,
+            const ImRect& padding, const ImRect& content);
+        static EventDeferInfo ForTabBar(int32_t id, const ImRect& content);
+        static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
+
+        /*ImRect margin;
         ImRect border;
         ImRect padding;
         ImRect content;
         ImRect text;
+        ImRect prefix, suffix, extra1;
 
         ImRect extent;
         ImRect decbtn, incbtn;
@@ -554,7 +630,7 @@ namespace glimmer
             : type{ type_ }, id{ id_ }, padding{ p }, content{ c } {}
 
         EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, const ImRect& inc, const ImRect& dec)
-            : type{ type_ }, id{ id_ }, extent{ e }, incbtn{ inc }, decbtn{ dec } {}
+            : type{ type_ }, id{ id_ }, extent{ e }, incbtn{ inc }, decbtn{ dec } {}*/
     };
 
     enum class NestedContextSourceType

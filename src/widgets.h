@@ -13,6 +13,7 @@ namespace glimmer
 
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     
     WidgetDrawResult Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -37,7 +38,7 @@ namespace glimmer
     WidgetDrawResult Slider(double* value, std::pair<float, float> range, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     WidgetDrawResult TextInput(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult TextInput(Span<char> out, std::string_view placeholder, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult TextInput(char* out, int size, int strlen, std::string_view placeholder, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});

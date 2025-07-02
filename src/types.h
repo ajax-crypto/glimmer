@@ -139,6 +139,8 @@ namespace glimmer
         float minScrollGripSz = 20.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
+        std::string_view pinTabsTooltip = "Click to pin tab";
+        std::string_view closeTabsTooltip = "Click to close tab";
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
@@ -177,10 +179,17 @@ namespace glimmer
         float _hoverDuration = 0; // for tooltip, in seconds
     };
 
+    enum ResourceType
+    {
+        RT_IMG = 1, RT_PATH = 2, RT_SVG = 4,
+    };
+
     struct ButtonState : public CommonWidgetData
     {
         std::string_view text;
         TextType type = TextType::PlainText;
+        std::string_view prefix, suffix;
+        std::pair<int32_t, int32_t> resTypes;
     };
 
     using LabelState = ButtonState;
@@ -268,21 +277,26 @@ namespace glimmer
         std::vector<char> text;
         Span<char> out;
         std::string_view placeholder;
-        std::string_view prefix, suffix;
         std::pair<int, int> selection{ -1, -1 };
+        std::string_view prefix, suffix;
+        int32_t prefixType, suffixType;
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
+        bool clearButton = false;
     };
 
     struct DropDownState : public CommonWidgetData
     {
         std::string_view text;
+        TextType textType = TextType::PlainText;
         Direction dir;
         TextInputState input;
         int32_t inputId = -1;
         int32_t selected = -1;
         int32_t* out = nullptr;
         std::span<std::pair<WidgetType, std::string_view>> options;
+        std::string_view prefix;
+        int32_t prefixType = RT_SVG;
         bool isComboBox = false;
         bool opened = false;
         bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
@@ -312,6 +326,7 @@ namespace glimmer
         TabBarItemSizing sizing;
         ImVec2 spacing;
         Direction direction = DIR_Horizontal;
+        std::string_view newTabTooltip;
         float btnspacing = 5.f;
         float btnsize = 0.75f; // 75% of tab text height
         int selected = -1;
@@ -536,7 +551,9 @@ namespace glimmer
         FontStyleOverflowMarquee = 1 << 8,
         TextIsPlainText = 1 << 9,
         TextIsRichText = 1 << 10,
-        TextIsSVG = 1 << 11
+        TextIsSVG = 1 << 11,
+        TextIsSVGFile = 1 << 12,
+        TextIsImgPath = 1 << 13
     };
 
     struct Sizing
