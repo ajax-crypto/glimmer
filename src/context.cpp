@@ -21,6 +21,26 @@ namespace glimmer
     static bool HasImPlotContext = false;
 
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
+    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
+        IRenderer& renderer, WidgetDrawResult& result);
+    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
+        WidgetDrawResult& result);
+    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
 
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
@@ -427,28 +447,124 @@ namespace glimmer
         }*/
     }
 
-    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, 
-        WidgetDrawResult& result);
-    void HandleTextInputEvent(int32_t id, const ImRect& content, const IODescriptor& io,
-        IRenderer& renderer, WidgetDrawResult& result);
-    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    /*void HandleItemGridEvent(int32_t id, const ImRect& padding, const ImRect& content,
-        const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);*/
-    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
+    EventDeferInfo EventDeferInfo::ForLabel(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text)
+    {
+        EventDeferInfo info;
+        info.type = WT_Label;
+        info.id = id;
+        info.params.label.margin = margin;
+        info.params.label.border = border;
+        info.params.label.padding = padding;
+        info.params.label.content = content;
+        info.params.label.text = text;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForButton(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content, const ImRect& text)
+    {
+        EventDeferInfo info;
+        info.type = WT_Button;
+        info.id = id;
+        info.params.button.margin = margin;
+        info.params.button.border = border;
+        info.params.button.padding = padding;
+        info.params.button.content = content;
+        info.params.button.text = text;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForCheckbox(int32_t id, const ImRect& extent)
+    {
+        EventDeferInfo info;
+        info.type = WT_Checkbox;
+        info.id = id;
+        info.params.checkbox.extent = extent;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForRadioButton(int32_t id, const ImRect& extent, float maxrad)
+    {
+        EventDeferInfo info;
+        info.type = WT_RadioButton;
+        info.id = id;
+        info.params.radio.extent = extent;
+        info.params.radio.maxrad = maxrad;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForToggleButton(int32_t id, const ImRect& extent, ImVec2 center)
+    {
+        EventDeferInfo info;
+        info.type = WT_ToggleButton;
+        info.id = id;
+        info.params.toggle.extent = extent;
+        info.params.toggle.center = center;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForSpinner(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn)
+    {
+        EventDeferInfo info;
+        info.type = WT_Spinner;
+        info.id = id;
+        info.params.spinner.extent = extent;
+        info.params.spinner.incbtn = incbtn;
+        info.params.spinner.decbtn = decbtn;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForSlider(int32_t id, const ImRect& extent, const ImRect& thumb)
+    {
+        EventDeferInfo info;
+        info.type = WT_Slider;
+        info.id = id;
+        info.params.slider.extent = extent;
+        info.params.slider.thumb = thumb;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForTextInput(int32_t id, const ImRect& extent, const ImRect& clear)
+    {
+        EventDeferInfo info;
+        info.type = WT_TextInput;
+        info.id = id;
+        info.params.input.content = extent;
+        info.params.input.clear = clear;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForDropDown(int32_t id, const ImRect& margin, const ImRect& border,
+        const ImRect& padding, const ImRect& content)
+    {
+        EventDeferInfo info;
+        info.type = WT_DropDown;
+        info.id = id;
+        info.params.dropdown.margin = margin;
+        info.params.dropdown.border = border;
+        info.params.dropdown.padding = padding;
+        info.params.dropdown.content = content;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForTabBar(int32_t id, const ImRect& content)
+    {
+        EventDeferInfo info;
+        info.type = WT_TabBar;
+        info.id = id;
+        info.params.tabbar.content = content;
+        return info;
+    }
+
+    EventDeferInfo EventDeferInfo::ForAccordion(int32_t id, const ImRect& region, int32_t ridx)
+    {
+        EventDeferInfo info;
+        info.type = WT_Accordion;
+        info.id = id;
+        info.params.accordion.region = region;
+        info.params.accordion.ridx = ridx;
+        return info;
+    }
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
@@ -464,69 +580,70 @@ namespace glimmer
             switch (ev.type)
             {
             case WT_Label: 
-                ev.margin.Translate(origin);
-                ev.border.Translate(origin); 
-                ev.padding.Translate(origin); 
-                ev.content.Translate(origin); 
-                ev.text.Translate(origin);
-                HandleLabelEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
+                ev.params.label.margin.Translate(origin);
+                ev.params.label.border.Translate(origin);
+                ev.params.label.padding.Translate(origin);
+                ev.params.label.content.Translate(origin);
+                ev.params.label.text.Translate(origin);
+                HandleLabelEvent(ev.id, ev.params.label.margin, ev.params.label.border, 
+                    ev.params.label.padding, ev.params.label.content, ev.params.label.text, 
+                    renderer, io, result);
                 break;
             case WT_Button:
-                ev.margin.Translate(origin);
-                ev.border.Translate(origin);
-                ev.padding.Translate(origin);
-                ev.content.Translate(origin);
-                ev.text.Translate(origin);
-                HandleButtonEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, ev.text, renderer, io, result);
+                ev.params.button.margin.Translate(origin);
+                ev.params.button.border.Translate(origin);
+                ev.params.button.padding.Translate(origin);
+                ev.params.button.content.Translate(origin);
+                ev.params.button.text.Translate(origin);
+                HandleButtonEvent(ev.id, ev.params.button.margin, ev.params.button.border, 
+                    ev.params.button.padding, ev.params.button.content, ev.params.button.text, 
+                    renderer, io, result);
                 break;
             case WT_Checkbox:
-                ev.extent.Translate(origin);
-                HandleCheckboxEvent(ev.id, ev.extent, io, result);
+                ev.params.checkbox.extent.Translate(origin);
+                HandleCheckboxEvent(ev.id, ev.params.checkbox.extent, io, result);
                 break;
             case WT_RadioButton:
-                ev.extent.Translate(origin);
-                HandleRadioButtonEvent(ev.id, ev.extent, ev.maxrad, renderer, io, result);
+                ev.params.radio.extent.Translate(origin);
+                HandleRadioButtonEvent(ev.id, ev.params.radio.extent, ev.params.radio.maxrad, renderer, io, result);
                 break;
             case WT_ToggleButton:
-                ev.extent.Translate(origin);
-                ev.center += origin;
-                HandleToggleButtonEvent(ev.id, ev.extent, ev.center, renderer, io, result);
+                ev.params.toggle.extent.Translate(origin);
+                ev.params.toggle.center += origin;
+                HandleToggleButtonEvent(ev.id, ev.params.toggle.extent, ev.params.toggle.center, renderer, io, result);
                 break;
             case WT_Spinner:
-                ev.extent.Translate(origin);
-                ev.incbtn.Translate(origin);
-                ev.decbtn.Translate(origin);
-                HandleSpinnerEvent(ev.id, ev.extent, ev.incbtn, ev.decbtn, io, result);
+                ev.params.spinner.extent.Translate(origin);
+                ev.params.spinner.incbtn.Translate(origin);
+                ev.params.spinner.decbtn.Translate(origin);
+                HandleSpinnerEvent(ev.id, ev.params.spinner.extent, ev.params.spinner.incbtn, ev.params.spinner.decbtn, 
+                    io, result);
                 break;
             case WT_Slider:
-                ev.content.Translate(origin);
-                ev.padding.Translate(origin);
-                HandleSliderEvent(ev.id, ev.padding, ev.content, io, result);
+                ev.params.slider.extent.Translate(origin);
+                ev.params.slider.thumb.Translate(origin);
+                HandleSliderEvent(ev.id, ev.params.slider.extent, ev.params.slider.thumb, io, result);
                 break;
             case WT_TextInput:
-                ev.extent.Translate(origin);
-                HandleTextInputEvent(ev.id, ev.extent, io, renderer, result);
+                ev.params.input.content.Translate(origin);
+                ev.params.input.clear.Translate(origin);
+                HandleTextInputEvent(ev.id, ev.params.input.content, ev.params.input.clear, io, renderer, result);
                 break;
             case WT_DropDown:
-                ev.margin.Translate(origin);
-                ev.border.Translate(origin);
-                ev.padding.Translate(origin);
-                ev.content.Translate(origin);
-                HandleDropDownEvent(ev.id, ev.margin, ev.border, ev.padding, ev.content, io, renderer, result);
-                break;
-            case WT_ItemGrid:
-                /*ev.padding.Translate(origin);
-                ev.content.Translate(origin);
-                HandleItemGridEvent(ev.id, ev.padding, ev.content, io, renderer, result);*/
-                assert(false); // Not supported yet
+                ev.params.dropdown.margin.Translate(origin);
+                ev.params.dropdown.border.Translate(origin);
+                ev.params.dropdown.padding.Translate(origin);
+                ev.params.dropdown.content.Translate(origin);
+                HandleDropDownEvent(ev.id, ev.params.dropdown.margin, ev.params.dropdown.border, 
+                    ev.params.dropdown.padding, ev.params.dropdown.content, io, renderer, result);
                 break;
             case WT_TabBar:
-                ev.extent.Translate(origin);
-                HandleTabBarEvent(ev.id, ev.extent, io, renderer, result);
+                ev.params.tabbar.content.Translate(origin);
+                HandleTabBarEvent(ev.id, ev.params.tabbar.content, io, renderer, result);
                 break;
             case WT_Accordion:
-                ev.extent.Translate(origin);
-                HandleAccordionEvent(ev.id, ev.extent, ev.ridx, io, result);
+                ev.params.accordion.region.Translate(origin);
+                HandleAccordionEvent(ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
                 break;
             default:
                 break;
