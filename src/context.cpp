@@ -77,10 +77,10 @@ namespace glimmer
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
             styleStartIdx[idx] = -1;
-            styles[idx].clear(false);
         }
 
         itemIndexes.clear(true);
+        griditems.clear(true);
         tabbars.clear(false);
         containerStack.clear(true);
         rows.clear(true);
@@ -320,6 +320,11 @@ namespace glimmer
             auto popsz = WidgetContextData::StyleStack[idx].size() - 1;
             if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
         }
+    }
+
+    void WidgetContextData::RecordForReplay(int64_t data, LayoutOps ops)
+    {
+        layoutReplayContent.emplace_back(data, ops);
     }
 
     StyleDescriptor WidgetContextData::GetStyle(int32_t state)
@@ -659,8 +664,12 @@ namespace glimmer
         for (auto lidx = 0; lidx < layouts.size(); ++lidx)
             layouts[lidx].reset();
 
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+            layoutStyles[idx].clear(true);
+
         layouts.clear(false);
         layoutItems.clear(true);
+        layoutReplayContent.clear(true);
     }
 
     void WidgetContextData::ClearDeferredData()

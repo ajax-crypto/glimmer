@@ -413,6 +413,8 @@ namespace glimmer
         ByRows, ByColumns
     };
 
+    using GridLayoutDirection = ItemGridPopulateMethod;
+
     enum ItemGridHighlightType
     {
         IG_HighlightRows = 1, 
@@ -517,6 +519,12 @@ namespace glimmer
         ExpandH = 2, ExpandV = 4, ExpandAll = ExpandH | ExpandV,
         ToLeft = 8, ToRight = 16, ToBottom = 32, ToTop = 64,
         ShrinkH = 128, ShrinkV = 256, ShrinkAll = ShrinkH | ShrinkV,
+
+        AlignTop = 1 << 9, AlignBottom = 1 << 10,
+        AlignLeft = 1 << 11, AlignRight = 1 << 12,
+        AlignHCenter = 1 << 13, AlignVCenter = 1 << 14,
+        AlignCenter = AlignHCenter | AlignVCenter,
+
         OnlyOnce = 1 << 16,
         FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
         ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,

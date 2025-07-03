@@ -364,12 +364,13 @@ namespace glimmer
         int32_t sizing = 0;
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
+        void* implData = nullptr;
         bool isComputed = false;
         bool closing = false;
         bool hscroll = false, vscroll = false;
     };
 
-    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget };
+    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget, AddLayout };
 
     using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
 
@@ -397,6 +398,16 @@ namespace glimmer
         void reset();
     };
 
+    struct GridLayoutItem
+    {
+        ImVec2 maxdim;
+        ImRect bbox;
+        int16_t row = -1, col = -1;
+        int16_t rowspan = 1, colspan = 1;
+        int32_t alignment = TextAlignLeading;
+        int16_t index = -1;
+    };
+
     struct LayoutDescriptor
     {
         Layout type = Layout::Invalid;
@@ -415,6 +426,10 @@ namespace glimmer
         ImRect extent{}; // max coords of widgets inside layout
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
+        Vector<int16_t, int16_t> griditems{ false };
+        std::pair<int, int> gridsz;
+        std::pair<int16_t, int16_t> currspan;
+        ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
@@ -422,8 +437,6 @@ namespace glimmer
 
         Vector<LayoutDescriptor, int16_t, 16> children{ false };
         Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
-        StyleStackT styles[WSI_Total]{ false, false, false, false,
-            false, false, false, false, false };
         FixedSizeStack<int32_t, 16> containerStack;
         Vector<TabBarDescriptor, int16_t, 8> tabbars{ false };
         StyleDescriptor currstyle[WSI_Total];
@@ -592,45 +605,6 @@ namespace glimmer
             const ImRect& padding, const ImRect& content);
         static EventDeferInfo ForTabBar(int32_t id, const ImRect& content);
         static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
-
-        /*ImRect margin;
-        ImRect border;
-        ImRect padding;
-        ImRect content;
-        ImRect text;
-        ImRect prefix, suffix, extra1;
-
-        ImRect extent;
-        ImRect decbtn, incbtn;
-        ImVec2 center;
-        float maxrad;
-        int ridx;
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& m, const ImRect& b, const ImRect& p, 
-            const ImRect& c, const ImRect& t)
-            : type{type_}, id{id_}, margin{m}, border{b}, padding{p}, content{c}, text{t} {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& m, const ImRect& b, const ImRect& p,
-            const ImRect& c)
-            : type{ type_ }, id{ id_ }, margin{ m }, border{ b }, padding{ p }, content{ c } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, float m)
-            : type{ type_ }, id{ id_ }, extent{ e }, maxrad{ m } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, ImVec2 c, const ImRect& e)
-            : type{ type_ }, id{ id_ }, extent{ e }, center{ c } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e)
-            : type{ type_ }, id{ id_ }, extent{ e } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, int idx)
-            : type{ type_ }, id{ id_ }, extent{ e }, ridx{ idx } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& p, const ImRect& c)
-            : type{ type_ }, id{ id_ }, padding{ p }, content{ c } {}
-
-        EventDeferInfo(WidgetType type_, int32_t id_, const ImRect& e, const ImRect& inc, const ImRect& dec)
-            : type{ type_ }, id{ id_ }, extent{ e }, incbtn{ inc }, decbtn{ dec } {}*/
     };
 
     enum class NestedContextSourceType
@@ -715,6 +689,9 @@ namespace glimmer
         FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
         FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
         DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
+        Vector<std::pair<int64_t, LayoutOps>, int16_t> layoutReplayContent;
+        StyleStackT layoutStyles[WSI_Total]{ false, false, false, false,
+            false, false, false, false, false };
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
@@ -835,6 +812,7 @@ namespace glimmer
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
+        void RecordForReplay(int64_t data, LayoutOps ops);
         void ResetLayoutData();
         void ClearDeferredData();
 

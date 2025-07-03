@@ -26,6 +26,7 @@ inline bool operator>(ImVec2 lhs, ImVec2 rhs)
 
 #include <string_view>
 #include <vector>
+#include <stdint.h>
 
 namespace glimmer
 {
