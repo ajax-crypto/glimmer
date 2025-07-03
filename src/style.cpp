@@ -1258,16 +1258,16 @@ namespace glimmer
         
         if (!context.layouts.empty())
         {
-            auto& layout = context.layouts.top();
-            auto state = PushStyle(css, layout.styles);
+            auto& layout = context.layouts[0];
+            auto state = PushStyle(css, context.layoutStyles);
 
             // Enqueue multiple layout ops, to capture indexes of each widget state specific style stack
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
                 if (state & (1 << idx))
                 {
-                    auto sz = (int64_t)(layout.styles[idx].size() - 1);
-                    layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+                    auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
+                    context.RecordForReplay((sz << 32) | idx, LayoutOps::PushStyle);
                 }
             }
         }
@@ -1299,14 +1299,14 @@ namespace glimmer
             {
                 if (!context.layouts.empty())
                 {
-                    auto& layout = context.layouts.top();
-                    PushStyle((WidgetState)(1 << style), css, layout.styles);
+                    auto& layout = context.layouts[0];
+                    PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
 
                     if (!css.empty())
                     {
                         auto idx = style;
-                        auto sz = (int64_t)(layout.styles[idx].size() - 1);
-                        layout.itemIndexes.emplace_back((sz << 32) | idx, LayoutOps::PushStyle);
+                        auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
+                        context.RecordForReplay((sz << 32) | idx, LayoutOps::PushStyle);
                     }
                 }
 
@@ -1321,9 +1321,8 @@ namespace glimmer
 
         if (!context.layouts.empty())
         {
-            auto& layout = context.layouts.top();
             auto dd = (int64_t)depth;
-            layout.itemIndexes.emplace_back((dd << 32) | state, LayoutOps::PopStyle);
+            context.RecordForReplay((dd << 32) | state, LayoutOps::PopStyle);
         }
         
         for (auto style = 0; style < WSI_Total; ++style)
@@ -1336,6 +1335,7 @@ namespace glimmer
         }
     }
 
+#if 0
     std::pair<Sizing, bool> ParseLayoutStyle(LayoutDescriptor& layout, std::string_view css, float pwidth, float pheight)
     {
         auto sidx = 0;
@@ -1409,6 +1409,7 @@ namespace glimmer
 
         return { sizing, hasSizing };
     }
+#endif // 0
 
     StyleDescriptor::StyleDescriptor()
     {
