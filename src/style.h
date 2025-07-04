@@ -30,18 +30,6 @@ namespace glimmer
         float v() const { return top + bottom; }
     };
 
-    enum class LineType
-    {
-        Solid, Dashed, Dotted, DashDot
-    };
-
-    struct Border
-    {
-        uint32_t color = IM_COL32_BLACK_TRANS;
-        float thickness = 0.f;
-        LineType lineType = LineType::Solid; // Unused for rendering
-    };
-
     enum BoxCorner
     {
         TopLeftCorner,

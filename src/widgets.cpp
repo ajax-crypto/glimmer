@@ -2474,6 +2474,240 @@ namespace glimmer
 
 #pragma region DropDown
 
+    void ShowDropDownOptions(WidgetContextData& parent, DropDownState& state, int32_t id, const ImRect& margin, 
+        const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
+    {
+        ImRect maxrect{ { 0.f, 0.f }, parent.WindowSize() };
+        auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
+        ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
+            ImVec2{ padding.Max.x, maxh };
+        ImVec2 available2 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Min.y } :
+            ImVec2{ padding.Min.x, maxh };
+
+        // Create the popup with its own context                
+        if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
+        {
+            static bool hasClicked = false;
+            static int32_t wid = -1, selected = -1, hovered = -1;
+            hasClicked = false;
+
+            if (state.ShowList)
+            {
+                int32_t index = 0;
+                while (state.ShowList(index, available1, available2, state))
+                    index++;
+            }
+            else
+            {
+                static Vector<ImRect, int16_t, 16> optrects;
+                static Vector<ImRect, int16_t, 16> widgetrects;
+                static Vector<int32_t, int16_t, 16> selectable;
+
+                auto& optstates = GetContext().parentContext->dropDownOptions[id & 0xffff];
+                if (optstates.empty()) optstates.reserve(state.options.size());
+                auto optidx = 0;
+                auto& adhoc = GetContext().adhocLayout.top();
+                auto hasWidgets = false;
+
+                for (const auto& option : state.options)
+                {
+                    if ((int)optstates.size() <= optidx)
+                    {
+                        auto& optstate = optstates.emplace_back();
+                        switch (option.first)
+                        {
+                        case WT_Checkbox:
+                        {
+                            optstate.first = GetNextId(WT_Checkbox);
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
+                                CheckState::Checked : CheckState::Unchecked;
+                            GetWidgetConfig(optstate.second).state.label.text = option.second;
+                            hasWidgets = true;
+                            break;
+                        }
+                        case WT_ToggleButton:
+                        {
+                            optstate.first = GetNextId(WT_ToggleButton);
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
+                            GetWidgetConfig(optstate.second).state.label.text = option.second;
+                            hasWidgets = true;
+                            break;
+                        }
+                        case WT_Invalid:
+                        {
+                            optstate.first = -1;
+                            optstate.second = GetNextId(WT_Label);
+                            GetWidgetConfig(optstate.second).state.label.text = option.second;
+                            break;
+                        }
+                        default: break;
+                        }
+
+                        ++optidx;
+                    }
+                }
+
+                if (hasWidgets)
+                {
+                    PushStyleFmt(WS_Default | WS_Hovered, "background-color: transparent; border: none;");
+                    wid = id; hovered = state.hovered;
+                    selected = state.out ? *state.out : state.selected;
+                    DropDownState::OptionDescriptor props;
+                    optidx = 0;
+
+                    for (const auto& option : state.options)
+                    {
+                        auto& optstate = optstates[optidx];
+                        auto startpos = adhoc.nextpos;
+                        int32_t stylesAdded = 0;
+
+                        BeginFlexLayout(DIR_Horizontal, 0, TextAlignVCenter | TextAlignLeft,
+                            false, state.optionSpacing, state.width == -1 ? ImVec2{ border.GetWidth(), 0.f } : ImVec2{});
+                        auto type = (WidgetType)(optstate.first >> 16);
+                        Widget(optstate.first, type, ToBottomRight, {});
+
+                        if (state.OptionStyle)
+                        {
+                            props = state.OptionStyle(optidx);
+                            for (auto idx = 0; idx < WSI_Total; ++idx)
+                                if (!props.css[idx].empty())
+                                {
+                                    PushStyle(1 << idx, props.css[idx]);
+                                    stylesAdded |= (1 << idx);
+                                }
+                            selectable.emplace_back(props.isSelectable);
+                        }
+                        else selectable.emplace_back(state.hasSelection);
+
+                        if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
+                        Widget(optstate.second, WT_Label, ToBottomRight, {});
+                        if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
+
+                        if (stylesAdded != 0)
+                            PopStyle(1, stylesAdded);
+
+                        EndLayout();
+                        widgetrects.emplace_back(GetContext().GetGeometry(optstate.first));
+
+                        Move(FD_Vertical | FD_Horizontal);
+                        GetContext().deferedRenderer->DrawLine(startpos, adhoc.nextpos, state.separator.color,
+                            state.separator.thickness);
+                        adhoc.nextpos.y += state.separator.thickness;
+                        auto endpos = adhoc.nextpos;
+                        adhoc.nextpos.x = 0.f;
+                        optrects.emplace_back(startpos, endpos);
+                        optidx++;
+                    }
+
+                    PopStyle(1, WS_Default | WS_Hovered);
+                }
+                else
+                {
+                    PushStyleFmt(WS_Default | WS_Hovered, 
+                        "background-color: transparent; border: none; margin: %fpx %fpx %fpx %fpx;", 
+                        state.optionSpacing.x, state.optionSpacing.y, state.optionSpacing.x,
+                        state.optionSpacing.y);
+
+                    if (state.width == -1) PushStyleFmt(WS_Default | WS_Hovered, "width: %fpx", border.GetWidth());
+                    wid = id; hovered = state.hovered;
+                    selected = state.out ? *state.out : state.selected;
+                    DropDownState::OptionDescriptor props;
+                    optidx = 0;
+
+                    for (const auto& option : state.options)
+                    {
+                        auto& optstate = optstates[optidx];
+                        auto startpos = adhoc.nextpos;
+                        int32_t stylesAdded = 0;
+
+                        if (state.OptionStyle)
+                        {
+                            props = state.OptionStyle(optidx);
+                            for (auto idx = 0; idx < WSI_Total; ++idx)
+                                if (!props.css[idx].empty())
+                                {
+                                    PushStyle(1 << idx, props.css[idx]);
+                                    stylesAdded |= (1 << idx);
+                                }
+                            selectable.emplace_back(props.isSelectable);
+                        }
+                        else selectable.emplace_back(state.hasSelection);
+                        
+                        if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
+                        Widget(optstate.second, WT_Label, ToBottomRight, {});
+                        if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
+
+                        if (stylesAdded != 0)
+                            PopStyle(1, stylesAdded);
+
+                        Move(FD_Vertical | FD_Horizontal);
+                        GetContext().deferedRenderer->DrawLine(startpos, adhoc.nextpos, state.separator.color,
+                            state.separator.thickness);
+                        adhoc.nextpos.y += state.separator.thickness;
+                        auto endpos = adhoc.nextpos;
+                        adhoc.nextpos.x = 0.f;
+                        optrects.emplace_back(startpos, endpos);
+                        widgetrects.emplace_back();
+                        optidx++;
+                    }
+
+                    if (state.width == -1) PopStyle(1, WS_Default | WS_Hovered);
+                    PopStyle(1, WS_Default | WS_Hovered);
+                }
+
+                static uint32_t hoverColor = 0, selectedColor = 0;
+                hoverColor = state.optionHoverColor;
+                selectedColor = state.optionSelectionColor;
+
+                if (state.hasSelection)
+                    SetPopUpCallback(PRP_BeforePrimitives, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
+                    auto io = Config.platform->desc;
+                    auto optidx = 0, hoveridx = -1;
+
+                    for (auto& rect : optrects)
+                    {
+                        rect.Translate(offset);
+                        rect.Min.x = extent.Min.x;
+                        rect.Max.x = extent.Max.x;
+
+                        if (rect.Contains(io.mousepos))
+                        {
+                            if (selectable[optidx])
+                            {
+                                renderer.DrawRect(rect.Min, rect.Max, hoverColor, true);
+                                hoveridx = optidx;
+                                if (io.clicked() && !(widgetrects[optidx].Contains(io.mousepos)))
+                                {
+                                    selected = optidx;
+                                    hasClicked = true;
+                                    WidgetContextData::RemovePopup();
+                                }
+                            }
+                        }
+                        else if (optidx == selected)
+                            renderer.DrawRect(rect.Min, rect.Max, selectedColor, true);
+
+                        optidx++;
+                    }
+
+                    optrects.clear(true);
+                    widgetrects.clear(true);
+                    selectable.clear(true);
+                    wid = -1;
+                    hovered = hoveridx;
+                });
+            }
+
+            EndPopUp();
+            if (state.out) *state.out = selected;
+            state.selected = selected;
+            state.hovered = hovered;
+            state.opened = hasClicked ? false : state.opened;
+        }
+    }
+
     void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
     {
@@ -2494,102 +2728,30 @@ namespace glimmer
             {
                 if (state.isComboBox)
                 {
-                   /* if (state.inputId == -1)
-                    {
-                        state.inputId = GetNextId(WT_TextInput);
-                        auto& text = GetWidgetConfig(state.inputId).state.input.text;
-                        for (auto ch : state.text) text.push_back(ch);
-                    }
+                    /* if (state.inputId == -1)
+                     {
+                         state.inputId = GetNextId(WT_TextInput);
+                         auto& text = GetWidgetConfig(state.inputId).state.input.text;
+                         for (auto ch : state.text) text.push_back(ch);
+                     }
 
-                    auto res = TextInputImpl(state.inputId, state.input, style, margin, content, renderer, io);
-                    if (res.event == WidgetEvent::Edited)
-                        state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
-                    state.opened = true;*/
-                    // Create per dropdown input id
+                     auto res = TextInputImpl(state.inputId, state.input, style, margin, content, renderer, io);
+                     if (res.event == WidgetEvent::Edited)
+                         state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
+                     state.opened = true;*/
+                     // Create per dropdown input id
                 }
+            }
+            else if (!ismouseover && (io.clicked() || io.isKeyPressed(Key::Key_Escape)))
+            {
+                if (state.opened) WidgetContextData::ActivePopUpRegion = ImRect{};
+                state.opened = false;
             }
 
             if (state.opened)
-            {
-                ImRect maxrect{ { 0.f, 0.f }, context.WindowSize() };
-                auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
-                ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
-                    ImVec2{ padding.Max.x, maxh };
-                ImVec2 available2 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Min.y } :
-                    ImVec2{ padding.Min.x, maxh };
-
-                // Create the popup with its own context                
-                if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
-                {
-                    if (state.ShowList)
-                    {
-                        int32_t index = 0;
-                        while (state.ShowList(index, available1, available2, state))
-                            index++;
-                    }
-                    else
-                    {
-                        auto& optstates = GetContext().parentContext->dropDownOptions[id & 0xffff];
-                        if (optstates.empty()) optstates.reserve(state.options.size());
-                        auto optidx = 0;
-
-                        for (const auto& option : state.options)
-                        {
-                            if ((int)optstates.size() <= optidx)
-                            {
-                                auto& optstate = optstates.emplace_back();
-                                switch (option.first)
-                                {
-                                case WT_Checkbox:
-                                {
-                                    optstate.first = GetNextId(WT_Checkbox);
-                                    optstate.second = GetNextId(WT_Label);
-                                    GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
-                                        CheckState::Checked : CheckState::Unchecked;
-                                    GetWidgetConfig(optstate.second).state.label.text = option.second;
-                                    break;
-                                }
-                                case WT_ToggleButton:
-                                {
-                                    optstate.first = GetNextId(WT_ToggleButton);
-                                    optstate.second = GetNextId(WT_Label);
-                                    GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
-                                    GetWidgetConfig(optstate.second).state.label.text = option.second;
-                                    break;
-                                }
-                                case WT_Invalid:
-                                {
-                                    optstate.first = -1;
-                                    optstate.second = GetNextId(WT_Label);
-                                    GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
-                                    break;
-                                }
-                                default: break;
-                                }
-                            }
-
-                            auto& optstate = optstates[optidx];
-                            if (optstate.first != -1)
-                            {
-                                auto type = (WidgetType)(optstate.first >> 16);
-                                Widget(optstate.first, type, ToBottomRight, {});
-                                Move(FD_Horizontal);
-                            }
-                            Widget(optstate.second, WT_Label, ToBottomRight, {});
-                            Move(FD_Vertical);
-                            GetContext().adhocLayout.top().nextpos.x = 0.f;
-                            optidx++;
-                        }
-                    }
-
-                    EndPopUp();
-                }
-
-                // TODO: update out ptr
-            }
+                ShowDropDownOptions(context, state, id, margin, border, padding, content, renderer);
             else
             {
-                context.activePopUpRegion = ImRect{};
                 ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             }
         }
@@ -2606,16 +2768,21 @@ namespace glimmer
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(prefix.Min, prefix.Max, prefix, config.prefix, config.state & WS_Disabled, style, renderer, ToTextFlags(config.prefixType));
+        DrawText(prefix.Min, prefix.Max, prefix, config.prefix, config.state & WS_Disabled, style, 
+            renderer, ToTextFlags(config.prefixType));
 
         if (!(state.opened && state.isComboBox))
-            DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
+        {
+            auto dt = state.selected == -1 ? state.text : state.options[state.selected].second;
+            DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer);
+        }
 
         auto arrowh = style.font.size * 0.33333f;
         auto arroww = style.font.size * 0.25f;
         auto arrowst = ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh };
         auto darker = DarkenColor(style.bgcolor);
-        DrawSymbol(arrowst, { arroww, arrowh }, { 2.f, 2.f }, state.opened ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, darker, 0, 2.f, renderer);
+        DrawSymbol(arrowst, { arroww, arrowh }, {}, state.opened ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, 
+            darker, 0, 2.f, renderer);
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
         HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
 
@@ -5208,15 +5375,23 @@ namespace glimmer
             overlayctx.ToggleDeferedRendering(true);
             overlayctx.deferEvents = true;
             overlayctx.popupOrigin = origin;
-            overlayctx.popupTarget = id;
+            overlayctx.PopupTarget = id;
             overlayctx.popupSize = size;
             overlayctx.RecordDeferRange(overlayctx.popupRange, true);
             return true;
         }
         else
-            GetContext().activePopUpRegion = ImRect{};
+            WidgetContextData::RemovePopup();
 
         return false;
+    }
+
+    void SetPopUpCallback(PopUpRenderPhase phase, PopUpCallbackT callback, void* data)
+    {
+        auto& context = GetContext();
+        assert(context.PopupTarget != -1);
+        context.popupCallbacks[phase] = callback;
+        context.popupCallbackData[phase] = data;
     }
 
     WidgetDrawResult EndPopUp()
@@ -5229,22 +5404,38 @@ namespace glimmer
         {
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
             ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
+            auto available = overlayctx.parentContext->WindowSize();
 
-            if ((origin + size) > overlayctx.WindowSize())
-                origin.y = origin.y - size.y;
+            if ((origin.y + size.y) > available.y)
+                origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
 
-            if (renderer.StartOverlay(overlayctx.popupTarget, origin, size, ToRGBA(255, 255, 255)))
+            if ((origin.x + size.x) > available.x)
+                origin.x = origin.x - size.x;
+
+            if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, ToRGBA(255, 255, 255)))
             {
+                WidgetContextData::ActivePopUpRegion = ImRect{ origin, origin + size };
                 renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
-
-                overlayctx.parentContext->activePopUpRegion = ImRect{ origin, origin + size };
-                overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first, 
-                    overlayctx.popupRange.primitives.second);
                 
+                if (overlayctx.popupCallbacks[PRP_BeforePrimitives])
+                    overlayctx.popupCallbacks[PRP_BeforePrimitives](overlayctx.popupCallbackData[PRP_BeforePrimitives], renderer, origin,
+                        WidgetContextData::ActivePopUpRegion);
+
+                overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first,
+                    overlayctx.popupRange.primitives.second);
+
+                if (overlayctx.popupCallbacks[PRP_AfterPrimitives])
+                    overlayctx.popupCallbacks[PRP_AfterPrimitives](overlayctx.popupCallbackData[PRP_AfterPrimitives], renderer, origin,
+                        WidgetContextData::ActivePopUpRegion);
+
                 overlayctx.deferEvents = false;
                 result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
                     overlayctx.popupRange.events.second);
-               
+
+                if (overlayctx.popupCallbacks[PRP_AfterEvents])
+                    overlayctx.popupCallbacks[PRP_AfterEvents](overlayctx.popupCallbackData[PRP_AfterEvents], renderer, origin,
+                        WidgetContextData::ActivePopUpRegion);
+
                 renderer.EndOverlay();
             }
         }
@@ -5583,15 +5774,19 @@ namespace glimmer
             break;
         }
         case WT_DropDown: {
+            static char DummyString[256];
+            memset(DummyString, 'X', 254);
+
             auto& state = context.GetState(wid).state.dropdown;
             auto style = WidgetContextData::GetStyle(state.state);
-            auto textsz = GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer);
+            auto textsz = state.width <= 0 ? GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer) :
+                GetTextSize(TextType::PlainText, std::string_view{ DummyString, (size_t)state.width }, style.font, maxxy.x, renderer);
 
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
                 auto pos = layout.geometry.Min;
-                DetermineBounds(textsz, state.prefix, "dummy-suffix", pos, layoutItem, style, renderer, geometry, neighbors);
+                DetermineBounds(textsz, state.prefix, "", pos, layoutItem, style, renderer, geometry, neighbors);
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem, style);
@@ -5599,7 +5794,7 @@ namespace glimmer
             else
             {
                 auto pos = context.NextAdHocPos();
-                DetermineBounds(textsz, state.prefix, "dummy-suffix", pos, layoutItem, style, renderer, geometry, neighbors);
+                DetermineBounds(textsz, state.prefix, "", pos, layoutItem, style, renderer, geometry, neighbors);
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
                 result = DropDownImpl(wid, state, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
                     layoutItem.content, layoutItem.text, layoutItem.prefix, renderer, io);
@@ -5669,6 +5864,7 @@ namespace glimmer
         default: break;
         }
 
+        context.AddItemSize(wid, layoutItem.margin.GetSize());
         return result;
     }
 

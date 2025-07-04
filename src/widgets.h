@@ -54,6 +54,7 @@ namespace glimmer
     void EndSplitRegion();
 
     bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
+    void SetPopUpCallback(PopUpRenderPhase phase, PopUpCallbackT callback, void* data = nullptr);
     WidgetDrawResult EndPopUp();
 
     void StartScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 

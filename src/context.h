@@ -57,13 +57,6 @@ namespace glimmer
 #define GLIMMER_MAX_LAYOUT_NESTING 8
 #endif
 
-    enum WidgetStateIndex
-    {
-        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
-        WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
-        WSI_Total
-    };
-
     enum class ItemGridCurrentState
     {
         Default, ResizingColumns, ReorderingColumns
@@ -526,7 +519,6 @@ namespace glimmer
         float width = 0.f, float height = 0.f);
 
     void AddFontPtr(FontStyle& font);
-    void ResetActivePopUps(ImVec2 mousepos, bool escape);
     void InitFrameData();
     void ResetFrameData();
 
@@ -682,6 +674,25 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true } 
         };
+        Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ false },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ false },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true },
+            Vector<ImVec2, int16_t>{ true }
+        };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
         FixedSizeStack<LayoutDescriptor, GLIMMER_MAX_LAYOUT_NESTING> layouts;
@@ -705,9 +716,11 @@ namespace glimmer
         IRenderer* deferedRenderer = nullptr;
 
         ImVec2 popupOrigin{ -1.f, -1.f }, popupSize{ -1.f, -1.f };
-        int32_t popupTarget = -1;
-        ImRect activePopUpRegion;
         RendererEventIndexRange popupRange;
+        PopUpCallbackT popupCallbacks[PRP_Total] = { nullptr, nullptr, nullptr };
+        void* popupCallbackData[PRP_Total] = { nullptr, nullptr, nullptr };
+        static ImRect ActivePopUpRegion;
+        static int32_t PopupTarget;
 
         WidgetConfigData& GetState(int32_t id)
         {
@@ -804,12 +817,14 @@ namespace glimmer
         }
 
         static StyleDescriptor GetStyle(int32_t state);
+        static void RemovePopup();
 
         IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
         IRenderer& GetRenderer();
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
+        void AddItemSize(int id, ImVec2 sz);
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
         void RecordForReplay(int64_t data, LayoutOps ops);
@@ -817,6 +832,7 @@ namespace glimmer
         void ClearDeferredData();
 
         const ImRect& GetGeometry(int32_t id) const;
+        ImVec2 GetSize(int32_t id) const;
         ImRect GetLayoutSize() const;
         void RecordDeferRange(RendererEventIndexRange& range, bool start) const;
         ImVec2 MaximumSize() const;

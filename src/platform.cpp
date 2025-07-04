@@ -19,9 +19,11 @@ namespace glimmer
     IODescriptor IPlatform::CurrentIO() const
     {
         auto& context = GetContext();
-        IODescriptor result;
+        IODescriptor result{};
+        result.deltaTime = desc.deltaTime;
 
-        if (!context.activePopUpRegion.Contains(desc.mousepos)) result = desc;
+        if (!WidgetContextData::ActivePopUpRegion.Contains(desc.mousepos)) 
+            result = desc;
 
         return result;
     }
@@ -76,11 +78,6 @@ namespace glimmer
 
         while (rollover <= GLIMMER_NKEY_ROLLOVER_MAX)
             desc.key[rollover++] = Key_Invalid;
-
-        if (clicked || escape)
-        {
-            ResetActivePopUps(desc.mousepos, escape);
-        }
 
         InitFrameData();
         cursor = MouseCursor::Arrow;

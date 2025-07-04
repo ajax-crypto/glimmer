@@ -127,7 +127,7 @@ namespace glimmer
 
     struct IODescriptor
     {
-        ImVec2 mousepos;
+        ImVec2 mousepos{ FLT_MAX, FLT_MAX };
         ButtonStatus mouseButtonStatus[(int)MouseButton::Total] 
             = { ButtonStatus::Default, ButtonStatus::Default, ButtonStatus::Default };
         float mouseWheel = 0.f;

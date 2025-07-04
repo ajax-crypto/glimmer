@@ -19,6 +19,7 @@ namespace glimmer
     static ImPlotContext* ChartsContext = nullptr;
     static bool StartedRendering = false;
     static bool HasImPlotContext = false;
+    static bool RemovePopupAtFrameExit = false;
 
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
     void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -257,21 +258,10 @@ namespace glimmer
         }
     }
 
-    void ResetActivePopUps(ImVec2 mousepos, bool escape)
-    {
-        for (auto it = WidgetContexts.rbegin(); it != WidgetContexts.rend(); ++it)
-        {
-            if (it->parentContext && it->parentContext->activePopUpRegion != ImRect{} &&
-                (!it->parentContext->activePopUpRegion.Contains(mousepos) || escape))
-            {
-                it->parentContext->activePopUpRegion = ImRect{};
-            }
-        }
-    }
-
     void InitFrameData()
     {
         StartedRendering = true;
+        RemovePopupAtFrameExit = false;
 
         if (!HasImPlotContext)
         {
@@ -302,13 +292,13 @@ namespace glimmer
             for (auto idx = 0; idx < WT_TotalTypes; ++idx)
             {
                 context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
+                context.itemSizes[idx].reset(ImVec2{});
             }
             
             context.ResetLayoutData();
             context.maxids[WT_SplitterRegion] = 0;
             context.maxids[WT_Layout] = 0;
             context.maxids[WT_Charts] = 0;
-            context.activePopUpRegion = ImRect{};
 
             assert(context.layouts.empty());
         }
@@ -320,6 +310,8 @@ namespace glimmer
             auto popsz = WidgetContextData::StyleStack[idx].size() - 1;
             if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
         }
+
+        if (RemovePopupAtFrameExit) WidgetContextData::ActivePopUpRegion = ImRect{};
     }
 
     void WidgetContextData::RecordForReplay(int64_t data, LayoutOps ops)
@@ -334,6 +326,11 @@ namespace glimmer
         AddFontPtr(res.font);
         if (style != WSI_Default) CopyStyle(StyleStack[WSI_Default].top(), res);
         return res;
+    }
+
+    void WidgetContextData::RemovePopup()
+    {
+        RemovePopupAtFrameExit = true;
     }
 
     IRenderer& WidgetContextData::ToggleDeferedRendering(bool defer, bool reset)
@@ -450,6 +447,20 @@ namespace glimmer
             spans[currSpanDepth] = ElementSpan{};
             --currSpanDepth;
         }*/
+    }
+
+    void WidgetContextData::AddItemSize(int id, ImVec2 sz)
+    {
+        auto index = id & 0xffff;
+        auto wtype = (WidgetType)(id >> 16);
+
+        if (index >= itemSizes[wtype].size())
+        {
+            auto sz = std::max((int16_t)128, (int16_t)(index - itemSizes[wtype].size() + 1));
+            itemSizes[wtype].expand_and_create(sz, true);
+        }
+
+        itemSizes[wtype][index] = sz;
     }
 
     EventDeferInfo EventDeferInfo::ForLabel(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -683,6 +694,13 @@ namespace glimmer
         auto index = id & 0xffff;
         auto wtype = (WidgetType)(id >> 16);
         return itemGeometries[wtype][index];
+    }
+
+    ImVec2 WidgetContextData::GetSize(int32_t id) const
+    {
+        auto index = id & 0xffff;
+        auto wtype = (WidgetType)(id >> 16);
+        return itemSizes[wtype][index];
     }
 
     ImRect WidgetContextData::GetLayoutSize() const
@@ -919,6 +937,8 @@ namespace glimmer
         ImPlot::DestroyContext(ChartsContext);
     }
 
+    ImRect WidgetContextData::ActivePopUpRegion;
+    int32_t WidgetContextData::PopupTarget = -1;
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];

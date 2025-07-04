@@ -123,6 +123,18 @@ namespace glimmer
         WT_TotalTypes
     };
 
+    enum class LineType
+    {
+        Solid, Dashed, Dotted, DashDot
+    };
+
+    struct Border
+    {
+        uint32_t color = IM_COL32_BLACK_TRANS;
+        float thickness = 0.f;
+        LineType lineType = LineType::Solid; // Unused for rendering
+    };
+
     struct UIConfig
     {
         uint32_t bgcolor;
@@ -285,21 +297,42 @@ namespace glimmer
         bool clearButton = false;
     };
 
+    enum WidgetStateIndex
+    {
+        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
+        WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
+        WSI_Total
+    };
+
     struct DropDownState : public CommonWidgetData
     {
+        struct OptionDescriptor
+        {
+            std::string_view css[WSI_Total];
+            bool isSelectable = true;
+        };
+
         std::string_view text;
         TextType textType = TextType::PlainText;
         Direction dir;
         TextInputState input;
         int32_t inputId = -1;
         int32_t selected = -1;
+        int32_t hovered = -1;
+        int32_t width = -1; // how many characters wide
         int32_t* out = nullptr;
+        uint32_t optionHoverColor = ToRGBA(20, 20, 150);
+        uint32_t optionSelectionColor = ToRGBA(150, 150, 255);
         std::span<std::pair<WidgetType, std::string_view>> options;
         std::string_view prefix;
         int32_t prefixType = RT_SVG;
+        ImVec2 optionSpacing{ 2.f, 2.f };
+        Border separator;
         bool isComboBox = false;
         bool opened = false;
+        bool hasSelection = true;
         bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
+        OptionDescriptor(*OptionStyle)(int32_t) = nullptr;
     };
 
     enum TabItemProperty
@@ -591,4 +624,11 @@ namespace glimmer
         }
         return result;
     }
+
+    enum PopUpRenderPhase
+    {
+        PRP_BeforePrimitives, PRP_AfterPrimitives, PRP_AfterEvents, PRP_Total
+    };
+
+    using PopUpCallbackT = void (*)(void*, IRenderer&, ImVec2, const ImRect&);
 }
