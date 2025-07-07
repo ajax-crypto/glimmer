@@ -556,9 +556,10 @@ namespace glimmer
         AlignTop = 1 << 9, AlignBottom = 1 << 10,
         AlignLeft = 1 << 11, AlignRight = 1 << 12,
         AlignHCenter = 1 << 13, AlignVCenter = 1 << 14,
+        AlignJustify = 1 << 15,
         AlignCenter = AlignHCenter | AlignVCenter,
 
-        OnlyOnce = 1 << 16,
+        OnlyOnce = 1 << 16, ExplicitH = 1 << 17, ExplicitV = 1 << 18,
         FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
         ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,
         ToTopLeft = ToTop | ToLeft, ToTopRight = ToTop | ToRight

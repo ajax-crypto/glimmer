@@ -57,7 +57,11 @@ namespace glimmer
         assert(ptr != nullptr);
         auto it = OutPtrIds[type].find(ptr);
         if (it == OutPtrIds[type].end())
-            return { OutPtrIds[type].emplace(ptr, GetNextId(type)).first->second, true };
+        {
+            //BREAK_IF(type == WT_TextInput);
+            auto id = GetNextId(type);
+            return { OutPtrIds[type].emplace(ptr, id).first->second, true };
+        }
         return { it->second, false };
     }
 
@@ -1144,6 +1148,7 @@ namespace glimmer
                 io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
             if (ismouseover && io.clicked())
                 result.event = WidgetEvent::Clicked;
+            if (ismouseover) Config.platform->SetMouseCursor(MouseCursor::Grab);
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForButton(id, margin, border, padding, content, text));
@@ -1837,7 +1842,7 @@ namespace glimmer
 
 #pragma region TextInput
 
-    static void UpdatePosition(const TextInputState& state, int index, InputTextInternalState& input, const StyleDescriptor& style, IRenderer& renderer)
+    static void UpdatePosition(const TextInputState& state, int index, InputTextPersistentState& input, const StyleDescriptor& style, IRenderer& renderer)
     {
         for (auto idx = index; idx < (int)state.text.size(); ++idx)
         {
@@ -1846,7 +1851,7 @@ namespace glimmer
         }
     }
 
-    static void RemoveCharAt(int position, TextInputState& state, InputTextInternalState& input)
+    static void RemoveCharAt(int position, TextInputState& state, InputTextPersistentState& input)
     {
         auto diff = input.pixelpos[position] - (position == 0 ? 0.f : input.pixelpos[position - 1]);
         auto& op = input.ops.push();
@@ -1867,7 +1872,7 @@ namespace glimmer
         input.pixelpos.pop_back(true);
     }
 
-    static void ClearAllText(TextInputState& state, InputTextInternalState& input)
+    static void ClearAllText(TextInputState& state, InputTextPersistentState& input)
     {
         auto& op = input.ops.push();
         auto selectionsz = (int)state.text.size();
@@ -1886,7 +1891,7 @@ namespace glimmer
         input.selectionStart = -1.f;
     }
 
-    static void DeleteSelectedText(TextInputState& state, InputTextInternalState& input)
+    static void DeleteSelectedText(TextInputState& state, InputTextPersistentState& input)
     {
         auto from = std::max(state.selection.first, state.selection.second) + 1,
             to = std::min(state.selection.first, state.selection.second);
@@ -2372,7 +2377,7 @@ namespace glimmer
         ImRect clear;
         auto& context = GetContext();
         auto& input = context.InputTextState(id);
-        const auto& config = GetWidgetConfig(id).state.input;
+        const auto& config = context.GetState(id).state.input;
         ImRect content = text;
 
         if (state.state & WS_Focused)
@@ -2563,7 +2568,7 @@ namespace glimmer
                         auto startpos = adhoc.nextpos;
                         int32_t stylesAdded = 0;
 
-                        BeginFlexLayout(DIR_Horizontal, 0, TextAlignVCenter | TextAlignLeft,
+                        BeginFlexLayout(DIR_Horizontal, AlignVCenter | AlignLeft,
                             false, state.optionSpacing, state.width == -1 ? ImVec2{ border.GetWidth(), 0.f } : ImVec2{});
                         auto type = (WidgetType)(optstate.first >> 16);
                         Widget(optstate.first, type, ToBottomRight, {});
@@ -6008,6 +6013,12 @@ namespace glimmer
         return Widget(id, WT_TextInput, geometry, neighbors);
     }
 
+    WidgetDrawResult TextInput(char* out, int size, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto length = strlen(out);
+        return TextInput(out, size, length, placeholder, geometry, neighbors);
+    }
+
     WidgetDrawResult TextInput(char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto [id, initial] = GetIdFromOutPtr(out, WT_TextInput);
@@ -6093,7 +6104,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto id = context.maxids[type];
-        if (type == WT_SplitterRegion || type == WT_Charts) context.maxids[type]++;
+        //if (type == WT_SplitterRegion || type == WT_Charts) 
         
         if (id == context.states[type].size())
         {
@@ -6139,6 +6150,7 @@ namespace glimmer
             }
         }
 
+        context.maxids[type]++;
         return id;
     }
 
@@ -6147,7 +6159,7 @@ namespace glimmer
         auto& context = GetContext();
         int32_t wid = id;
         wid = wid | (type << 16);
-        context.maxids[type]++;
+
         if (context.InsideFrame)
             context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
 

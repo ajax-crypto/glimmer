@@ -1289,6 +1289,20 @@ namespace glimmer
         PushStyle(state, buffer);
     }
 
+    void PushStyleFmt(std::string_view fmt, ...)
+    {
+        static char buffer[4096] = { 0 };
+
+        std::memset(buffer, 0, 4096);
+        va_list args;
+        va_start(args, fmt);
+        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
+        buffer[std::min(sz, 4095)] = 0;
+        va_end(args);
+
+        PushStyle(buffer);
+    }
+
     void PushStyle(int32_t state, std::string_view css)
     {
         auto& context = GetContext();
@@ -1336,7 +1350,7 @@ namespace glimmer
     }
 
 #if 0
-    std::pair<Sizing, bool> ParseLayoutStyle(LayoutDescriptor& layout, std::string_view css, float pwidth, float pheight)
+    std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight)
     {
         auto sidx = 0;
         Sizing sizing;

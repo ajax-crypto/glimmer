@@ -216,8 +216,7 @@ void TestWindow(glimmer::UIConfig& config)
             if (StartAccordionContent())
             {
                 //Move(FD_Horizontal);
-                BeginFlexLayout(DIR_Horizontal, FD_Horizontal | FD_Vertical, TextAlignCenter,
-                    false, { 5.f, 5.f });
+                BeginFlexLayout(DIR_Horizontal, AlignHCenter | ExpandAll, false, { 5.f, 5.f });
                 {
                     Label(widgets[BOTTOM]);
                     Move(FD_Horizontal);

@@ -55,7 +55,7 @@ namespace glimmer
         }
     }
 
-    void LayoutDescriptor::reset()
+    void LayoutBuilder::reset()
     {
         type = Layout::Invalid;
         id = 0;
@@ -65,15 +65,19 @@ namespace glimmer
         currow = -1, currcol = -1;
         NextEnabledStyles = 0;
         geometry = ImRect{ { FIT_SZ, FIT_SZ },{ FIT_SZ, FIT_SZ } };
+        available = ImRect{ };
         nextpos = ImVec2{ 0.f, 0.f };
         prevpos = ImVec2{ 0.f, 0.f };
         spacing = ImVec2{ 0.f, 0.f };
         maxdim = ImVec2{ 0.f, 0.f };
+        startpos = ImVec2{ 0.f, 0.f };
         cumulative = ImVec2{ 0.f, 0.f };
+        size = ImVec2{ 0.f, 0.f };
         hofmode = OverflowMode::Scroll;
         vofmode = OverflowMode::Scroll;
         scroll = ScrollableRegion{};
         popSizingOnEnd = false;
+        currspan.first = currspan.second = 1;
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
@@ -88,7 +92,7 @@ namespace glimmer
         cols.clear(true);
     }
 
-    void TabBarDescriptor::reset()
+    void TabBarBuilder::reset()
     {
         id = -1;
         geometry = 0;
@@ -832,7 +836,7 @@ namespace glimmer
         }
     }
     
-    SplitterInternalState::SplitterInternalState()
+    SplitterPersistentState::SplitterPersistentState()
     {
         for (auto idx = 0; idx < GLIMMER_MAX_SPLITTER_REGIONS; ++idx)
         {

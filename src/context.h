@@ -1,3 +1,37 @@
+// =====================================================================
+//                    !!! W A R N I N G !!!
+// =====================================================================
+// 
+// This file should never be a part of the PUBLIC API, this contains "internal" persistent
+// states of widgets and context management for nested widgets and popups. 
+// In case of single-header version of this library, the contents here should go to an
+// "internal" or anonymous namespace inside the "glimmer" namespace
+// 
+// =====================================================================
+//                    WHAT IS THIS FILE???
+// =====================================================================
+//
+// There are two kinds of data here:
+// 1. *PersistentData structs which store data that has to persist across "frames"
+// 2. *Builder structs, which store data necessary to create composite widgets
+//
+// *Builder structs are not persistent data, and hence created, used and destroyed every frame.
+// As *PersistentData structs have to be persisted, WidgetContextData struct takes care of it.
+// Such data is stored at a "per-widget" level, as the data is heterogenous in nature.
+// 
+// Layout stacks are also maintained by the same context data. As computing widget geometry inside
+// layouts involve the knowledge of all descendants inside the layout, the actual geometry and hence
+// the event handling is deferred until `EndLayout` is called. To capture defered event handling
+// instead of capturing lambda's as `std::function`, which is both heavy-weight and incurs virtual
+// function call, only the data required to handle events is recorded. It is replayed once the 
+// geometry of widgets are computed and rendered.
+// 
+// It also maintains a style stack, which is shared across all contexts i.e. independent of
+// stacked contexts. Style data is maintained per "predefined widget state". Refer to WidgetState
+// enum in types.h to see the supported states. 
+//
+// TODO: Add the ability for custom widget states (required for robust cusotm widget support)
+
 #pragma once
 
 #include "types.h"
@@ -21,12 +55,12 @@
 #define GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL 4
 #endif
 
+#ifndef GLIMMER_MAX_LAYOUT_NESTING 
+#define GLIMMER_MAX_LAYOUT_NESTING 8
+#endif
+
 namespace glimmer
 {
-    // =============================================================================================
-    // STATIC DATA
-    // =============================================================================================
-
     inline UIConfig Config{};
 
     struct AnimationData
@@ -48,14 +82,20 @@ namespace glimmer
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
+    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
+
+    struct RendererEventIndexRange
+    {
+        std::pair<int, int> primitives{ -1, -1 };
+        std::pair<int, int> events{ -1, -1 };
+    };
+
+#pragma region Widget Specific Persistent-States/Builders
+
     struct ItemGridStyleDescriptor
     {
         uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
     };
-
-#ifndef GLIMMER_MAX_LAYOUT_NESTING 
-#define GLIMMER_MAX_LAYOUT_NESTING 8
-#endif
 
     enum class ItemGridCurrentState
     {
@@ -170,12 +210,6 @@ namespace glimmer
         }
     };
 
-    struct RendererEventIndexRange
-    {
-        std::pair<int, int> primitives{ -1, -1 };
-        std::pair<int, int> events{ -1, -1 };
-    };
-
     struct ColumnProps : public ItemGridConfig::ColumnConfig
     {
         ImVec2 offset;
@@ -250,21 +284,21 @@ namespace glimmer
         void reset();
     };
 
-    struct ToggleButtonInternalState
+    struct ToggleButtonPersistentState
     {
         float btnpos = -1.f;
         float progress = 0.f;
         bool animate = false;
     };
 
-    struct RadioButtonInternalState
+    struct RadioButtonPersistentState
     {
         float radius = -1.f;
         float progress = 0.f;
         bool animate = false;
     };
 
-    struct CheckboxInternalState
+    struct CheckboxPersistentState
     {
         float progress = -1.f;
         bool animate = false;
@@ -280,7 +314,7 @@ namespace glimmer
         TextOpType type;
     };
 
-    struct InputTextInternalState
+    struct InputTextPersistentState
     {
         int caretpos = 0;
         int32_t clearState = WS_Default;
@@ -321,7 +355,7 @@ namespace glimmer
         bool isScrollable = false;
     };
 
-    struct SplitterInternalState
+    struct SplitterPersistentState
     {
         struct SplitRange
         {
@@ -337,35 +371,14 @@ namespace glimmer
         bool isdragged[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
         float dragstart[GLIMMER_MAX_SPLITTER_REGIONS]; // ith drag state
 
-        SplitterInternalState();
+        SplitterPersistentState();
     };
 
-    struct SpinnerInternalState
+    struct SpinnerPersistentState
     {
         float lastChangeTime = 0.f;
         float repeatRate = 0.f;
     };
-
-    struct LayoutItemDescriptor
-    {
-        WidgetType wtype = WidgetType::WT_Invalid;
-        int32_t id = -1;
-        ImRect margin, border, padding, content, text;
-        ImRect prefix, suffix;
-        ImVec2 relative;
-        ImVec2 extent;
-        int32_t sizing = 0;
-        int16_t row = 0, col = 0;
-        int16_t from = -1, to = -1;
-        void* implData = nullptr;
-        bool isComputed = false;
-        bool closing = false;
-        bool hscroll = false, vscroll = false;
-    };
-
-    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget, AddLayout };
-
-    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
 
     struct TabItemDescriptor
     {
@@ -375,7 +388,7 @@ namespace glimmer
         int32_t itemflags = 0;
     };
 
-    struct TabBarDescriptor
+    struct TabBarBuilder
     {
         int32_t id;
         int32_t geometry;
@@ -386,58 +399,7 @@ namespace glimmer
         TextType expandType = TextType::PlainText;
         bool newTabButton = false;
 
-        TabBarDescriptor() {}
-
-        void reset();
-    };
-
-    struct GridLayoutItem
-    {
-        ImVec2 maxdim;
-        ImRect bbox;
-        int16_t row = -1, col = -1;
-        int16_t rowspan = 1, colspan = 1;
-        int32_t alignment = TextAlignLeading;
-        int16_t index = -1;
-    };
-
-    struct LayoutDescriptor
-    {
-        Layout type = Layout::Invalid;
-        int32_t id = 0;
-        int32_t fill = FD_None;
-        int32_t alignment = TextAlignLeading;
-        int16_t from = -1, to = -1, itemidx = -1;
-        int16_t styleStartIdx[WSI_Total];
-        int16_t currow = -1, currcol = -1;
-        int32_t NextEnabledStyles = 0;
-        ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
-        ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f };
-        ImVec2 spacing{ 0.f, 0.f };
-        ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
-        ImVec2 cumulative{ 0.f, 0.f };
-        ImRect extent{}; // max coords of widgets inside layout
-        Vector<ImVec2, int16_t> rows;
-        Vector<ImVec2, int16_t> cols;
-        Vector<int16_t, int16_t> griditems{ false };
-        std::pair<int, int> gridsz;
-        std::pair<int16_t, int16_t> currspan;
-        ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
-        OverflowMode hofmode = OverflowMode::Scroll;
-        OverflowMode vofmode = OverflowMode::Scroll;
-        ScrollableRegion scroll;
-        bool popSizingOnEnd = false;
-
-        Vector<LayoutDescriptor, int16_t, 16> children{ false };
-        Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
-        FixedSizeStack<int32_t, 16> containerStack;
-        Vector<TabBarDescriptor, int16_t, 8> tabbars{ false };
-        StyleDescriptor currstyle[WSI_Total];
-
-        LayoutDescriptor() 
-        {
-            for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
-        }
+        TabBarBuilder() {}
 
         void reset();
     };
@@ -447,7 +409,7 @@ namespace glimmer
     constexpr int16_t ExpandTabsIndex = -3;
     constexpr int16_t InvalidTabIndex = -4;
 
-    struct TabBarInternalState
+    struct TabBarPersistentState
     {
         struct ItemDescriptor
         {
@@ -505,22 +467,97 @@ namespace glimmer
         void reset();
     };
 
-    struct AccordionInternalState
+    struct AccordionPersistentState
     {
         int16_t opened = -1;
         Vector<ScrollableRegion, int16_t, 8> scrolls;
         Vector<int32_t, int16_t, 8> hstates;
     };
 
-    void AddItemToLayout(LayoutDescriptor& layout, LayoutItemDescriptor& item, const StyleDescriptor& style);
+#pragma endregion
+
+#pragma region Layout Types
+
+    struct GridLayoutItem
+    {
+        ImVec2 maxdim;
+        ImRect bbox;
+        int16_t row = -1, col = -1;
+        int16_t rowspan = 1, colspan = 1;
+        int32_t alignment = TextAlignLeading;
+        int16_t index = -1;
+    };
+
+    struct LayoutItemDescriptor
+    {
+        WidgetType wtype = WidgetType::WT_Invalid;
+        int32_t id = -1;
+        ImRect margin, border, padding, content, text;
+        ImRect prefix, suffix;
+        ImVec2 relative;
+        ImVec2 extent;
+        int32_t sizing = 0;
+        int16_t row = 0, col = 0;
+        int16_t from = -1, to = -1;
+        void* implData = nullptr;
+        bool isComputed = false;
+        bool closing = false;
+        bool hscroll = false, vscroll = false;
+    };
+
+    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget, AddLayout };
+
+    struct LayoutBuilder
+    {
+        Layout type = Layout::Invalid;
+        int32_t id = 0;
+        int32_t fill = FD_None;
+        int32_t alignment = TextAlignLeading;
+        int16_t from = -1, to = -1, itemidx = -1;
+        int16_t styleStartIdx[WSI_Total];
+        int16_t currow = -1, currcol = -1;
+        int32_t NextEnabledStyles = 0;
+        ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
+        ImRect available;
+        ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f }, startpos{};
+        ImVec2 spacing{ 0.f, 0.f };
+        ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
+        ImVec2 cumulative{ 0.f, 0.f }, size{};
+        ImRect extent{}; // max coords of widgets inside layout
+        Vector<ImVec2, int16_t> rows;
+        Vector<ImVec2, int16_t> cols;
+        Vector<int16_t, int16_t> griditems{ false };
+        std::pair<int, int> gridsz;
+        std::pair<int16_t, int16_t> currspan{ 1, 1 };
+        ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
+        OverflowMode hofmode = OverflowMode::Scroll;
+        OverflowMode vofmode = OverflowMode::Scroll;
+        ScrollableRegion scroll;
+        bool popSizingOnEnd = false;
+
+        Vector<LayoutBuilder, int16_t, 16> children{ false };
+        Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
+        FixedSizeStack<int32_t, 16> containerStack;
+        Vector<TabBarBuilder, int16_t, 8> tabbars{ false };
+        StyleDescriptor currstyle[WSI_Total];
+
+        LayoutBuilder()
+        {
+            for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
+        }
+
+        void reset();
+    };
+
+    void AddItemToLayout(LayoutBuilder& layout, LayoutItemDescriptor& item, const StyleDescriptor& style);
 
     // Determine extent of layout/splitter/other containers
     void AddExtent(LayoutItemDescriptor& wdesc, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         float width = 0.f, float height = 0.f);
 
-    void AddFontPtr(FontStyle& font);
-    void InitFrameData();
-    void ResetFrameData();
+#pragma endregion
+
+#pragma region Defered Handling
 
     struct EventDeferInfo
     {
@@ -610,6 +647,10 @@ namespace glimmer
         NestedContextSourceType source = NestedContextSourceType::None;
     };
 
+#pragma endregion
+
+#pragma region Widget Context Data
+
     // Captures widget states, is stored as a linked-list, each context representing
     // a window or overlay, this enables serialized Id's for nested overlays as well
     struct WidgetContextData
@@ -617,20 +658,20 @@ namespace glimmer
         // This is quasi-persistent
         std::vector<WidgetConfigData> states[WT_TotalTypes];
         std::vector<ItemGridPersistentState> gridStates;
-        std::vector<TabBarInternalState> tabStates;
-        std::vector<ToggleButtonInternalState> toggleStates;
-        std::vector<RadioButtonInternalState> radioStates;
-        std::vector<CheckboxInternalState> checkboxStates;
-        std::vector<InputTextInternalState> inputTextStates;
-        std::vector<SplitterInternalState> splitterStates;
-        std::vector<SpinnerInternalState> spinnerStates;
-        std::vector<TabBarInternalState> tabBarStates;
-        std::vector<AccordionInternalState> accordionStates;
+        std::vector<TabBarPersistentState> tabStates;
+        std::vector<ToggleButtonPersistentState> toggleStates;
+        std::vector<RadioButtonPersistentState> radioStates;
+        std::vector<CheckboxPersistentState> checkboxStates;
+        std::vector<InputTextPersistentState> inputTextStates;
+        std::vector<SplitterPersistentState> splitterStates;
+        std::vector<SpinnerPersistentState> spinnerStates;
+        std::vector<TabBarPersistentState> tabBarStates;
+        std::vector<AccordionPersistentState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
         
         // Tab bars are not nested
-        TabBarDescriptor currentTab;
+        TabBarBuilder currentTab;
 
         // Stack of current item grids
         DynamicStack<ItemGridBuilder, int16_t, 4> itemGrids{ false };
@@ -695,7 +736,7 @@ namespace glimmer
         };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
-        FixedSizeStack<LayoutDescriptor, GLIMMER_MAX_LAYOUT_NESTING> layouts;
+        FixedSizeStack<LayoutBuilder, GLIMMER_MAX_LAYOUT_NESTING> layouts;
         FixedSizeStack<AccordionBuilder, 4> accordions;
         FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
         FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
@@ -742,61 +783,61 @@ namespace glimmer
             return gridStates[index];
         }
 
-        TabBarInternalState& TabStates(int32_t id)
+        TabBarPersistentState& TabStates(int32_t id)
         {
             auto index = id & 0xffff;
             return tabStates[index];
         }
 
-        ToggleButtonInternalState& ToggleState(int32_t id)
+        ToggleButtonPersistentState& ToggleState(int32_t id)
         {
             auto index = id & 0xffff;
             return toggleStates[index];
         }
 
-        RadioButtonInternalState& RadioState(int32_t id)
+        RadioButtonPersistentState& RadioState(int32_t id)
         {
             auto index = id & 0xffff;
             return radioStates[index];
         }
 
-        CheckboxInternalState& CheckboxState(int32_t id)
+        CheckboxPersistentState& CheckboxState(int32_t id)
         {
             auto index = id & 0xffff;
             return checkboxStates[index];
         }
 
-        InputTextInternalState& InputTextState(int32_t id)
+        InputTextPersistentState& InputTextState(int32_t id)
         {
             auto index = id & 0xffff;
             return inputTextStates[index];
         }
 
-        SplitterInternalState& SplitterState(int32_t id)
+        SplitterPersistentState& SplitterState(int32_t id)
         {
             auto index = id & 0xffff;
             return splitterStates[index];
         }
 
-        SpinnerInternalState& SpinnerState(int32_t id)
+        SpinnerPersistentState& SpinnerState(int32_t id)
         {
             auto index = id & 0xffff;
             return spinnerStates[index];
         }
 
-        TabBarInternalState& TabBarState(int32_t id)
+        TabBarPersistentState& TabBarState(int32_t id)
         {
             auto index = id & 0xffff;
             return tabBarStates[index];
         }
 
-        AccordionInternalState& AccordionState(int32_t id)
+        AccordionPersistentState& AccordionState(int32_t id)
         {
             auto index = id & 0xffff;
             return accordionStates[index];
         }
 
-        const AccordionInternalState& AccordionState(int32_t id) const
+        const AccordionPersistentState& AccordionState(int32_t id) const
         {
             auto index = id & 0xffff;
             return accordionStates[index];
@@ -843,12 +884,17 @@ namespace glimmer
         WidgetContextData();
     };
 
+    void AddFontPtr(FontStyle& font);
+    void InitFrameData();
+    void ResetFrameData();
     WidgetContextData& GetContext();
     WidgetContextData& PushContext(int32_t id);
     void PopContext();
     void Cleanup();
 
     inline NestedContextSource InvalidSource{};
+
+#pragma endregion
 
     /*
     struct WidgetContextData;

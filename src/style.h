@@ -4,7 +4,7 @@
 
 namespace glimmer
 {
-    struct LayoutDescriptor;
+    struct LayoutBuilder;
 
     [[nodiscard]] uint32_t GetColor(const char* name, void*);
 
@@ -265,10 +265,11 @@ namespace glimmer
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
     void PushStyleFmt(int32_t state, std::string_view fmt, ...);
+    void PushStyleFmt(std::string_view fmt, ...);
     void PushStyle(int32_t state, std::string_view css);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
-    std::pair<Sizing, bool> ParseLayoutStyle(LayoutDescriptor& layout, std::string_view css, float pwidth, float pheight);
+    std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
 
 #define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
 }
