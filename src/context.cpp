@@ -1,6 +1,7 @@
 #include "context.h"
 #include "im_font_manager.h"
 #include "renderer.h"
+#include "style.h"
 #include "libs/inc/implot/implot.h"
 #include <list>
 
@@ -20,6 +21,7 @@ namespace glimmer
     static bool StartedRendering = false;
     static bool HasImPlotContext = false;
     static bool RemovePopupAtFrameExit = false;
+    static int32_t IgnoreStyleStackBits = -1;
 
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
     void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -86,7 +88,7 @@ namespace glimmer
 
         itemIndexes.clear(true);
         griditems.clear(true);
-        tabbars.clear(false);
+        //tabbars.clear(false);
         containerStack.clear(true);
         rows.clear(true);
         cols.clear(true);
@@ -231,8 +233,8 @@ namespace glimmer
         if (!containerStack.empty())
         {
             auto id = containerStack.top();
-            auto index = id & 0xffff;
-            auto type = (WidgetType)(id >> 16);
+            auto index = id & WidgetIndexMask;
+            auto type = (WidgetType)(id >> WidgetTypeBits);
 
             if (type == WT_Accordion)
             {
@@ -323,6 +325,75 @@ namespace glimmer
         layoutReplayContent.emplace_back(data, ops);
     }
 
+    int32_t WidgetContextData::GetNextCount(WidgetType type)
+    {
+        auto count = maxids[type];
+
+        if (count == states[type].size())
+        {
+            auto sz = Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(type) :
+                WidgetContextData::GetExpectedWidgetCount(type);
+            states[type].reserve(states[type].size() + sz);
+
+            auto oldsz = WidgetStyles[type].size();
+            WidgetStyles[type].expand_and_create(sz, false);
+
+            for (auto idx = 0; idx < sz; ++idx)
+            {
+                states[type].emplace_back(WidgetConfigData{ type });
+                auto& styles = WidgetStyles[type][idx + oldsz];
+
+                for (auto ws = 0; ws < WSI_Total; ++ws)
+                    styles[ws] = StyleDescriptor{};
+            }
+
+            switch (type)
+            {
+            case WT_Checkbox: {
+                checkboxStates.reserve(checkboxStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    checkboxStates.emplace_back();
+                break;
+            }
+            case WT_RadioButton: {
+                radioStates.reserve(radioStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    radioStates.emplace_back();
+                break;
+            }
+            case WT_TextInput: {
+                inputTextStates.reserve(inputTextStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    inputTextStates.emplace_back();
+                break;
+            }
+            case WT_ToggleButton: {
+                toggleStates.reserve(toggleStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    toggleStates.emplace_back();
+                break;
+            }
+            case WT_Spinner: {
+                spinnerStates.reserve(spinnerStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    spinnerStates.emplace_back();
+                break;
+            }
+            case WT_DropDown: {
+                dropDownOptions.reserve(spinnerStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    dropDownOptions.emplace_back();
+                break;
+            }
+                           // TODO: Add others...
+            default: break;
+            }
+        }
+
+        maxids[type]++;
+        return count;
+    }
+
     StyleDescriptor WidgetContextData::GetStyle(int32_t state)
     {
         auto style = log2((unsigned)state);
@@ -330,6 +401,42 @@ namespace glimmer
         AddFontPtr(res.font);
         if (style != WSI_Default) CopyStyle(StyleStack[WSI_Default].top(), res);
         return res;
+    }
+
+    void WidgetContextData::IgnoreStyleStack(int32_t wtypes)
+    {
+        IgnoreStyleStackBits = IgnoreStyleStackBits == -1 ? wtypes : IgnoreStyleStackBits | wtypes;
+    }
+
+    void WidgetContextData::RestoreStyleStack()
+    {
+        IgnoreStyleStackBits = -1;
+    }
+
+    StyleDescriptor WidgetContextData::GetStyle(int32_t state, int32_t id)
+    {
+        return glimmer::GetStyle(*this, id, StyleStack, state);
+    }
+
+    void WidgetContextData::RegisterWidgetIdClass(WidgetType wt, int32_t index, const WidgetIdClasses& idClasses)
+    {
+        if (!idClasses.classes.empty())
+        {
+            for (int i = 0; i < idClasses.classes.size(); ++i)
+            {
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    auto& style = glimmer::GetStyle(idClasses.classes[i], (WidgetStateIndex)idx);
+                    WidgetStyles[wt][index][idx].From(style);
+                }
+            }
+        }
+
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            auto& style = glimmer::GetStyle(idClasses.id, (WidgetStateIndex)idx);
+            WidgetStyles[wt][index][idx].From(style);
+        }
     }
 
     void WidgetContextData::RemovePopup()
@@ -361,7 +468,7 @@ namespace glimmer
         if (!containerStack.empty())
         {
             auto id = containerStack.top();
-            auto wtype = (WidgetType)(id >> 16);
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
             if (wtype == WT_Accordion)
             {
@@ -376,8 +483,8 @@ namespace glimmer
 
     void WidgetContextData::PushContainer(int32_t parentId, int32_t id)
     {
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
         if (wtype == WT_SplitterRegion)
             splitterScrollPaneParentIds[index] = parentId;
@@ -389,8 +496,8 @@ namespace glimmer
     {
         containerStack.pop(1, true);
 
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
         if (wtype == WT_SplitterRegion)
         {
@@ -414,8 +521,8 @@ namespace glimmer
     
     void WidgetContextData::AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent)
     {
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
         if (index >= itemGeometries[wtype].size())
         {
@@ -429,11 +536,11 @@ namespace glimmer
         if (!containerStack.empty() && !ignoreParent)
         {
             id = containerStack.top();
-            wtype = (WidgetType)(id >> 16);
+            wtype = (WidgetType)(id >> WidgetTypeBits);
 
             if (wtype == WT_Scrollable)
             {
-                index = id & 0xffff;
+                index = id & WidgetIndexMask;
                 auto& region = states[wtype][index].state.scroll;
                 region.content.x = std::max(region.content.x, geometry.Max.x);
                 region.content.y = std::max(region.content.y, geometry.Max.y);
@@ -455,8 +562,8 @@ namespace glimmer
 
     void WidgetContextData::AddItemSize(int id, ImVec2 sz)
     {
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
         if (index >= itemSizes[wtype].size())
         {
@@ -695,15 +802,15 @@ namespace glimmer
 
     const ImRect& WidgetContextData::GetGeometry(int32_t id) const
     {
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
         return itemGeometries[wtype][index];
     }
 
     ImVec2 WidgetContextData::GetSize(int32_t id) const
     {
-        auto index = id & 0xffff;
-        auto wtype = (WidgetType)(id >> 16);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
         return itemSizes[wtype][index];
     }
 
@@ -718,8 +825,8 @@ namespace glimmer
         if (!containerStack.empty())
         {
             auto id = containerStack.top();
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
+            auto index = id & WidgetIndexMask;
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
             if (wtype == WT_ItemGrid)
             {
@@ -729,8 +836,8 @@ namespace glimmer
             }
             else if (wtype == WT_Scrollable)
             {
-                auto index = id & 0xffff;
-                auto type = id >> 16;
+                auto index = id & WidgetIndexMask;
+                auto type = id >> WidgetTypeBits;
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x : region.viewport.GetWidth(),
                     (region.type & ST_Vertical) ? region.extent.y : region.viewport.GetHeight() };
@@ -763,8 +870,8 @@ namespace glimmer
         if (!containerStack.empty())
         {
             auto id = containerStack.top();
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
+            auto index = id & WidgetIndexMask;
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
             if (wtype == WT_ItemGrid)
             {
@@ -775,8 +882,8 @@ namespace glimmer
             }
             else if (wtype == WT_Scrollable)
             {
-                auto index = id & 0xffff;
-                auto type = id >> 16;
+                auto index = id & WidgetIndexMask;
+                auto type = id >> WidgetTypeBits;
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
                     (region.type & ST_Vertical) ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
@@ -811,11 +918,23 @@ namespace glimmer
         auto ispopup = popupOrigin.x != -1.f;
         return ispopup ? popupSize : rect.GetSize();
     }
+
+    int WidgetContextData::GetExpectedWidgetCount(WidgetType type)
+    {
+        switch (type)
+        {
+            case WT_ItemGrid: return 4;
+            case WT_TabBar: return 8;
+            case WT_Splitter: return 4;
+            case WT_Accordion: return 4;
+            case WT_DropDown: return 16;
+            default: return 32; // Default for other widget types
+        }
+    }
     
     WidgetContextData::WidgetContextData()
     {
-        gridStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ItemGrid) : 4);
-        tabStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 8);
+       /* tabStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 8);
         toggleStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ToggleButton) : 32);
         radioStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_RadioButton) : 32);
         checkboxStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Checkbox) : 32);
@@ -824,15 +943,39 @@ namespace glimmer
         spinnerStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Spinner) : 8);
         tabBarStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 4);
         accordionStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Accordion) : 4);
-        splitterScrollPaneParentIds.resize((Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_SplitterRegion) : 32) 
-            * GLIMMER_MAX_SPLITTER_REGIONS, -1);
-        dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);
+        dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);*/
 
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
             maxids[idx] = tempids[idx] = 0;
-            states[idx].resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 32, 
-                WidgetConfigData{ (WidgetType)idx });
+
+            if (idx != WT_Layout && idx != WT_Sublayout && idx != WT_Scrollable &&
+                idx != WT_SplitterRegion)
+            {
+                auto count = Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 
+                    GetExpectedWidgetCount((WidgetType)idx);
+                states[idx].resize(count, WidgetConfigData{ (WidgetType)idx });
+                WidgetStyles[idx].resize(count);
+
+                switch (idx)
+                {
+                case WT_ItemGrid: gridStates.resize(count); break;
+                case WT_TabBar: tabBarStates.resize(count); break;
+                case WT_ToggleButton: toggleStates.resize(count); break;
+                case WT_RadioButton: radioStates.resize(count); break;
+                case WT_Checkbox: checkboxStates.resize(count); break;
+                case WT_TextInput: inputTextStates.resize(count); break;
+                case WT_Spinner: spinnerStates.resize(count); break;
+                case WT_Splitter: 
+                    splitterStates.resize(count); 
+                    splitterScrollPaneParentIds.resize(count * GLIMMER_MAX_SPLITTER_REGIONS, -1);
+                    break;
+                case WT_Accordion: accordionStates.resize(count); break;
+                case WT_DropDown: dropDownOptions.resize(count); break;
+                default:
+                    break;
+                }
+            }
         }
     }
     
@@ -905,8 +1048,8 @@ namespace glimmer
         }
         else
         {
-            auto wtype = (id >> 16);
-            auto index = id & 0xffff;
+            auto wtype = (id >> WidgetTypeBits);
+            auto index = id & WidgetIndexMask;
 
             if ((int)CurrentContext->nestedContexts[wtype].size() <= index)
             {
@@ -939,6 +1082,33 @@ namespace glimmer
     void Cleanup()
     {
         ImPlot::DestroyContext(ChartsContext);
+    }
+
+    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT* StyleStack, int32_t state)
+    {
+        StyleDescriptor res;
+        StyleDescriptor const* defstyle = nullptr;
+        auto style = log2((unsigned)state);
+        auto wtype = id >> WidgetTypeBits;
+        auto index = id & WidgetIndexMask;
+
+        defstyle = &glimmer::GetWidgetStyle((WidgetType)wtype, WidgetStateIndex::WSI_Default);
+        res.From(glimmer::GetWidgetStyle((WidgetType)wtype, (WidgetStateIndex)style));
+
+        if (defstyle->specified == 0) defstyle = &(context.WidgetStyles[wtype][index][WSI_Default]);
+        res.From(context.WidgetStyles[wtype][index][style]);
+
+        if ((IgnoreStyleStackBits == -1) || !(IgnoreStyleStackBits & (1 << wtype)))
+        {
+            res.From(StyleStack[style].top());
+            defstyle = &(StyleStack[WSI_Default].top());
+        }
+        else if (defstyle->specified == 0)
+            defstyle = StyleStack[WSI_Default].begin();
+
+        AddFontPtr(res.font);
+        if (style != WSI_Default) CopyStyle(*defstyle, res);
+        return res;
     }
 
     ImRect WidgetContextData::ActivePopUpRegion;

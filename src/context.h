@@ -90,6 +90,12 @@ namespace glimmer
         std::pair<int, int> events{ -1, -1 };
     };
 
+    struct WidgetIdClasses
+    {
+        std::string_view id;
+        Vector<std::string_view, int16_t, 8> classes;
+    };
+
 #pragma region Widget Specific Persistent-States/Builders
 
     struct ItemGridStyleDescriptor
@@ -505,7 +511,7 @@ namespace glimmer
         bool hscroll = false, vscroll = false;
     };
 
-    enum class LayoutOps { PushStyle, PopStyle, SetStyle, AddWidget, AddLayout };
+    enum class LayoutOps { PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, AddWidget, AddLayout };
 
     struct LayoutBuilder
     {
@@ -535,11 +541,9 @@ namespace glimmer
         ScrollableRegion scroll;
         bool popSizingOnEnd = false;
 
-        Vector<LayoutBuilder, int16_t, 16> children{ false };
         Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
         FixedSizeStack<int32_t, 16> containerStack;
-        Vector<TabBarBuilder, int16_t, 8> tabbars{ false };
-        StyleDescriptor currstyle[WSI_Total];
+        //Vector<TabBarBuilder, int16_t, 8> tabbars{ false };
 
         LayoutBuilder()
         {
@@ -651,6 +655,9 @@ namespace glimmer
 
 #pragma region Widget Context Data
 
+    constexpr int32_t WidgetIndexMask = 0xffff;
+    constexpr int32_t WidgetTypeBits = 16;
+
     // Captures widget states, is stored as a linked-list, each context representing
     // a window or overlay, this enables serialized Id's for nested overlays as well
     struct WidgetContextData
@@ -658,7 +665,6 @@ namespace glimmer
         // This is quasi-persistent
         std::vector<WidgetConfigData> states[WT_TotalTypes];
         std::vector<ItemGridPersistentState> gridStates;
-        std::vector<TabBarPersistentState> tabStates;
         std::vector<ToggleButtonPersistentState> toggleStates;
         std::vector<RadioButtonPersistentState> radioStates;
         std::vector<CheckboxPersistentState> checkboxStates;
@@ -690,6 +696,8 @@ namespace glimmer
         static DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> sliderStyles[WSI_Total];
         static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
         static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
+
+        Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
 
         // This has to persistent
         std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
@@ -763,102 +771,101 @@ namespace glimmer
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;
 
+        int32_t GetNextCount(WidgetType type);
+
         WidgetConfigData& GetState(int32_t id)
         {
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
+            auto index = id & WidgetIndexMask;
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
             return states[wtype][index];
         }
 
         WidgetConfigData const& GetState(int32_t id) const
         {
-            auto index = id & 0xffff;
-            auto wtype = (WidgetType)(id >> 16);
+            auto index = id & WidgetIndexMask;
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
             return states[wtype][index];
         }
 
         ItemGridPersistentState& GridState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return gridStates[index];
-        }
-
-        TabBarPersistentState& TabStates(int32_t id)
-        {
-            auto index = id & 0xffff;
-            return tabStates[index];
         }
 
         ToggleButtonPersistentState& ToggleState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return toggleStates[index];
         }
 
         RadioButtonPersistentState& RadioState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return radioStates[index];
         }
 
         CheckboxPersistentState& CheckboxState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return checkboxStates[index];
         }
 
         InputTextPersistentState& InputTextState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return inputTextStates[index];
         }
 
         SplitterPersistentState& SplitterState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return splitterStates[index];
         }
 
         SpinnerPersistentState& SpinnerState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return spinnerStates[index];
         }
 
         TabBarPersistentState& TabBarState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return tabBarStates[index];
         }
 
         AccordionPersistentState& AccordionState(int32_t id)
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return accordionStates[index];
         }
 
         const AccordionPersistentState& AccordionState(int32_t id) const
         {
-            auto index = id & 0xffff;
+            auto index = id & WidgetIndexMask;
             return accordionStates[index];
         }
 
         ScrollableRegion& ScrollRegion(int32_t id)
         {
-            auto index = id & 0xffff;
-            auto type = id >> 16;
+            auto index = id & WidgetIndexMask;
+            auto type = id >> WidgetTypeBits;
             return states[type][index].state.scroll;
         }
 
         ScrollableRegion const& ScrollRegion(int32_t id) const
         {
-            auto index = id & 0xffff;
-            auto type = id >> 16;
+            auto index = id & WidgetIndexMask;
+            auto type = id >> WidgetTypeBits;
             return states[type][index].state.scroll;
         }
 
         static StyleDescriptor GetStyle(int32_t state);
+        static void IgnoreStyleStack(int32_t wtypes);
+        static void RestoreStyleStack();
         static void RemovePopup();
+        static int GetExpectedWidgetCount(WidgetType type);
 
         IRenderer& ToggleDeferedRendering(bool defer, bool reset = true);
         IRenderer& GetRenderer();
@@ -868,6 +875,9 @@ namespace glimmer
         void AddItemSize(int id, ImVec2 sz);
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
+        void RegisterWidgetIdClass(WidgetType wt, int32_t index, const WidgetIdClasses& idClasses);
+        StyleDescriptor GetStyle(int32_t state, int32_t id);
+        
         void RecordForReplay(int64_t data, LayoutOps ops);
         void ResetLayoutData();
         void ClearDeferredData();
@@ -891,6 +901,8 @@ namespace glimmer
     WidgetContextData& PushContext(int32_t id);
     void PopContext();
     void Cleanup();
+
+    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT* StyleStack, int32_t state);
 
     inline NestedContextSource InvalidSource{};
 

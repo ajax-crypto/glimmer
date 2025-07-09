@@ -4,9 +4,15 @@
 #include <cctype>
 #include <unordered_map>
 #include <variant>
+#include "style.h"
 
 namespace glimmer
 {
+    // This map, maps the styles to classes/ids which do not follow the style stack.
+    // When applying a style to a widget, any class/id specified with the widget will be used to lookup
+    // corresponding styles, merged (with the current stack as well), and then applied.
+    static std::unordered_map<std::string_view, StyleDescriptor[WSI_Total]> StyleSheet;
+
 #pragma optimize( "", on )
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
     {
@@ -592,7 +598,7 @@ namespace glimmer
         };
 
         auto it = Colors.find(name);
-        return it != Colors.end() ? it->second : uint32_t{ IM_COL32_BLACK };
+        return it != Colors.end() ? it->second : uint32_t{ 0 };
     }
 
     Border ExtractBorder(std::string_view input, float ems, float percent,
@@ -1329,6 +1335,57 @@ namespace glimmer
         }
     }
 
+    void SetStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css)
+    {
+        auto& dest = StyleSheet[id];
+
+        for (const auto& [state, style] : css)
+        {
+            if (!style.empty())
+            {
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                {
+                    auto ws = 1 << idx;
+                    if (ws & state)
+                        dest[idx].From(style);
+                }
+            }
+        }
+    }
+
+    void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...)
+    {
+        static char buffer[4096] = { 0 };
+
+        std::memset(buffer, 0, 4096);
+        va_list args;
+        va_start(args, fmt);
+        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
+        buffer[std::min(sz, 4095)] = 0;
+        va_end(args);
+
+        auto& dest = StyleSheet[id];
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            auto ws = 1 << idx;
+            if (ws & state)
+                dest[idx].From(buffer);
+        }
+    }
+
+    StyleDescriptor& GetStyle(std::string_view id, WidgetStateIndex index)
+    {
+        static StyleDescriptor invalid;
+        auto it = StyleSheet.find(id);
+        return it == StyleSheet.end() ? invalid : it->second[index];
+    }
+
+    StyleDescriptor& GetWidgetStyle(WidgetType type, WidgetStateIndex index)
+    {
+        auto name = Config.widgetNames[type];
+        return GetStyle(name, index);
+    }
+
     void PopStyle(int depth, int32_t state)
     {
         auto& context = GetContext();
@@ -1347,6 +1404,29 @@ namespace glimmer
                 context.StyleStack[style].pop(popsz, true);
             }
         }
+    }
+
+    void _IgnoreStyleStackInternal(int32_t wtypes)
+    {
+        if (!GetContext().layouts.empty())
+        {
+            auto& op = GetContext().layoutReplayContent.emplace_back();
+            op.first = wtypes;
+            op.second = LayoutOps::IgnoreStyleStack;
+        }
+
+        WidgetContextData::IgnoreStyleStack(wtypes);
+    }
+
+    void RestoreStyleStack()
+    {
+        if (!GetContext().layouts.empty())
+        {
+            auto& op = GetContext().layoutReplayContent.emplace_back();
+            op.second = LayoutOps::RestoreStyleStack;
+        }
+
+        WidgetContextData::RestoreStyleStack();
     }
 
 #if 0
@@ -1423,6 +1503,7 @@ namespace glimmer
 
         return { sizing, hasSizing };
     }
+    
 #endif // 0
 
     StyleDescriptor::StyleDescriptor()
@@ -1519,6 +1600,77 @@ namespace glimmer
 
         AddFontPtr(font);
         specified |= prop;
+        return *this;
+    }
+
+    StyleDescriptor& StyleDescriptor::From(const StyleDescriptor& style, bool overwrite)
+    {
+        for (auto idx = 0; idx < StyleTotal; ++idx)
+        {
+            auto styleprop = 1 << idx;
+            if (overwrite || !(styleprop & style.specified))
+            {
+                switch (styleprop)
+                {
+                case StyleBackground:
+                    bgcolor = style.bgcolor;
+                    gradient = style.gradient;
+                    break;
+                case StyleFgColor:
+                    fgcolor = style.fgcolor;
+                    break;
+                case StyleFontSize:
+                    font.size = style.font.size;
+                    break;
+                case StyleFontFamily:
+                    font.family = style.font.family;
+                    break;
+                case StyleFontWeight:
+                    font.flags |= style.font.flags & FontStyleBold ? FontStyleBold : FontStyleNormal;
+                    break;
+                case StyleHeight:
+                    dimension.y = style.dimension.y;
+                    break;
+                case StyleWidth:
+                    dimension.x = style.dimension.x;
+                    break;
+                case StyleHAlignment:
+                    alignment |= (style.alignment & TextAlignLeft) ? TextAlignLeft : 0;
+                    alignment |= (style.alignment & TextAlignRight) ? TextAlignRight : 0;
+                    alignment |= (style.alignment & TextAlignHCenter) ? TextAlignHCenter : 0;
+                    break;
+                case StyleVAlignment:
+                    alignment |= (style.alignment & TextAlignTop) ? TextAlignTop : 0;
+                    alignment |= (style.alignment & TextAlignBottom) ? TextAlignBottom : 0;
+                    alignment |= (style.alignment & TextAlignVCenter) ? TextAlignVCenter : 0;
+                    break;
+                case StylePadding:
+                    padding = style.padding;
+                    break;
+                case StyleMargin:
+                    margin = style.margin;
+                    break;
+                case StyleBorder:
+                    border = style.border;
+                    break;
+                case StyleBoxShadow:
+                    shadow = style.shadow;
+                    break;
+                case StyleBorderRadius:
+                {
+                    const auto& srcborder = style.border;
+                    auto& dstborder = border;
+                    dstborder.cornerRadius[0] = srcborder.cornerRadius[0];
+                    dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
+                    dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
+                    dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
+                }
+                break;
+                default: break;
+                }
+            }
+        }
+
         return *this;
     }
 

@@ -108,7 +108,7 @@ namespace glimmer
 
     struct IRenderer;
 
-    enum WidgetType
+    enum WidgetType : int32_t
     {
         WT_Invalid = -1,
         WT_Sublayout = -2,
@@ -158,6 +158,11 @@ namespace glimmer
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
         int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;
+        std::string_view widgetNames[WT_TotalTypes] = {
+            "label", "button", "radio", "toggle", "checkbox", "layout",
+            "scroll", "splitter", "invalid", "accordion", "slider", "spinner",
+            "text", "dropdown", "tab", "itemgrid", "chart"
+        };
         void* userData = nullptr;
     };
 
@@ -297,7 +302,7 @@ namespace glimmer
         bool clearButton = false;
     };
 
-    enum WidgetStateIndex
+    enum WidgetStateIndex : int32_t
     {
         WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
         WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,

@@ -745,7 +745,7 @@ namespace glimmer
             AllFlexItems.push_back(child);
 
             // Record this widget for rendering once geometry is determined
-            auto wt = (WidgetType)(item.id >> 16);
+            auto wt = (WidgetType)(item.id >> WidgetTypeBits);
             if (wt != WT_Layout)
                 GetContext().RecordForReplay((AllFlexItems.size() - 1), LayoutOps::AddWidget);
         }
@@ -791,7 +791,7 @@ namespace glimmer
 
             // Record this widget for rendering once geometry is determined
             item.implData = reinterpret_cast<void*>(GridLayoutItems.size() - 1);
-            auto wt = (WidgetType)(item.id >> 16);
+            auto wt = (WidgetType)(item.id >> WidgetTypeBits);
             if (wt != WT_Layout)
                 GetContext().RecordForReplay((GridLayoutItems.size() - 1) | GridLayoutMask, LayoutOps::AddWidget);
         }
@@ -922,7 +922,7 @@ namespace glimmer
         /*if (!context.containerStack.empty())
         {
             auto id = context.containerStack.top();
-            auto wtype = (WidgetType)(id >> 16);
+            auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
             Clay_SetExternalScrollHandlingEnabled(true);
             Clay_SetQueryScrollOffsetFunction([](uint32_t id, void* data) {
@@ -1203,23 +1203,13 @@ namespace glimmer
         item.text.Max.y = item.text.Min.y + texth;
     }
 
-    static StyleDescriptor GetStyle(StyleStackT* StyleStack, int32_t state)
-    {
-        const auto& defstyle = !StyleStack[WSI_Default].empty() ? StyleStack[WSI_Default].top() : GetContext().GetStyle(WS_Default);
-
-        auto idx = log2((unsigned)state);
-        auto style = !StyleStack[idx].empty() ? StyleStack[idx].top() : GetContext().GetStyle(state);
-        if (idx != WSI_Default) CopyStyle(defstyle, style);
-        return style;
-    }
-
     static WidgetDrawResult RenderWidget(const LayoutBuilder& layout, LayoutItemDescriptor& item, StyleStackT* StyleStack,
         const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
         auto bbox = item.margin;
-        auto wtype = (WidgetType)(item.id >> 16);
+        auto wtype = (WidgetType)(item.id >> WidgetTypeBits);
         auto& renderer = context.GetRenderer();
         renderer.SetClipRect(bbox.Min, bbox.Max);
 
@@ -1228,7 +1218,7 @@ namespace glimmer
         case glimmer::WT_Label: {
             auto& state = context.GetState(item.id).state.label;
             auto flags = ToTextFlags(state.type);
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
@@ -1239,7 +1229,7 @@ namespace glimmer
         case glimmer::WT_Button: {
             auto& state = context.GetState(item.id).state.button;
             auto flags = ToTextFlags(state.type);
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
@@ -1249,7 +1239,7 @@ namespace glimmer
         }
         case glimmer::WT_RadioButton: {
             auto& state = context.GetState(item.id).state.radio;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
@@ -1259,7 +1249,7 @@ namespace glimmer
         }
         case glimmer::WT_ToggleButton: {
             auto& state = context.GetState(item.id).state.toggle;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
@@ -1269,7 +1259,7 @@ namespace glimmer
         }
         case glimmer::WT_Checkbox: {
             auto& state = context.GetState(item.id).state.checkbox;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
@@ -1279,7 +1269,7 @@ namespace glimmer
         }
         case WT_Spinner: {
             auto& state = context.GetState(item.id).state.spinner;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
@@ -1289,7 +1279,7 @@ namespace glimmer
         }
         case glimmer::WT_Slider: {
             auto& state = context.GetState(item.id).state.slider;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = SliderImpl(item.id, state, style, item.border, renderer, io);
@@ -1299,7 +1289,7 @@ namespace glimmer
         }
         case glimmer::WT_TextInput: {
             auto& state = context.GetState(item.id).state.input;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
@@ -1309,7 +1299,7 @@ namespace glimmer
         }
         case glimmer::WT_DropDown: {
             auto& state = context.GetState(item.id).state.dropdown;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
@@ -1319,7 +1309,7 @@ namespace glimmer
         }
         case glimmer::WT_ItemGrid: {
             auto& state = context.GetState(item.id).state.grid;
-            const auto& style = GetStyle(StyleStack, state.state);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
@@ -1338,13 +1328,14 @@ namespace glimmer
             break;
         }
         case WT_TabBar: {
-            const auto& style = GetStyle(StyleStack, WS_Default);
+            /*const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
             UpdateGeometry(item, bbox, style);
             context.AddItemGeometry(item.id, bbox);
             context.currentTab = layout.tabbars[item.id];
             result = TabBarImpl(item.id, item.content, style, io, renderer);
             if (!context.nestedContextStack.empty())
-                RecordItemGeometry(item);
+                RecordItemGeometry(item);*/
+            assert(false);
             break;
         }
         default:
@@ -1797,6 +1788,16 @@ namespace glimmer
                 for (auto idx = 0; idx < WSI_Total; ++idx)
                     if ((1 << idx) & states)
                         StyleStack[idx].pop(amount, true);
+                break;
+            }
+            case LayoutOps::IgnoreStyleStack:
+            {
+                WidgetContextData::IgnoreStyleStack(data);
+                break;
+            }
+            case LayoutOps::RestoreStyleStack:
+            {
+                WidgetContextData::RestoreStyleStack();
                 break;
             }
             default:

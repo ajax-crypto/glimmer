@@ -8,6 +8,9 @@ namespace glimmer
 
     [[nodiscard]] uint32_t GetColor(const char* name, void*);
 
+    // Internal API, should not be used
+    void _IgnoreStyleStackInternal(int32_t wtypes);
+
     struct ColorStop
     {
         uint32_t from, to;
@@ -109,7 +112,7 @@ namespace glimmer
         StyleThumbOffset = 1ll << 32,
 
         StyleUpdatedFromBase = 1ll << 62,
-        StyleTotal = 28
+        StyleTotal = 33 // Total number of style properties
     };
 
     enum RelativeStyleProperty : uint32_t
@@ -190,6 +193,7 @@ namespace glimmer
         StyleDescriptor& Raised(float amount);
 
         StyleDescriptor& From(std::string_view css, bool checkForDuplicate = true);
+        StyleDescriptor& From(const StyleDescriptor& style, bool overwrite = true);
     };
 
     struct ToggleButtonStyleDescriptor
@@ -262,6 +266,14 @@ namespace glimmer
         CommonWidgetStyleDescriptor() {}
     };
 
+    // Set all styles for ids/classes as a stylesheet (This should be done before event loop, or at the starting
+    // of a frame ideally)
+    void SetStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css);
+    void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...);
+    StyleDescriptor& GetStyle(std::string_view id, WidgetStateIndex index);
+    StyleDescriptor& GetWidgetStyle(WidgetType type, WidgetStateIndex index);
+
+    // Push/Pop styles for a widget for temporary style changes
     void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
         std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
     void PushStyleFmt(int32_t state, std::string_view fmt, ...);
@@ -269,7 +281,16 @@ namespace glimmer
     void PushStyle(int32_t state, std::string_view css);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
+    template <typename... ArgsT>
+    void IgnoreStyleStack(ArgsT... args)
+    {
+        int32_t wtypes = ((1 << args) | ...);
+        return _IgnoreStyleStackInternal(wtypes);
+    }
+    void RestoreStyleStack();
+
     std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
 
 #define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
+#define RECT_FMT "(%f, %f) x (%f, %f)"
 }

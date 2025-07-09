@@ -143,7 +143,8 @@ namespace glimmer
 
         ~Vector()
         {
-            if constexpr (std::is_destructible_v<T>) for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
+            if constexpr (std::is_destructible_v<T> && std::is_scalar_v<T>) 
+                for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
             DeallocateFunc(_data);
         }
 
@@ -169,6 +170,29 @@ namespace glimmer
             : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * initialsz) }
         {
             Fill(_data, _data + _capacity, el);
+        }
+
+        void assign(Iterator from, Iterator to)
+        {
+            auto count = to - from;
+            if (_data == nullptr)
+            {
+                _data = (T*)AllocateFunc(sizeof(T) * count);
+            }
+            else if (_capacity < count)
+            {
+                auto ptr = (T*)ReallocateFunc(_data, sizeof(T) * count);
+                assert(ptr != nullptr);
+                _data = ptr;
+            }
+
+            while (from != to)
+            {
+                emplace_back(*from);
+                ++from;
+            }
+
+            _size = _capacity = count;
         }
 
         void resize(Sz count, bool initialize = true)
