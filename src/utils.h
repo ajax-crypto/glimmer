@@ -237,7 +237,7 @@ namespace glimmer
 
         void expand(Sz count, bool initialize = true)
         {
-            auto targetsz = _size + count;
+            auto targetsz = _size + std::max(count, blocksz);
 
             if (_capacity < targetsz)
             {
@@ -252,7 +252,7 @@ namespace glimmer
 
         void expand_and_create(Sz count, bool initialize = true)
         {
-            auto targetsz = _size + count;
+            auto targetsz = _size + std::max(count, blocksz);
 
             if (_capacity < targetsz)
             {

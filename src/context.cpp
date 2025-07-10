@@ -286,6 +286,9 @@ namespace glimmer
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
             AddFontPtr(WidgetContextData::StyleStack[idx].top().font);
+
+        if (Config.platform->desc.isRightClicked())
+            WidgetContextData::RightClickContext.pos = Config.platform->desc.mousepos;
     }
 
     void ResetFrameData()
@@ -310,6 +313,10 @@ namespace glimmer
         }
 
         CurrentContext = &(*(WidgetContexts.begin()));
+        auto rtpos = WidgetContextData::RightClickContext.pos;
+        WidgetContextData::RightClickContext = UIElementDescriptor{};
+        WidgetContextData::RightClickContext.pos = rtpos;
+        WidgetContextData::ContextMenuOptionIdx = 0;
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
@@ -317,7 +324,11 @@ namespace glimmer
             if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
         }
 
-        if (RemovePopupAtFrameExit) WidgetContextData::ActivePopUpRegion = ImRect{};
+        if (RemovePopupAtFrameExit)
+        {
+            WidgetContextData::ActivePopUpRegion = ImRect{};
+            WidgetContextData::RightClickContext.pos = ImVec2{};
+        }
     }
 
     void WidgetContextData::RecordForReplay(int64_t data, LayoutOps ops)
@@ -934,17 +945,6 @@ namespace glimmer
     
     WidgetContextData::WidgetContextData()
     {
-       /* tabStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 8);
-        toggleStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_ToggleButton) : 32);
-        radioStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_RadioButton) : 32);
-        checkboxStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Checkbox) : 32);
-        inputTextStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TextInput) : 32);
-        splitterStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Splitter) : 4);
-        spinnerStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Spinner) : 8);
-        tabBarStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_TabBar) : 4);
-        accordionStates.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_Accordion) : 4);
-        dropDownOptions.resize(Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(WT_DropDown) : 16);*/
-
         for (auto idx = 0; idx < WT_TotalTypes; ++idx)
         {
             maxids[idx] = tempids[idx] = 0;
@@ -1112,6 +1112,9 @@ namespace glimmer
     }
 
     ImRect WidgetContextData::ActivePopUpRegion;
+    UIElementDescriptor WidgetContextData::RightClickContext;
+    int32_t WidgetContextData::ContextMenuOptionIdx = 0;
+    Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions;
     int32_t WidgetContextData::PopupTarget = -1;
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;

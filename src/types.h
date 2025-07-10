@@ -120,7 +120,10 @@ namespace glimmer
         WT_TabBar,
         WT_ItemGrid,
         WT_Charts,
-        WT_TotalTypes
+        WT_TotalTypes,
+
+        WT_ContextMenu = WT_TotalTypes,
+        WT_TotalNestedContexts
     };
 
     enum class LineType
@@ -198,7 +201,7 @@ namespace glimmer
 
     enum ResourceType
     {
-        RT_IMG = 1, RT_PATH = 2, RT_SVG = 4,
+        RT_INVALID = 0, RT_IMG = 1, RT_PATH = 2, RT_SVG = 4,
     };
 
     struct ButtonState : public CommonWidgetData
@@ -440,6 +443,7 @@ namespace glimmer
         int16_t depth = -1;
         int16_t tabclosed = -1;
         int16_t tabidx = -1;
+        int16_t optidx = -1;
         ImRect geometry, content;
         float wheel = 0.f;
         bool newTab = false;
@@ -637,4 +641,15 @@ namespace glimmer
     };
 
     using PopUpCallbackT = void (*)(void*, IRenderer&, ImVec2, const ImRect&);
+
+    struct UIElementDescriptor
+    {
+        ImVec2 pos;
+        int32_t id = -1;
+        WidgetType type = WT_Invalid;
+        int tabidx = -1;
+        int optidx = -1;
+        int row = -1, col = -1;
+        bool isHeader = false;
+    };
 }

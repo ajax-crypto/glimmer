@@ -681,6 +681,8 @@ namespace glimmer
 
 #pragma region Button & Lables
 
+    bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io);
+
     /* Here is the box model that is followed here:
 
             +--------------------------------+
@@ -1166,6 +1168,7 @@ namespace glimmer
             auto ismouseover = padding.Contains(io.mousepos);
             state.state = !ismouseover ? WS_Default : WS_Hovered;
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
+            HandleContextMenu(id, content, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForLabel(id, margin, border, padding, content, text));
     }
@@ -1192,6 +1195,7 @@ namespace glimmer
                 result.event = WidgetEvent::Clicked;
             if (ismouseover) Config.platform->SetMouseCursor(MouseCursor::Grab);
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
+            HandleContextMenu(id, content, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForButton(id, margin, border, padding, content, text));
     }
@@ -1208,7 +1212,8 @@ namespace glimmer
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer, textflags | style.font.flags);
+        DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, 
+            renderer, textflags | style.font.flags);
         HandleLabelEvent(id, margin, border, padding, content, text, renderer, io, result);
         
         result.geometry = margin;
@@ -1226,12 +1231,199 @@ namespace glimmer
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
         DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
-        DrawText(prefix.Min, prefix.Max, prefix, state.prefix, state.state & WS_Disabled, style, renderer, ToTextFlags(state.resTypes.first));
+        DrawText(prefix.Min, prefix.Max, prefix, state.prefix, state.state & WS_Disabled, style, 
+            renderer, ToTextFlags(state.resTypes.first));
         HandleButtonEvent(id, margin, border, padding, content, text, renderer, io, result);
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
 
         result.geometry = margin;
         return result;
+    }
+
+#pragma endregion
+
+#pragma region Context Menu
+
+    bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io)
+    {
+        if (WidgetContextData::RightClickContext.pos != ImVec2{} &&
+            io.isRightClicked() && region.Contains(io.mousepos))
+        {
+            WidgetContextData::RightClickContext.id = id;
+            WidgetContextData::RightClickContext.pos = io.mousepos;
+            WidgetContextData::RightClickContext.type = (WidgetType)(id >> WidgetTypeBits);
+            return true;
+        }
+
+        return false;
+    }
+
+    bool StartContextMenu(ImVec2 fixedsz)
+    {
+        if (WidgetContextData::RightClickContext.pos != ImVec2{})
+        {
+            StartPopUp(WT_ContextMenu << WidgetTypeBits, WidgetContextData::RightClickContext.pos, fixedsz);
+            SetPopUpCallback(PopUpRenderPhase::PRP_AfterPrimitives, [](void*, IRenderer&, ImVec2 offset, const ImRect& region) {
+                auto io = Config.platform->desc;
+
+                if (!region.Contains(io.mousepos))
+                {
+                    if (io.isMouseDown()) WidgetContextData::RemovePopup();
+                }
+                else
+                {
+                    for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionIdx; ++idx)
+                    {
+                        auto& option = WidgetContextData::ContextMenuOptions[idx];
+                        option.content.Translate(offset);
+                        option.prefix.Translate(offset);
+
+                        auto mouseover = (option.content.Contains(io.mousepos));
+                        auto mouseopt = mouseover && (option.prefixId == -1 || !option.prefix.Contains(io.mousepos));
+                        option.state = (mouseopt && io.isLeftMouseDown()) ? WS_Pressed | WS_Hovered :
+                            mouseover ? WS_Hovered : WS_Default;
+                        if (io.clicked() && mouseopt)
+                            option.state |= WS_Selected;
+                        else
+                            option.state &= ~WS_Selected;
+                    }
+                }
+            });
+            return true;
+        }
+
+        return false;
+    }
+
+    UIElementDescriptor GetContextMenuContext()
+    {
+        return WidgetContextData::RightClickContext;
+    }
+
+    void AddContextMenuEntry(std::string_view text, TextType type, std::string_view prefix, ResourceType rt)
+    {
+        auto& context = GetContext();
+        auto& renderer = *context.deferedRenderer;
+
+        auto totalopts = WidgetContextData::ContextMenuOptions.size();
+        auto curropt = WidgetContextData::ContextMenuOptionIdx;
+        if (totalopts <= curropt)
+            WidgetContextData::ContextMenuOptions.expand_and_create(curropt - totalopts + 1);
+        auto& option = WidgetContextData::ContextMenuOptions[curropt];
+
+        auto style = context.GetStyle(option.state);
+        ImVec2 prefixsz{ style.font.size, style.font.size };
+        auto pos = context.NextAdHocPos();
+
+        if (!prefix.empty() && rt != RT_INVALID)
+        {
+            switch (rt)
+            {
+            case RT_SVG | RT_PATH: renderer.DrawSVG(pos, prefixsz, style.fgcolor, prefix, true); break;
+            case RT_SVG: renderer.DrawSVG(pos, prefixsz, style.fgcolor, prefix, false); break;
+            case RT_IMG: renderer.DrawImage(pos, prefixsz, prefix); break;
+            default: break;
+            }
+
+            pos.x += prefixsz.x + style.padding.left;
+        }
+
+        auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
+            type, {}, FLT_MAX, FLT_MAX);
+        DrawBackground(margin.Min, margin.Max, style, renderer);
+        DrawText(content.Min, content.Max, textrect, text, option.state & WS_Disabled, style, renderer, style.font.flags);
+
+        option.content.Min = { 0.f, margin.Min.y };
+        option.content.Max = margin.Max;
+        option.textrect = margin;
+
+        context.adhocLayout.top().nextpos.y += margin.GetHeight();
+        WidgetContextData::ContextMenuOptionIdx++;
+    }
+
+    void AddContextMenuEntry(CheckState* state, std::string_view text, TextType type)
+    {
+        auto& context = GetContext();
+        auto& renderer = *context.deferedRenderer;
+
+        auto totalopts = WidgetContextData::ContextMenuOptions.size();
+        auto curropt = WidgetContextData::ContextMenuOptionIdx;
+        if (totalopts <= curropt)
+            WidgetContextData::ContextMenuOptions.expand_and_create(curropt - totalopts + 1);
+        auto& option = WidgetContextData::ContextMenuOptions[curropt];
+
+        auto style = context.GetStyle(option.state);
+        ImVec2 prefixsz{ style.font.size, style.font.size };
+        auto pos = context.NextAdHocPos();
+
+        auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
+            type, {}, context.popupSize.x, context.popupSize.y);
+
+        auto oldy = pos.y;
+        pos.y += (margin.GetHeight() - (style.font.size * 0.6f)) * 0.5f;
+        context.adhocLayout.top().nextpos.y = pos.y;
+
+        auto checkstyle = style;
+        checkstyle.padding = checkstyle.margin = FourSidedMeasure{};
+        // TODO: Add default checkbox styling...
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+            WidgetContextData::StyleStack[idx].push() = checkstyle;
+        auto res = Checkbox(state);
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+            WidgetContextData::StyleStack[idx].pop(1, true);
+
+        auto shiftx = res.geometry.GetWidth() + style.padding.left;
+        option.prefix = res.geometry;
+        option.prefixId = res.id;
+
+        context.adhocLayout.top().nextpos.y = pos.y = oldy;
+        
+        margin.TranslateX(shiftx); content.TranslateX(shiftx); textrect.TranslateX(shiftx);
+        DrawBackground(margin.Min, margin.Max, style, renderer);
+        DrawText(content.Min, content.Max, textrect, text, option.state & WS_Disabled, style, renderer, style.font.flags);
+
+        option.content.Min = { 0.f, margin.Min.y };
+        option.content.Max = margin.Max;
+        option.textrect = margin;
+
+        context.adhocLayout.top().nextpos.y += margin.GetHeight();
+        WidgetContextData::ContextMenuOptionIdx++;
+    }
+
+    void AddContextMenuSeparator(uint32_t color, float thickness)
+    {
+        auto& context = GetContext();
+        auto& renderer = *context.deferedRenderer;
+        auto pos = context.NextAdHocPos();
+        renderer.DrawRect(pos, pos + ImVec2{ FLT_MAX, 0.f }, color, true, thickness);
+        pos.y += thickness;
+    }
+
+    WidgetDrawResult EndContextMenu()
+    {
+        auto res = EndPopUp();
+
+        if (res.event == WidgetEvent::None)
+        {
+            for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionIdx; ++idx)
+                if (WidgetContextData::ContextMenuOptions[idx].state & WS_Selected)
+                {
+                    res.event = WidgetEvent::Clicked;
+                    res.optidx = idx;
+                    WidgetContextData::RemovePopup();
+                    break;
+                }
+
+            if (res.event == WidgetEvent::None && Config.platform->desc.clicked())
+            {
+                if (res.geometry.Contains(Config.platform->desc.mousepos))
+                    res.event = WidgetEvent::RightClicked;
+                else
+                    WidgetContextData::RemovePopup();
+            }
+        }
+
+        return res;
     }
 
 #pragma endregion
@@ -1295,6 +1487,7 @@ namespace glimmer
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForToggleButton(id, extent, center));
     }
@@ -1393,6 +1586,7 @@ namespace glimmer
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForRadioButton(id, extent, maxrad));
     }
@@ -1433,7 +1627,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         const auto style = context.GetStyle(state.state, state.id);
-        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
+        return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size * 0.6f, style.font.size * 0.6f } };
     }
 
     void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
@@ -1463,6 +1657,7 @@ namespace glimmer
 
             if (state.out) *state.out = state.check;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForCheckbox(id, extent));
     }
@@ -1636,6 +1831,7 @@ namespace glimmer
             }
 
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
         }
         else
             context.deferedEvents.emplace_back(EventDeferInfo::ForSpinner(id, extent, incbtn, decbtn));
@@ -1838,6 +2034,7 @@ namespace glimmer
             }
 
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForSlider(id, extent, thumb));
     }
@@ -2408,6 +2605,8 @@ namespace glimmer
 
             if (state.out.source)
                 memcpy(state.out.source, state.text.data(), std::min((int)state.text.size(), state.out.size()));
+
+            HandleContextMenu(id, content, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForTextInput(id, content, clear));
     }
@@ -2732,6 +2931,9 @@ namespace glimmer
                                     WidgetContextData::RemovePopup();
                                 }
                             }
+
+                            if (HandleContextMenu(wid, rect, io))
+                                WidgetContextData::RightClickContext.optidx = optidx;
                         }
                         else if (optidx == selected)
                             renderer.DrawRect(rect.Min, rect.Max, selectedColor, true);
@@ -2796,10 +2998,19 @@ namespace glimmer
             }
 
             if (state.opened)
+            {
+                auto prev = state.selected;
                 ShowDropDownOptions(context, state, id, margin, border, padding, content, renderer);
+                if (state.selected != prev)
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.optidx = state.selected;
+                }
+            }
             else
             {
                 ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
+                HandleContextMenu(id, content, io);
             }
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForDropDown(id, margin, border, padding, content));
@@ -3156,6 +3367,10 @@ namespace glimmer
                 ShowTooltip(tab.tabHoverDuration, rect, tab.descriptor.tooltip, io);
                 ShowTooltip(tab.pinHoverDuration, tab.pin, Config.pinTabsTooltip, io);
                 ShowTooltip(tab.closeHoverDuration, tab.close, Config.closeTabsTooltip, io);
+
+                if (HandleContextMenu(id, rect, io))
+                    WidgetContextData::RightClickContext.tabidx = tabidx;
+
                 ++tabidx;
             }
 
@@ -3562,6 +3777,9 @@ namespace glimmer
             renderer.Render(*Config.renderer, offset, region.hrange.primitives.first,
                 region.hrange.primitives.second);
             HandleAccordionEvent(accordion.id, header, idx, io, res);
+
+            if (HandleContextMenu(accordion.id, header, io))
+                WidgetContextData::RightClickContext.tabidx = idx;
 
             if (header.Contains(io.mousepos))
             {
@@ -4271,26 +4489,27 @@ namespace glimmer
                         frozenWidth = (hdr.extent.Max.x - builder.origin.x);
 
                     ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
-                    Config.renderer->DrawRect(hdr.extent.Min - gridline + shift, hdr.extent.Max + gridline + shift,
+                    hdr.extent.Translate(shift);
+                    Config.renderer->DrawRect(hdr.extent.Min - gridline, hdr.extent.Max + gridline,
                         config.gridcolor, false, config.gridwidth);
-                    renderer.SetClipRect(hdr.extent.Min + shift, hdr.extent.Max + shift);
+                    renderer.SetClipRect(hdr.extent.Min, hdr.extent.Max);
 
                     if (config.header == nullptr)
                     {
                         const auto style = context.GetStyle(state.headerStates[level][col]);
-                        DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
+                        DrawBackground(hdr.extent.Min, hdr.extent.Max, style, renderer);
                     }
                     else
                     {
                         const auto style = context.GetStyle(config.state);
-                        DrawBackground(hdr.extent.Min + shift, hdr.extent.Max + shift, style, renderer);
+                        DrawBackground(hdr.extent.Min, hdr.extent.Max, style, renderer);
                     }
 
                     if (hdr.props & COL_Sortable)
                     {
                         auto vdiff = builder.headerHeights[level] - builder.btnsz;
                         if (vdiff >= 2.f) vdiff *= 0.5f;
-                        ctx.deferedRenderer->Render(*Config.renderer, ImVec2{ hdr.offset.x, vdiff } + shift,
+                        ctx.deferedRenderer->Render(*Config.renderer, ImVec2{ hdr.offset.x + hshift, vdiff },
                             hdr.sortIndicatorRange.primitives.first, hdr.sortIndicatorRange.primitives.second);
                     }
 
@@ -4300,9 +4519,15 @@ namespace glimmer
                     auto interacted = res.event != WidgetEvent::None;
                     renderer.ResetClipRect();
 
-                    auto ishovered = ImRect{ hdr.extent.Min + shift, hdr.extent.Max + shift }.Contains(io.mousepos);
+                    auto ishovered = ImRect{ hdr.extent.Min, hdr.extent.Max }.Contains(io.mousepos);
                     state.headerStates[level][col] = io.isLeftMouseDown() && ishovered ? WS_Pressed | WS_Hovered :
                         ishovered ? WS_Hovered : WS_Default;
+                    if (HandleContextMenu(builder.id, hdr.extent, io))
+                    {
+                        WidgetContextData::RightClickContext.row = level;
+                        WidgetContextData::RightClickContext.col = col;
+                        WidgetContextData::RightClickContext.isHeader = true;
+                    }
 
                     if (!interacted)
                     {
@@ -4673,8 +4898,8 @@ namespace glimmer
 
         auto hdiff = HAlignCellContent(builder, config, col, required.x, available.x);
         auto vdiff = VAlignCellContent(builder, config, col, required.y, available.y);
-        auto hshift = (config.frozencols == col + 1) ? -state.altscroll.state.pos.x :
-            (config.frozencols <= col) ? -state.scroll.state.pos.x : 0.f;
+        auto hshift = 0.f; /* (config.frozencols == col + 1) ? -state.altscroll.state.pos.x :
+            (config.frozencols <= col) ? -state.scroll.state.pos.x : 0.f;*/
         const auto& range = header.range;
 
         ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
@@ -4734,6 +4959,12 @@ namespace glimmer
                     result.row = row; result.col = col;
                     state.cellstate.row = row; state.cellstate.col = col;
                     state.cellstate.depth = builder.depth;
+                }
+
+                if (HandleContextMenu(builder.id, cellGeometry.content, io))
+                {
+                    WidgetContextData::RightClickContext.row = row;
+                    WidgetContextData::RightClickContext.col = col;
                 }
             }
         }
@@ -5390,7 +5621,6 @@ namespace glimmer
     void SetPopUpCallback(PopUpRenderPhase phase, PopUpCallbackT callback, void* data)
     {
         auto& context = GetContext();
-        assert(context.PopupTarget != -1);
         context.popupCallbacks[phase] = callback;
         context.popupCallbackData[phase] = data;
     }
@@ -5406,6 +5636,8 @@ namespace glimmer
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
             ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
             auto available = overlayctx.parentContext->WindowSize();
+            if (overlayctx.popupSize.x != FLT_MAX) size.x = overlayctx.popupSize.x;
+            if (overlayctx.popupSize.y != FLT_MAX) size.x = overlayctx.popupSize.y;
 
             if ((origin.y + size.y) > available.y)
                 origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
@@ -5439,6 +5671,9 @@ namespace glimmer
 
                 renderer.EndOverlay();
             }
+
+            if (result.event == WidgetEvent::None)
+                result.geometry = ImRect{ origin, origin + size };
         }
 
         overlayctx.ToggleDeferedRendering(false);
@@ -5503,6 +5738,7 @@ namespace glimmer
             }
 
             res.wheel = io.mouseWheel;
+            HandleContextMenu(id, res.geometry, io);
         }
 
         return res;
@@ -5885,6 +6121,7 @@ namespace glimmer
         }
 
         context.AddItemSize(wid, layoutItem.margin.GetSize());
+        result.id = wid;
         PreviousWidget = wid;
         return result;
     }

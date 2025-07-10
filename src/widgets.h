@@ -122,6 +122,13 @@ namespace glimmer
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     ImRect EndScrollableRegion();
 
+    bool StartContextMenu(ImVec2 fixedsz = { FLT_MAX, FLT_MAX });
+    UIElementDescriptor GetContextMenuContext();
+    void AddContextMenuEntry(std::string_view text, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
+    void AddContextMenuEntry(CheckState* state, std::string_view text, TextType type = TextType::PlainText);
+    void AddContextMenuSeparator(uint32_t color, float thickness = 1.f);
+    WidgetDrawResult EndContextMenu();
+
     bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     void AddTab(TextType type, std::string_view name, TextType extype, std::string_view expanded, int32_t flags = 0);

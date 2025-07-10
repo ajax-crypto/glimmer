@@ -653,6 +653,13 @@ namespace glimmer
 
 #pragma endregion
 
+    struct ContextMenuItemDescriptor
+    {
+        int32_t state = WS_Default;
+        int32_t prefixId = -1;
+        ImRect content, textrect, prefix;
+    };
+
 #pragma region Widget Context Data
 
     constexpr int32_t WidgetIndexMask = 0xffff;
@@ -684,7 +691,7 @@ namespace glimmer
         DynamicStack<NestedContextSource, int16_t, 16> nestedContextStack{ false };
         static WidgetContextData* CurrentItemGridContext;
 
-        std::vector<WidgetContextData*> nestedContexts[WT_TotalTypes];
+        std::vector<WidgetContextData*> nestedContexts[WT_TotalNestedContexts];
         WidgetContextData* parentContext = nullptr;
 
         // Styling data is static as it is persisted across contexts
@@ -697,6 +704,7 @@ namespace glimmer
         static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
         static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
 
+        // Resolved styles, after applying widget, class(es) and id specific styles
         Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
 
         // This has to persistent
@@ -770,6 +778,10 @@ namespace glimmer
         void* popupCallbackData[PRP_Total] = { nullptr, nullptr, nullptr };
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;
+
+        static UIElementDescriptor RightClickContext;
+        static int32_t ContextMenuOptionIdx;
+        static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;
 
         int32_t GetNextCount(WidgetType type);
 
