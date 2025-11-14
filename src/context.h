@@ -597,6 +597,11 @@ namespace glimmer
             } slider;
 
             struct {
+                ImRect extent;
+                ImRect minThumb, maxThumb;
+            } rangeslider;
+
+            struct {
                 ImRect content;
                 ImRect clear;
             } input;
@@ -633,6 +638,7 @@ namespace glimmer
         static EventDeferInfo ForToggleButton(int32_t id, const ImRect& extent, ImVec2 center);
         static EventDeferInfo ForSpinner(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn);
         static EventDeferInfo ForSlider(int32_t id, const ImRect& extent, const ImRect& thumb);
+        static EventDeferInfo ForRangeSlider(int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb);
         static EventDeferInfo ForTextInput(int32_t id, const ImRect& extent, const ImRect& clear);
         static EventDeferInfo ForDropDown(int32_t id, const ImRect& margin, const ImRect& border,
             const ImRect& padding, const ImRect& content);
@@ -701,6 +707,7 @@ namespace glimmer
         static DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> toggleButtonStyles[WSI_Total];
         static DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> radioButtonStyles[WSI_Total];
         static DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> sliderStyles[WSI_Total];
+        static DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> rangeSliderStyles[WSI_Total];
         static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
         static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
 
@@ -729,6 +736,7 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true } 
         };
         Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
@@ -741,6 +749,7 @@ namespace glimmer
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ false },
+            Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },

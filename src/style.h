@@ -162,6 +162,8 @@ namespace glimmer
         unsigned custom : 16;
     };
 
+    struct GlobalWidgetTheme;
+
     struct StyleDescriptor
     {
         uint64_t specified = 0;
@@ -194,6 +196,8 @@ namespace glimmer
 
         StyleDescriptor& From(std::string_view css, bool checkForDuplicate = true);
         StyleDescriptor& From(const StyleDescriptor& style, bool overwrite = true);
+
+        static void(*GlobalThemeProvider)(GlobalWidgetTheme*);
     };
 
     struct ToggleButtonStyleDescriptor
@@ -218,12 +222,33 @@ namespace glimmer
     {
         uint32_t trackColor;
         uint32_t thumbColor;
+        uint32_t fillColor;
         int32_t trackGradient = -1;
         float trackBorderThickness = 1.f;
         float thumbOffset = 2.f;
         float thumbExpand = 0.f;
 
         static SliderStyleDescriptor ParseFrom(std::string_view css);
+    };
+
+    struct RangeSliderStyleDescriptor
+    {
+        struct ThumbStyle
+        {
+            uint32_t color;
+            float offset = 2.f;
+            float expand = 0.f;
+        };
+
+        uint32_t trackColor;
+        uint32_t fillColor;
+        int32_t trackGradient = -1;
+        float trackBorderThickness = 1.f;
+        ThumbStyle minThumb, maxThumb;
+
+		float offset() const { return (minThumb.offset + maxThumb.offset); }
+
+        static RangeSliderStyleDescriptor ParseFrom(std::string_view css);
     };
 
     struct SpinnerStyleDescriptor
@@ -259,6 +284,17 @@ namespace glimmer
         static TabBarStyleDescriptor ParseFrom(std::string_view css);
     };
 
+    struct GlobalWidgetTheme
+    {
+        ToggleButtonStyleDescriptor toggle;
+        SliderStyleDescriptor slider;
+        RangeSliderStyleDescriptor rangeSlider;
+        SpinnerStyleDescriptor spinner;
+        RadioButtonStyleDescriptor radio;
+        TabBarStyleDescriptor tabbar;
+    };
+
+	// TODO: Add other widget style descriptors here and populate in style.cpp
     union CommonWidgetStyleDescriptor
     {
         ToggleButtonStyleDescriptor toggle;

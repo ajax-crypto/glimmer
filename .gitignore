@@ -28,7 +28,9 @@
 *.exe
 *.out
 *.app
+/GlimmerTest/.vs
 /GlimmerTest/.vs/GlimmerTest
 /GlimmerTest/GlimmerTest/x64/Debug/GlimmerTest.tlog
 /GlimmerTest/GlimmerTest/x64/Debug
 /GlimmerTest/x64/Debug
+

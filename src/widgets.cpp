@@ -300,6 +300,20 @@ namespace glimmer
         }
     }
 
+    static void DrawStyledShape(IRenderer& renderer, const StyleDescriptor& style, uint32_t color, ImVec2 center, float radius)
+    {
+        if (style.border.isRounded())
+            if ((style.border.cornerRadius[TopLeftCorner] >= radius) && (style.border.cornerRadius[TopRightCorner] >= radius) &&
+                (style.border.cornerRadius[BottomRightCorner] >= radius) && (style.border.cornerRadius[BottomLeftCorner] >= radius))
+                renderer.DrawCircle(center, radius, color, true);
+            else
+                renderer.DrawRoundedRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, color, true,
+                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner], style.border.cornerRadius[BottomRightCorner],
+                    style.border.cornerRadius[BottomLeftCorner]);
+        else
+            renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, color, true);
+    }
+
 #pragma region Scrollbars
 
     static bool HandleHScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, bool showButtons = true, 
@@ -789,16 +803,16 @@ namespace glimmer
                 if (style.dimension.y > 0.f)
                 {
                     margin.Max.y = margin.Min.y - clamp(style.dimension.y, style.mindim.y, style.maxdim.y);
-                    border.Max.y = margin.Max.y + style.margin.left;
-                    padding.Max.y = border.Max.y + borderstyle.left.thickness;
-                    content.Max.y = padding.Max.y + style.padding.left;
+                    border.Max.y = margin.Max.y + style.margin.top;
+                    padding.Max.y = border.Max.y + borderstyle.top.thickness;
+                    content.Max.y = padding.Max.y + style.padding.top;
                 }
                 else
                 {
                     content.Max.y = content.Min.y - clamp(textsz.y, style.mindim.y, style.maxdim.y);
-                    padding.Max.y = content.Max.y - style.padding.left;
-                    border.Max.y = padding.Max.y - borderstyle.left.thickness;
-                    margin.Max.y = border.Max.y - style.margin.left;
+                    padding.Max.y = content.Max.y - style.padding.bottom;
+                    border.Max.y = padding.Max.y - borderstyle.bottom.thickness;
+                    margin.Max.y = border.Max.y - style.margin.bottom;
                 }
             }
             else
@@ -806,16 +820,16 @@ namespace glimmer
                 if (style.dimension.y > 0.f)
                 {
                     margin.Max.y = margin.Min.y + clamp(style.dimension.y, style.mindim.y, style.maxdim.y);
-                    border.Max.y = margin.Max.y - style.margin.right;
-                    padding.Max.y = border.Max.y - borderstyle.right.thickness;
-                    content.Max.y = padding.Max.y - style.padding.right;
+                    border.Max.y = margin.Max.y - style.margin.bottom;
+                    padding.Max.y = border.Max.y - borderstyle.bottom.thickness;
+                    content.Max.y = padding.Max.y - style.padding.bottom;
                 }
                 else
                 {
                     content.Max.y = content.Min.y + clamp(textsz.y, style.mindim.y, style.maxdim.y);
-                    padding.Max.y = content.Max.y + style.padding.right;
-                    border.Max.y = padding.Max.y + borderstyle.right.thickness;
-                    margin.Max.y = border.Max.y + style.margin.right;
+                    padding.Max.y = content.Max.y + style.padding.bottom;
+                    border.Max.y = padding.Max.y + borderstyle.bottom.thickness;
+                    margin.Max.y = border.Max.y + style.margin.bottom;
                 }
             }
         };
@@ -1987,10 +2001,23 @@ namespace glimmer
             auto horizontal = width > height;
             auto radius = thumb.GetWidth();
 
-            if (extent.Contains(io.mousepos))
+            auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
+            auto inthumb = thumb.Contains(io.mousepos);
+
+            if (io.isLeftMouseDown() && ((state.state & WS_Dragged) || inthumb))
             {
-                auto offset = radius + specificStyle.thumbOffset + specificStyle.trackBorderThickness;
-                auto inthumb = thumb.Contains(io.mousepos);
+                // If the drag is starting for first time, consider the center of thumb
+                // otherwise, follow mouse position
+                auto where = (state.state & WS_Dragged) ? (horizontal ? io.mousepos.x : io.mousepos.y) :
+                    (horizontal ? center.x : center.y);
+                auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
+                where = horizontal ? where - extent.Min.x - offset : where - extent.Min.y - offset;
+                auto relative = where / space;
+                state.data = relative * (state.max - state.min);
+                state.state |= WS_Dragged;
+            }
+            else if (extent.Contains(io.mousepos))
+            {
                 state.state |= WS_Hovered;
 
                 if (io.clicked() && !inthumb)
@@ -2001,20 +2028,6 @@ namespace glimmer
                     state.data = relative * (state.max - state.min);
                     state.state &= ~WS_Dragged;
                 }
-                else if (io.isLeftMouseDown() && ((state.state & WS_Dragged) || inthumb))
-                {
-                    // If the drag is starting for first time, consider the center of thumb
-                    // otherwise, follow mouse position
-                    auto where = (state.state & WS_Dragged) ? (horizontal ? io.mousepos.x : io.mousepos.y) :
-                        (horizontal ? center.x : center.y);
-                    auto space = horizontal ? width - (2.f * offset) : height - (2.f * offset);
-                    where = horizontal ? where - extent.Min.x - offset : where - extent.Min.y - offset;
-                    auto relative = where / space;
-                    state.data = relative * (state.max - state.min);
-                    state.state |= WS_Dragged;
-                }
-                else
-                    state.state &= ~WS_Dragged;
             }
             else
             {
@@ -2059,20 +2072,184 @@ namespace glimmer
         horizontal ? center.x += (width - (2.f * offset)) * relative : center.y += (height - (2.f * offset)) * relative;
         center += extent.Min + ImVec2{ offset - radius, offset - radius };
 
-        if (style.border.isRounded())
-            if ((style.border.cornerRadius[TopLeftCorner] >= radius) && (style.border.cornerRadius[TopRightCorner] >= radius) &&
-                (style.border.cornerRadius[BottomRightCorner] >= radius) && (style.border.cornerRadius[BottomLeftCorner] >= radius))
-                renderer.DrawCircle(center, radius, specificStyle.thumbColor, true);
-            else
-                renderer.DrawRoundedRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true,
-                    style.border.cornerRadius[TopLeftCorner], style.border.cornerRadius[TopRightCorner], style.border.cornerRadius[BottomRightCorner],
-                    style.border.cornerRadius[BottomLeftCorner]);
-        else
-            renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, specificStyle.thumbColor, true);
-
+        DrawStyledShape(renderer, style, specificStyle.thumbColor, center, radius);
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
         ImRect thumb{ center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius } };
         HandleSliderEvent(id, extent, thumb,  io, result);
+        result.geometry = extent;
+        return result;
+    }
+
+#pragma endregion
+
+#pragma region Range Slider
+
+    ImRect RangeSliderBounds(int32_t id, const ImRect& extent)
+    {
+        ImRect result;
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.rangeSlider;
+        const auto style = context.GetStyle(state.state, state.id);
+        auto slidersz = std::max(Config.sliderSize, style.font.size);
+        auto width = (style.dimension.x > 0.f) ? style.dimension.x :
+            (state.dir == DIR_Horizontal ? extent.GetWidth() : slidersz);
+        auto height = (style.dimension.y > 0.f) ? style.dimension.y :
+            (state.dir == DIR_Horizontal ? slidersz : extent.GetHeight());
+        result.Min = extent.Min;
+        result.Max = result.Min + ImVec2{ width, height };
+        return result;
+    }
+
+    void HandleRangeSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumbMin, const ImRect& thumbMax, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.rangeSlider;
+            const auto style = context.GetStyle(state.state, state.id);
+            const auto& specificStyle = context.rangeSliderStyles[log2((unsigned)state.state)].top();
+            auto width = extent.GetWidth(), height = extent.GetHeight();
+            auto horizontal = width > height;
+            auto radius = thumbMin.GetWidth();
+
+            bool inMin = thumbMin.Contains(io.mousepos);
+            bool inMax = thumbMax.Contains(io.mousepos);
+
+            if (io.isLeftMouseDown() && ((state.minState & WS_Dragged) || inMin))
+            {
+                // Drag min thumb
+                auto offset = radius + specificStyle.minThumb.offset + specificStyle.trackBorderThickness;
+                auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
+                auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                auto relative = clamp(where / space, 0.f, 1.f);
+                float value = state.min_range + relative * (state.max_range - state.min_range);
+                state.min_val = clamp(value, state.min_range, state.max_val);
+                state.minState |= WS_Dragged;
+                state.maxState &= ~WS_Dragged;
+                state.state |= WS_Pressed;
+            }
+            else if (io.isLeftMouseDown() && ((state.maxState & WS_Dragged) || inMax))
+            {
+                // Drag max thumb
+                auto offset = radius + specificStyle.maxThumb.offset + specificStyle.trackBorderThickness;
+                auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
+                auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                auto relative = clamp(where / space, 0.f, 1.f);
+                float value = state.min_range + relative * (state.max_range - state.min_range);
+                state.max_val = clamp(value, state.min_val, state.max_range);
+                state.maxState |= WS_Dragged;
+                state.minState &= ~WS_Dragged;
+                state.state |= WS_Pressed;
+            }
+            else if (extent.Contains(io.mousepos))
+            {
+                if (io.clicked() && !inMin && !inMax)
+                {
+                    // Click on track: move closest thumb
+                    auto isForMin = horizontal ? (std::abs(io.mousepos.x - thumbMin.Max.x) >
+                        std::abs(io.mousepos.x - thumbMax.Min.x)) || (io.mousepos.x < thumbMin.Min.x) :
+                        (std::abs(io.mousepos.y - thumbMin.Max.y) >
+                            std::abs(io.mousepos.y - thumbMax.Min.y)) || (io.mousepos.y < thumbMin.Min.y);
+
+                    if (isForMin)
+                    {
+						auto offset = specificStyle.minThumb.offset + radius + specificStyle.trackBorderThickness;
+                        auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
+                        auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                        auto relative = where / space;
+                        float value = state.min_range + relative * (state.max_range - state.min_range);
+                        state.min_val = clamp(value, state.min_range, state.max_val);
+                    }
+                    else
+                    {
+                        auto offset = specificStyle.maxThumb.offset + radius + specificStyle.trackBorderThickness;
+                        auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
+                        auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
+                        auto relative = where / space;
+                        float value = state.min_range + relative * (state.max_range - state.min_range);
+                        state.max_val = clamp(value, state.min_val, state.max_range);
+                    }
+
+                    state.minState &= ~WS_Dragged;
+                    state.maxState &= ~WS_Dragged;
+                }
+
+                state.state = WS_Hovered | WS_Default;
+            }
+            else
+            {
+                state.state = WS_Default;
+            }
+
+            // Output
+            if (state.out_min && state.outType == OutPtrType::i32) *(int32_t*)(state.out_min) = (int32_t)state.min_val;
+            if (state.out_max && state.outType == OutPtrType::i32) *(int32_t*)(state.out_max) = (int32_t)state.max_val;
+            if (state.out_min && state.outType == OutPtrType::f32) *(float*)(state.out_min) = state.min_val;
+            if (state.out_max && state.outType == OutPtrType::f32) *(float*)(state.out_max) = state.max_val;
+            if (state.out_min && state.outType == OutPtrType::f64) *(double*)(state.out_min) = state.min_val;
+            if (state.out_max && state.outType == OutPtrType::f64) *(double*)(state.out_max) = state.max_val;
+
+            ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
+            HandleContextMenu(id, extent, io);
+        }
+        else context.deferedEvents.emplace_back(EventDeferInfo::ForRangeSlider(id, extent, thumbMin, thumbMax));
+    }
+
+    WidgetDrawResult RangeSliderImpl(int32_t id, RangeSliderState& state, const StyleDescriptor& style,
+        const ImRect& extent, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& specificStyle = context.rangeSliderStyles[log2((unsigned)state.state)].top();
+
+        // Track color based on average value
+        auto bgcolor = state.TrackColor ? state.TrackColor((state.min_val + state.max_val) * 0.5f) : style.bgcolor;
+        DrawBackground(extent.Min, extent.Max, bgcolor, style.gradient, style.border, renderer);
+        DrawBorderRect(extent.Min, extent.Max, style.border, bgcolor, renderer);
+
+        auto width = extent.GetWidth(), height = extent.GetHeight();
+        auto horizontal = state.dir == DIR_Horizontal;
+        auto minradius = ((horizontal ? height : width) * 0.5f) - specificStyle.minThumb.offset - specificStyle.trackBorderThickness;
+        auto maxradius = ((horizontal ? height : width) * 0.5f) - specificStyle.maxThumb.offset - specificStyle.trackBorderThickness;
+        auto minoffset = minradius + specificStyle.minThumb.offset + specificStyle.trackBorderThickness;
+        auto maxoffset = maxradius + specificStyle.maxThumb.offset + specificStyle.trackBorderThickness;
+        auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
+
+        // Relative positions for min/max
+        float relMin = (state.min_val - state.min_range) / (state.max_range - state.min_range);
+        float relMax = (state.max_val - state.min_range) / (state.max_range - state.min_range);
+
+        ImVec2 centerMin{ minradius, minradius }, centerMax{ maxradius, maxradius };
+        if (horizontal) 
+        {
+            centerMin.x += space * relMin;
+            centerMax.x += space * relMax;
+        }
+        else 
+        {
+            centerMin.y += space * relMin;
+            centerMax.y += space * relMax;
+        }
+
+        centerMin += extent.Min + ImVec2{ specificStyle.minThumb.offset - minradius, specificStyle.minThumb.offset - minradius };
+        centerMax += extent.Min + ImVec2{ specificStyle.maxThumb.offset - maxradius, specificStyle.maxThumb.offset - maxradius };
+
+        // Draw track between thumbs
+        ImVec2 trackStart = centerMin, trackEnd = centerMax;
+        if (horizontal) trackStart.y = trackEnd.y = centerMin.y;
+        else trackStart.x = trackEnd.x = centerMin.x;
+        renderer.DrawRect(trackStart, trackEnd, specificStyle.trackColor, true);
+
+        // Draw thumbs
+        DrawStyledShape(renderer, style, specificStyle.minThumb.color, centerMin, minradius);
+        DrawStyledShape(renderer, style, specificStyle.maxThumb.color, centerMax, maxradius);
+        DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
+
+        ImRect thumbMin{ centerMin - ImVec2{ minradius, minradius }, centerMin + ImVec2{ minradius, minradius } };
+        ImRect thumbMax{ centerMax - ImVec2{ maxradius, maxradius }, centerMax + ImVec2{ maxradius, maxradius } };
+
+        HandleRangeSliderEvent(id, extent, thumbMin, thumbMax, io, result);
         result.geometry = extent;
         return result;
     }
@@ -6001,6 +6178,47 @@ namespace glimmer
 
             break;
         }
+        case WT_RangeSlider: {
+            auto& state = context.GetState(wid).state.rangeSlider;
+            auto style = context.GetStyle(state.state, wid);
+            UpdateTooltip(state.tooltip);
+
+            auto deltav = style.margin.v() + style.border.v() + style.padding.v();
+            auto deltah = style.margin.h() + style.border.h() + style.padding.h();
+            AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
+                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
+            auto bounds = RangeSliderBounds(wid, layoutItem.margin);
+
+            if (bounds.GetArea() != layoutItem.margin.GetArea()) 
+            {
+                layoutItem.margin = bounds;
+                layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+                layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+                layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+            }
+
+            layoutItem.content = layoutItem.padding;
+
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty()) 
+            {
+                auto& layout = context.layouts.top();
+                auto pos = layout.geometry.Min;
+                if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
+                if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
+                layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
+                AddItemToLayout(layout, layoutItem, style);
+            }
+            else 
+            {
+                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                result = RangeSliderImpl(wid, state, style, layoutItem.border, renderer, io);
+                context.AddItemGeometry(wid, bounds);
+                renderer.ResetClipRect();
+                RecordItemGeometry(layoutItem);
+            }
+            break;
+        }
         case WT_TextInput: {
             auto& state = context.GetState(wid).state.input;
             auto style = context.GetStyle(state.state, wid);
@@ -6337,6 +6555,95 @@ namespace glimmer
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
         config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::i32;
+        config.min_range = (float)range.first;
+        config.max_range = (float)range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::i32;
+        config.min_range = (float)range.first;
+        config.max_range = (float)range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = *min_val;
+        config.max_val = *max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f32;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = *min_val;
+        config.max_val = *max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f32;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f64;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f64;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
     }
 
     WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

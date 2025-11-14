@@ -36,6 +36,8 @@ namespace glimmer
         WidgetDrawResult& result);
     void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io,
         WidgetDrawResult& result);
+    void HandleRangeSliderEvent(int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb, const IODescriptor& io,
+        WidgetDrawResult& result);
     void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
         IRenderer& renderer, WidgetDrawResult& result);
     void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -662,6 +664,17 @@ namespace glimmer
         return info;
     }
 
+    EventDeferInfo EventDeferInfo::ForRangeSlider(int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb)
+    {
+        EventDeferInfo info;
+        info.type = WT_RangeSlider;
+        info.id = id;
+        info.params.rangeslider.extent = extent;
+        info.params.rangeslider.minThumb = minthumb;
+        info.params.rangeslider.maxThumb = maxthumb;
+        return info;
+    }
+
     EventDeferInfo EventDeferInfo::ForTextInput(int32_t id, const ImRect& extent, const ImRect& clear)
     {
         EventDeferInfo info;
@@ -761,6 +774,13 @@ namespace glimmer
                 ev.params.slider.extent.Translate(origin);
                 ev.params.slider.thumb.Translate(origin);
                 HandleSliderEvent(ev.id, ev.params.slider.extent, ev.params.slider.thumb, io, result);
+                break;
+            case WT_RangeSlider:
+                ev.params.rangeslider.extent.Translate(origin);
+                ev.params.rangeslider.minThumb.Translate(origin);
+                ev.params.rangeslider.maxThumb.Translate(origin);
+                HandleRangeSliderEvent(ev.id, ev.params.rangeslider.extent, ev.params.rangeslider.minThumb, 
+                    ev.params.rangeslider.maxThumb, io, result);
                 break;
             case WT_TextInput:
                 ev.params.input.content.Translate(origin);
@@ -997,40 +1017,67 @@ namespace glimmer
 
     static void InitContextStyles()
     {
-        for (auto idx = 0; idx < WSI_Total; ++idx)
+        if (StyleDescriptor::GlobalThemeProvider != nullptr)
         {
-            auto& style = WidgetContextData::StyleStack[idx].push();
-            style.font.size *= Config.fontScaling;
+            GlobalWidgetTheme theme;
+            StyleDescriptor::GlobalThemeProvider(&theme);
+            theme.toggle.fontsz *= Config.fontScaling;
 
-            WidgetContextData::radioButtonStyles[idx].push();
-            auto& slider = WidgetContextData::sliderStyles[idx].push();
-            auto& spinner = WidgetContextData::spinnerStyles[idx].push();
-            auto& toggle = WidgetContextData::toggleButtonStyles[idx].push();
-            auto& tab = WidgetContextData::tabBarStyles[idx].push();
-            toggle.fontsz *= Config.fontScaling;
-
-            switch (idx)
+            for (auto idx = 0; idx < WSI_Total; ++idx)
             {
-            case WSI_Hovered:
-                slider.thumbColor = ToRGBA(255, 255, 255);
-                spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
-                tab.closebgcolor  = tab.pinbgcolor = ToRGBA(150, 150, 150);
-                tab.pincolor = ToRGBA(0, 0, 0);
-                tab.closecolor = ToRGBA(255, 0, 0);
-                [[fallthrough]];
-            case WSI_Checked:
-                toggle.trackColor = ToRGBA(200, 200, 200);
-                toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-                break;
-            default:
-                toggle.trackColor = ToRGBA(152, 251, 152);
-                toggle.indicatorTextColor = ToRGBA(0, 100, 0);
-                slider.thumbColor = ToRGBA(240, 240, 240);
-                spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
-                tab.closebgcolor = tab.pinbgcolor = ToRGBA(0, 0, 0, 0);
-                tab.pincolor = ToRGBA(0, 0, 0);
-                tab.closecolor = ToRGBA(255, 0, 0);
-                break;
+                auto& style = WidgetContextData::StyleStack[idx].push();
+                style.font.size *= Config.fontScaling;
+
+                WidgetContextData::radioButtonStyles[idx].push() = theme.radio;
+                WidgetContextData::sliderStyles[idx].push() = theme.slider;
+                WidgetContextData::rangeSliderStyles[idx].push() = theme.rangeSlider;
+                WidgetContextData::spinnerStyles[idx].push() = theme.spinner;
+                WidgetContextData::toggleButtonStyles[idx].push() = theme.toggle;
+                WidgetContextData::tabBarStyles[idx].push() = theme.tabbar;
+            }
+        }
+        else
+        {
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
+                auto& style = WidgetContextData::StyleStack[idx].push();
+                style.font.size *= Config.fontScaling;
+
+                WidgetContextData::radioButtonStyles[idx].push();
+                auto& slider = WidgetContextData::sliderStyles[idx].push();
+                auto& rangeslider = WidgetContextData::rangeSliderStyles[idx].push();
+                auto& spinner = WidgetContextData::spinnerStyles[idx].push();
+                auto& toggle = WidgetContextData::toggleButtonStyles[idx].push();
+                auto& tab = WidgetContextData::tabBarStyles[idx].push();
+                toggle.fontsz *= Config.fontScaling;
+
+                switch (idx)
+                {
+                case WSI_Hovered:
+                    slider.thumbColor = ToRGBA(255, 255, 255);
+                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(255, 255, 255);
+                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
+                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(150, 150, 150);
+                    tab.pincolor = ToRGBA(0, 0, 0);
+                    tab.closecolor = ToRGBA(255, 0, 0);
+                    [[fallthrough]];
+                case WSI_Checked:
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                    slider.trackColor = rangeslider.trackColor = ToRGBA(175, 175, 175);
+                    slider.fillColor = rangeslider.fillColor = ToRGBA(100, 149, 237);
+                    break;
+                default:
+                    toggle.trackColor = ToRGBA(152, 251, 152);
+                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                    slider.thumbColor = ToRGBA(240, 240, 240);
+                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(240, 240, 240);
+                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
+                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(0, 0, 0, 0);
+                    tab.pincolor = ToRGBA(0, 0, 0);
+                    tab.closecolor = ToRGBA(255, 0, 0);
+                    break;
+                }
             }
         }
     }
@@ -1121,6 +1168,7 @@ namespace glimmer
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
     DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];
+    DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::rangeSliderStyles[WSI_Total];
     DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::spinnerStyles[WSI_Total];
     DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::tabBarStyles[WSI_Total];
 }

@@ -1675,4 +1675,6 @@ namespace glimmer
     }
 
 #pragma endregion
+
+    void (*StyleDescriptor::GlobalThemeProvider)(GlobalWidgetTheme*) = nullptr;
 }

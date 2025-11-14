@@ -114,7 +114,7 @@ namespace glimmer
         WT_Sublayout = -2,
         WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
         WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterRegion, WT_Accordion,
-        WT_Slider, WT_Spinner,
+        WT_Slider, WT_RangeSlider, WT_Spinner,
         WT_TextInput,
         WT_DropDown,
         WT_TabBar,
@@ -163,7 +163,7 @@ namespace glimmer
         int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;
         std::string_view widgetNames[WT_TotalTypes] = {
             "label", "button", "radio", "toggle", "checkbox", "layout",
-            "scroll", "splitter", "invalid", "accordion", "slider", "spinner",
+            "scroll", "splitter", "invalid", "accordion", "slider", "rangeslider", "spinner",
             "text", "dropdown", "tab", "itemgrid", "chart"
         };
         void* userData = nullptr;
@@ -260,6 +260,19 @@ namespace glimmer
         uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
         Direction dir = DIR_Horizontal;
         void* out = nullptr;
+        OutPtrType outType = OutPtrType::Invalid;
+    };
+
+    struct RangeSliderState : public CommonWidgetData
+    {
+        float min_val = 0.f, max_val = 0.f;
+        float min_range = 0.f, max_range = FLT_MAX, delta = 1.f;
+        uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
+        Direction dir = DIR_Horizontal;
+		int32_t minState = WS_Default;
+		int32_t maxState = WS_Default;
+        void* out_min = nullptr;
+        void* out_max = nullptr;
         OutPtrType outType = OutPtrType::Invalid;
     };
 
@@ -537,6 +550,7 @@ namespace glimmer
             CheckboxState checkbox;
             SpinnerState spinner;
             SliderState slider;
+            RangeSliderState rangeSlider;
             TextInputState input;
             DropDownState dropdown;
             TabBarState tab;
