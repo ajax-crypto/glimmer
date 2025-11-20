@@ -464,9 +464,9 @@ namespace glimmer
         FourSidedBorder border;
         FourSidedMeasure spacing;
         uint32_t bgcolor;
+        TextType textType = TextType::PlainText;
         bool svgOrImage[2] = { false, false };
         bool isPath[2] = { false, false };
-        bool isRichText = false;
         bool hscroll = false, vscroll = false;
 
         AccordionBuilder() {}
@@ -511,7 +511,12 @@ namespace glimmer
         bool hscroll = false, vscroll = false;
     };
 
-    enum class LayoutOps { PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, AddWidget, AddLayout };
+    enum class LayoutOps 
+    { 
+        PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
+		PushTextType, PopTextType,
+        AddWidget, AddLayout 
+    };
 
     struct LayoutBuilder
     {

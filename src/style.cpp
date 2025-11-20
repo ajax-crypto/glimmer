@@ -6,42 +6,63 @@
 #include <variant>
 #include "style.h"
 
+#ifndef GLIMMER_STYLE_BUFSZ 
+#define GLIMMER_STYLE_BUFSZ 4096
+#endif
+
 namespace glimmer
 {
-    // This map, maps the styles to classes/ids which do not follow the style stack.
+    // This maps the styles to classes/ids which do not follow the style stack.
     // When applying a style to a widget, any class/id specified with the widget will be used to lookup
     // corresponding styles, merged (with the current stack as well), and then applied.
     static std::unordered_map<std::string_view, StyleDescriptor[WSI_Total]> StyleSheet;
 
 #pragma optimize( "", on )
+
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
     {
         while ((idx < end) && std::isspace(text[idx])) idx++;
         return idx;
     }
 
+#ifndef GLIMMER_ENABLE_RICH_TEXT
     [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0)
+#else
+    int SkipSpace(const std::string_view text, int from)
+#endif
     {
         auto end = (int)text.size();
         while ((from < end) && (std::isspace(text[from]))) from++;
         return from;
     }
 
+#ifndef GLIMMER_ENABLE_RICH_TEXT
     [[nodiscard]] int WholeWord(const std::string_view text, int from = 0)
+#else
+    int WholeWord(const std::string_view text, int from)
+#endif
     {
         auto end = (int)text.size();
         while ((from < end) && (!std::isspace(text[from]))) from++;
         return from;
     }
 
+#ifndef GLIMMER_ENABLE_RICH_TEXT
     [[nodiscard]] int SkipDigits(const std::string_view text, int from = 0)
+#else
+    int SkipDigits(const std::string_view text, int from)
+#endif
     {
         auto end = (int)text.size();
         while ((from < end) && (std::isdigit(text[from]))) from++;
         return from;
     }
 
+#ifndef GLIMMER_ENABLE_RICH_TEXT
     [[nodiscard]] int SkipFDigits(const std::string_view text, int from = 0)
+#else
+    int SkipFDigits(const std::string_view text, int from)
+#endif
     {
         auto end = (int)text.size();
         while ((from < end) && ((std::isdigit(text[from])) || (text[from] == '.'))) from++;
@@ -411,7 +432,7 @@ namespace glimmer
                         {
                             gradient.colorStops[gradient.totalStops] =
                                 ColorStop{ lastStop.value().first, colorstop.first, colorstop.second };
-                            gradient.totalStops = std::min(gradient.totalStops + 1, IM_RICHTEXT_MAX_COLORSTOPS - 1);
+                            gradient.totalStops = std::min(gradient.totalStops + 1, GLIMMER_MAX_COLORSTOPS - 1);
                         }
 
                         lastStop = colorstop;
@@ -625,7 +646,7 @@ namespace glimmer
         return result;
     }
 
-    static bool IsColor(std::string_view input, int from)
+    bool IsColor(std::string_view input, int from)
     {
         return input[from] != '-' && !std::isdigit(input[from]);
     }
@@ -1283,13 +1304,13 @@ namespace glimmer
 
     void PushStyleFmt(int32_t state, std::string_view fmt, ...)
     {
-        static char buffer[4096] = { 0 };
+        static char buffer[GLIMMER_STYLE_BUFSZ] = { 0 };
 
-        std::memset(buffer, 0, 4096);
+        std::memset(buffer, 0, GLIMMER_STYLE_BUFSZ);
         va_list args;
         va_start(args, fmt);
-        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
-        buffer[std::min(sz, 4095)] = 0;
+        auto sz = std::vsnprintf(buffer, GLIMMER_STYLE_BUFSZ - 1, fmt.data(), args);
+        buffer[std::min(sz, GLIMMER_STYLE_BUFSZ - 1)] = 0;
         va_end(args);
 
         PushStyle(state, buffer);
@@ -1297,13 +1318,13 @@ namespace glimmer
 
     void PushStyleFmt(std::string_view fmt, ...)
     {
-        static char buffer[4096] = { 0 };
+        static char buffer[GLIMMER_STYLE_BUFSZ] = { 0 };
 
-        std::memset(buffer, 0, 4096);
+        std::memset(buffer, 0, GLIMMER_STYLE_BUFSZ);
         va_list args;
         va_start(args, fmt);
-        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
-        buffer[std::min(sz, 4095)] = 0;
+        auto sz = std::vsnprintf(buffer, GLIMMER_STYLE_BUFSZ - 1, fmt.data(), args);
+        buffer[std::min(sz, GLIMMER_STYLE_BUFSZ - 1)] = 0;
         va_end(args);
 
         PushStyle(buffer);
@@ -1355,13 +1376,13 @@ namespace glimmer
 
     void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...)
     {
-        static char buffer[4096] = { 0 };
+        static char buffer[GLIMMER_STYLE_BUFSZ] = { 0 };
 
-        std::memset(buffer, 0, 4096);
+        std::memset(buffer, 0, GLIMMER_STYLE_BUFSZ);
         va_list args;
         va_start(args, fmt);
-        auto sz = std::vsnprintf(buffer, 4095, fmt.data(), args);
-        buffer[std::min(sz, 4095)] = 0;
+        auto sz = std::vsnprintf(buffer, GLIMMER_STYLE_BUFSZ - 1, fmt.data(), args);
+        buffer[std::min(sz, GLIMMER_STYLE_BUFSZ - 1)] = 0;
         va_end(args);
 
         auto& dest = StyleSheet[id];
@@ -1406,6 +1427,31 @@ namespace glimmer
         }
     }
 
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+    void PushTextType(TextType type)
+    {
+        auto& context = GetContext();
+
+        if (!context.layouts.empty())
+        {
+            context.RecordForReplay((int64_t)type, LayoutOps::PushTextType);
+        }
+
+        for (auto style = 0; style < WSI_Total; ++style)
+        {
+            auto desc = context.StyleStack[style].top();
+			desc.font.flags = type == TextType::RichText ? (desc.font.flags | TextIsRichText) : 
+                (desc.font.flags & ~TextIsRichText);
+			context.StyleStack[style].push() = desc;
+        }
+    }
+
+    void PopTextType()
+    {
+		PopStyle(1, 0b111111111);
+    }
+#endif
+
     void _IgnoreStyleStackInternal(int32_t wtypes)
     {
         if (!GetContext().layouts.empty())
@@ -1429,8 +1475,8 @@ namespace glimmer
         WidgetContextData::RestoreStyleStack();
     }
 
-#if 0
-    std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight)
+    // TODO: Fix layout generation from stylesheet
+    /*std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight)
     {
         auto sidx = 0;
         Sizing sizing;
@@ -1502,9 +1548,7 @@ namespace glimmer
         }
 
         return { sizing, hasSizing };
-    }
-    
-#endif // 0
+    }*/
 
     StyleDescriptor::StyleDescriptor()
     {
@@ -1569,30 +1613,6 @@ namespace glimmer
 
             if (stylePropVal.has_value())
                 prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value(), Config);
-        }
-
-        if (prop != 0)
-        {
-            /*if (prop & StyleThumbColor || prop & StyleTrackColor || prop & StyleTrackOutlineColor || prop & StyleThumbOffset)
-            {
-                auto found = false;
-
-                if (checkForDuplicate)
-                {
-                    for (auto idx = 0; idx < context.toggleButtonStyles.size(); ++idx)
-                        if (std::memcmp(&(context.toggleButtonStyles[idx]), &(desc.toggle), sizeof(ToggleButtonStyleDescriptor)) == 0)
-                        {
-                            found = true;
-                            index.custom = idx;
-                        }
-                }
-
-                if (!found)
-                {
-                    index.custom = (uint16_t)context.toggleButtonStyles.size();
-                    context.toggleButtonStyles.push_back(desc.toggle);
-                }
-            }*/
         }
 
         if ((prop & StyleFontFamily) || (prop & StyleFontSize) || (prop & StyleFontWeight))

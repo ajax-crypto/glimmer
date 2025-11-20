@@ -1,6 +1,7 @@
 #include "draw.h"
 #include "context.h"
 #include "style.h"
+#include "imrichtext.h"
 
 auto HomeIconSVG = R"(
 <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
@@ -405,6 +406,13 @@ namespace glimmer
 
             renderer.ResetFont();
         }
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+        else if (flags & TextIsRichText)
+        {
+            auto id = ImRichText::CreateRichText(text.data(), text.data() + text.size());
+            ImRichText::Show(textrect.Min, id, textrect.GetSize());
+        }
+#endif
         
         renderer.ResetClipRect();
     }

@@ -149,12 +149,13 @@ namespace glimmer
         headerHeight = 0.f;
         totalRegions = 0;
         text = icon[0] = icon[1] = "";
+        textType = TextType::PlainText;
         event = WidgetDrawResult{};
         regions.clear(true);
         border = FourSidedBorder{};
         bgcolor = 0;
         svgOrImage[0] = svgOrImage[1] = isPath[0] = isPath[1] = false;
-        isRichText = hscroll = vscroll = false;
+        hscroll = vscroll = false;
     }
 
     /*void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

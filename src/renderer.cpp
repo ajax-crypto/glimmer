@@ -1862,8 +1862,8 @@ namespace glimmer
         return &renderer;
     }
 
-    IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
+    /*IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
     {
         return new SVGRenderer(tmfunc, dimensions);
-    }
+    }*/
 }

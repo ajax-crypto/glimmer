@@ -43,6 +43,12 @@
     <Filter Include="Source Files\yoga">
       <UniqueIdentifier>{e6546d0e-ca3a-432e-ac39-9aad8a357415}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\richtext">
+      <UniqueIdentifier>{fde12e09-776f-4553-afdd-b32f5254873a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\richtext">
+      <UniqueIdentifier>{e0f5343a-d6ce-4988-9e44-92750b71c633}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -150,6 +156,15 @@
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_opengl3_loader.h">
       <Filter>Header Files\glfw</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtext.h">
+      <Filter>Header Files\richtext</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextimpl.h">
+      <Filter>Header Files\richtext</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextutils.h">
+      <Filter>Header Files\richtext</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\context.cpp">
@@ -253,6 +268,15 @@
     </ClCompile>
     <ClCompile Include="..\..\src\platform.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\src\imrichtextimpl.cpp">
+      <Filter>Source Files\richtext</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\src\imrichtext.cpp">
+      <Filter>Source Files\richtext</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\src\imrichtextutils.cpp">
+      <Filter>Source Files\richtext</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

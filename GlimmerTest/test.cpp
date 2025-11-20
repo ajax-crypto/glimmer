@@ -288,7 +288,7 @@ int CALLBACK WinMain(
 int main(int argc, char** argv)
 #endif
 {
-    auto& config = glimmer::GetUIConfig();
+    auto& config = glimmer::GetUIConfig(true);
     config.platform = glimmer::GetPlatform();
     
     if (config.platform->CreateWindow({ .title = "Glimmer Demo" }))
@@ -304,7 +304,7 @@ int main(int argc, char** argv)
         desc.sizes.push_back(16.f);
         desc.sizes.push_back(24.f);
         desc.sizes.push_back(32.f);
-        glimmer::LoadDefaultFonts(&desc);
+        glimmer::LoadDefaultFonts(&desc, 1, true);
 
         config.renderer = glimmer::CreateImGuiRenderer();
         config.defaultFontSz = 24.f;

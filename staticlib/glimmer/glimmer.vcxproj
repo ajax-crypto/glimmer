@@ -37,6 +37,9 @@
     <ClInclude Include="..\..\src\libs\inc\imgui\misc\freetype\imgui_freetype.h" />
     <ClInclude Include="..\..\src\libs\inc\implot\implot.h" />
     <ClInclude Include="..\..\src\libs\inc\implot\implot_internal.h" />
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtext.h" />
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextimpl.h" />
+    <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextutils.h" />
     <ClInclude Include="..\..\src\libs\inc\lunasvg\lunasvg.h" />
     <ClInclude Include="..\..\src\libs\inc\stb_image\stb_image.h" />
     <ClInclude Include="..\..\src\libs\inc\yoga\YGConfig.h" />
@@ -86,6 +89,9 @@
     <ClCompile Include="..\..\src\libs\src\imgui_draw.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui_tables.cpp" />
     <ClCompile Include="..\..\src\libs\src\imgui_widgets.cpp" />
+    <ClCompile Include="..\..\src\libs\src\imrichtext.cpp" />
+    <ClCompile Include="..\..\src\libs\src\imrichtextimpl.cpp" />
+    <ClCompile Include="..\..\src\libs\src\imrichtextutils.cpp" />
     <ClCompile Include="..\..\src\platform.cpp" />
     <ClCompile Include="..\..\src\renderer.cpp" />
     <ClCompile Include="..\..\src\style.cpp" />
@@ -179,7 +185,7 @@
     <ClCompile>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_RICH_TEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
@@ -190,7 +196,7 @@
       <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
-      <AdditionalIncludeDirectories>..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src\libs\inc\imrichtext;..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -204,7 +210,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_RICH_TEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
@@ -216,7 +222,7 @@
       <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
-      <AdditionalIncludeDirectories>..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src\libs\inc\imrichtext;..\..\src\libs\inc\freetype2\;..\..\src\libs\inc\imgui;..\..\src\libs\inc;..\..\src\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>

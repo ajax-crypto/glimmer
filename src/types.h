@@ -1,6 +1,6 @@
 #pragma once
 
-#define IM_RICHTEXT_MAX_COLORSTOPS 4
+#define GLIMMER_MAX_COLORSTOPS 4
 
 #include "platform.h"
 #include "utils.h"
@@ -9,12 +9,17 @@
 #include <optional>
 #include <vector>
 
-#ifndef IM_RICHTEXT_DEFAULT_FONTFAMILY
-#define IM_RICHTEXT_DEFAULT_FONTFAMILY "default-font-family"
+#ifndef GLIMMER_DEFAULT_FONTFAMILY
+#define GLIMMER_DEFAULT_FONTFAMILY "default-font-family"
 #endif
-#ifndef IM_RICHTEXT_MONOSPACE_FONTFAMILY
-#define IM_RICHTEXT_MONOSPACE_FONTFAMILY "monospace-family"
+#ifndef GLIMMER_MONOSPACE_FONTFAMILY
+#define GLIMMER_MONOSPACE_FONTFAMILY "monospace-family"
 #endif
+
+namespace ImRichText
+{
+    struct RenderConfig;
+}
 
 namespace glimmer
 {
@@ -143,6 +148,7 @@ namespace glimmer
         uint32_t bgcolor;
         uint32_t focuscolor;
         int32_t tooltipDelay = 500;
+        int32_t toggleButtonTextSplit = 2;
         float tooltipFontSz = 16.f;
         float defaultFontSz = 16.f;
         float fontScaling = 2.f;
@@ -153,13 +159,17 @@ namespace glimmer
         float sliderSize = 20.f;
         float minScrollGripSz = 20.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
-        std::string_view tooltipFontFamily = IM_RICHTEXT_DEFAULT_FONTFAMILY;
+        std::string_view tooltipFontFamily = GLIMMER_DEFAULT_FONTFAMILY;
         std::string_view pinTabsTooltip = "Click to pin tab";
         std::string_view closeTabsTooltip = "Click to close tab";
+        std::string_view toggleButtonText = "ONOFF";
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+        ImRichText::RenderConfig* richTextConfig = nullptr;
+#endif
         int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;
         std::string_view widgetNames[WT_TotalTypes] = {
             "label", "button", "radio", "toggle", "checkbox", "layout",
@@ -434,6 +444,7 @@ namespace glimmer
         uint32_t highlightFgColor = ToRGBA(0, 0, 0);
         uint32_t selectionBgColor = ToRGBA(0, 0, 120);
         uint32_t selectionFgColor = ToRGBA(255, 255, 255);
+        TextType textType = TextType::PlainText;
         bool highlightCell = false;
         bool selectCell = false;
         bool wrapText = false;
@@ -502,6 +513,7 @@ namespace glimmer
             int32_t props = COL_Resizable;
             int16_t width = 0;
             int16_t parent = -1;
+			TextType textType = TextType::PlainText;
         };
 
         struct Configuration
@@ -531,7 +543,7 @@ namespace glimmer
 
         ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t, int32_t, int32_t) = nullptr;
         void (*cellwidget)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
-        std::string_view (*cellcontent)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
+        std::pair<std::string_view, TextType> (*cellcontent)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
         void (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
 
         void setColumnResizable(int16_t col, bool resizable);

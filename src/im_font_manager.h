@@ -4,12 +4,11 @@
 #include <optional>
 #include <vector>
 
-
-#ifndef IM_RICHTEXT_DEFAULT_FONTFAMILY
-#define IM_RICHTEXT_DEFAULT_FONTFAMILY "default-font-family"
+#ifndef GLIMMER_DEFAULT_FONTFAMILY
+#define GLIMMER_DEFAULT_FONTFAMILY "default-font-family"
 #endif
-#ifndef IM_RICHTEXT_MONOSPACE_FONTFAMILY
-#define IM_RICHTEXT_MONOSPACE_FONTFAMILY "monospace-family"
+#ifndef GLIMMER_MONOSPACE_FONTFAMILY
+#define GLIMMER_MONOSPACE_FONTFAMILY "monospace-family"
 #endif
 
 namespace glimmer
@@ -51,6 +50,22 @@ namespace glimmer
         FLT_Proportional = 1,
         FLT_Monospace = 2,
 
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+		// These are for rich text specific features
+        FLT_HasSmall = 4,
+        FLT_HasSuperscript = 8,
+        FLT_HasSubscript = 16,
+        FLT_HasH1 = 32,
+        FLT_HasH2 = 64,
+        FLT_HasH3 = 128,
+        FLT_HasH4 = 256,
+        FLT_HasH5 = 512,
+        FLT_HasH6 = 1024,
+
+        // Include all <h*> tags
+        FLT_HasHeaders = FLT_HasH1 | FLT_HasH2 | FLT_HasH3 | FLT_HasH4 | FLT_HasH5 | FLT_HasH6,
+#endif
+
         // Use this to auto-scale fonts, loading the largest size for a family
         // NOTE: For ImGui backend, this will save on memory from texture
         FLT_AutoScale = 2048,
@@ -68,11 +83,17 @@ namespace glimmer
         uint64_t flags = FLT_Proportional;
     };
 
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+    // Get font sizes required from the specified config and flt
+    // flt is a bitwise OR of FontLoadType flags
+    std::vector<float> GetFontSizes(const RenderConfig& config, uint64_t flt);
+#endif
+
     // Load default fonts based on provided descriptor. Custom paths can also be 
     // specified through FontDescriptor::names member. If not specified, a OS specific
     // default path is selected i.e. C:\Windows\Fonts for Windows and 
     // /usr/share/fonts/ for Linux.
-    bool LoadDefaultFonts(const FontDescriptor* descriptors, int totalNames = 1);
+    bool LoadDefaultFonts(const FontDescriptor* descriptors, int totalNames = 1, bool needRichText = true);
 
     // Find out path to .ttf file for specified font family and font type
     // The exact filepath returned is based on reading TTF OS/2 and name tables
@@ -108,8 +129,9 @@ namespace glimmer
     //    [[nodiscard]] void* GetOverlayFont(const RenderConfig& config);
     //#endif
 
-        // Return status of font atlas construction
+    // Return status of font atlas construction
     [[nodiscard]] bool IsFontLoaded();
+
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
     using FontFamilyToFileMapper = std::string_view(*)(std::string_view);

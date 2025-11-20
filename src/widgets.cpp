@@ -11,6 +11,7 @@
 #include "layout.h"
 #include "im_font_manager.h"
 #include "libs/inc/implot/implot.h"
+#include "imrichtext.h"
 
 #include <unordered_map>
 #include <string>
@@ -27,12 +28,12 @@ namespace glimmer
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         ImVec2 size, ImVec2 totalsz);
 
+#pragma region Widget ID Handling
+
     static Vector<char, int32_t> IdStringBackingStore{ GLIMMER_TOTAL_ID_SIZE, 0 };
     static int32_t IdStringBackingStoreSize = 0;
     static std::unordered_map<std::string_view, int32_t> NamedIds[WT_TotalTypes];
     static std::unordered_map<void*, int32_t> OutPtrIds[WT_TotalTypes];
-    static int32_t PreviousWidget = -1;
-    static std::string_view NextTootip = "";
 
     static std::string_view CreatePermanentCopy(std::string_view input)
     {
@@ -100,12 +101,15 @@ namespace glimmer
         auto it = OutPtrIds[type].find(ptr);
         if (it == OutPtrIds[type].end())
         {
-            //BREAK_IF(type == WT_TextInput);
             auto id = GetNextId(type);
             return { OutPtrIds[type].emplace(ptr, id).first->second, true };
         }
         return { it->second, false };
     }
+
+#pragma endregion
+
+#pragma region WidgetConfigData
 
     WidgetConfigData::WidgetConfigData(WidgetType ty)
         : type{ ty }
@@ -187,7 +191,17 @@ namespace glimmer
         }
     }
 
+#pragma endregion
+
+#pragma region Utilities
+
     WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors);
+
+    static TextType ToTextTypeEnum(int32_t flags)
+    {
+        return flags & TextIsRichText ? TextType::RichText :
+            flags & TextIsSVG ? TextType::SVG : TextType::PlainText;
+    }
 
     static bool IsBetween(float point, float min, float max, float tolerance = 0.f)
     {
@@ -198,36 +212,19 @@ namespace glimmer
     {
         switch (type)
         {
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+        case glimmer::TextType::RichText: 
+        {
+            auto id = ImRichText::CreateRichText(text.data(), text.data() + text.size());
+            return ImRichText::GetBounds(id, ImVec2{ width == -1.f ? FLT_MAX : width, FLT_MAX });
+        }
+#else
+        case glimmer::TextType::RichText: [[fallthrough]];
+#endif
         case glimmer::TextType::PlainText: return renderer.GetTextSize(text, font.font, font.size, width);
-        case glimmer::TextType::RichText: return ImVec2{ 0, 0 }; // TODO...
         case glimmer::TextType::SVG: return ImVec2{ font.size, font.size };
         default: break;
         }
-    }
-
-    void ShowTooltip(float& hoverDuration, const ImRect& area, std::string_view tooltip, const IODescriptor& io)
-    {
-        if (area.Contains(io.mousepos) && !tooltip.empty() && !io.isMouseDown())
-        {
-            hoverDuration += io.deltaTime;
-
-            if (hoverDuration >= Config.tooltipDelay)
-            {
-                auto font = GetFont(Config.tooltipFontFamily, Config.tooltipFontSz, FT_Normal);
-                auto textsz = Config.renderer->GetTextSize(tooltip, font, Config.tooltipFontSz);
-
-                ImVec2 tooltippos;
-                auto halfw = ((area.GetWidth() - textsz.x) * 0.5f);
-                auto startx = io.mousepos.x - halfw, endx = io.mousepos.x + halfw;
-                auto hdiff1 = std::min(startx, 0.f), hdiff2 = std::min(0.f, GetContext().WindowSize().x - endx);
-                tooltippos.x = io.mousepos.x - halfw - hdiff1 + hdiff2;
-
-                tooltippos.y = io.mousepos.y - (textsz.y + 2.f);
-                if (tooltippos.y < 0.f) tooltippos.y = io.mousepos.y + 2.f;
-                Config.renderer->DrawTooltip(tooltippos, tooltip);
-            }
-        }
-        else hoverDuration = 0;
     }
 
     template <typename StringT>
@@ -285,7 +282,7 @@ namespace glimmer
     static int32_t ToTextFlags(int32_t resflags)
     {
         int32_t res = 0;
-        if (resflags & RT_SVG) 
+        if (resflags & RT_SVG)
             res = (resflags & RT_PATH) ? TextIsSVGFile : TextIsSVG;
         if (resflags & RT_IMG)
             res = TextIsImgPath;
@@ -313,6 +310,49 @@ namespace glimmer
         else
             renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, color, true);
     }
+
+#pragma endregion
+
+#pragma region Tooltip
+
+    static int32_t PreviousWidget = -1;
+    static std::string_view NextTootip = "";
+
+    static void UpdateTooltip(std::string_view& tooltip)
+    {
+        if (!NextTootip.empty())
+        {
+            tooltip = NextTootip;
+            NextTootip = "";
+        }
+    }
+
+    void ShowTooltip(float& hoverDuration, const ImRect& area, std::string_view tooltip, const IODescriptor& io)
+    {
+        if (area.Contains(io.mousepos) && !tooltip.empty() && !io.isMouseDown())
+        {
+            hoverDuration += io.deltaTime;
+
+            if (hoverDuration >= Config.tooltipDelay)
+            {
+                auto font = GetFont(Config.tooltipFontFamily, Config.tooltipFontSz, FT_Normal);
+                auto textsz = Config.renderer->GetTextSize(tooltip, font, Config.tooltipFontSz);
+
+                ImVec2 tooltippos;
+                auto halfw = ((area.GetWidth() - textsz.x) * 0.5f);
+                auto startx = io.mousepos.x - halfw, endx = io.mousepos.x + halfw;
+                auto hdiff1 = std::min(startx, 0.f), hdiff2 = std::min(0.f, GetContext().WindowSize().x - endx);
+                tooltippos.x = io.mousepos.x - halfw - hdiff1 + hdiff2;
+
+                tooltippos.y = io.mousepos.y - (textsz.y + 2.f);
+                if (tooltippos.y < 0.f) tooltippos.y = io.mousepos.y + 2.f;
+                Config.renderer->DrawTooltip(tooltippos, tooltip);
+            }
+        }
+        else hoverDuration = 0;
+    }
+
+#pragma endregion
 
 #pragma region Scrollbars
 
@@ -1328,6 +1368,7 @@ namespace glimmer
         auto style = context.GetStyle(option.state);
         ImVec2 prefixsz{ style.font.size, style.font.size };
         auto pos = context.NextAdHocPos();
+        if (type == TextType::RichText) style.font.flags |= TextIsRichText;
 
         if (!prefix.empty() && rt != RT_INVALID)
         {
@@ -1369,6 +1410,7 @@ namespace glimmer
         auto style = context.GetStyle(option.state);
         ImVec2 prefixsz{ style.font.size, style.font.size };
         auto pos = context.NextAdHocPos();
+        if (type == TextType::RichText) style.font.flags |= TextIsRichText;
 
         auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
             type, {}, context.popupSize.x, context.popupSize.y);
@@ -1455,11 +1497,11 @@ namespace glimmer
 
         if (specificStyle.showText)
         {
-            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(IM_RICHTEXT_DEFAULT_FONTFAMILY,
+            if (specificStyle.fontptr == nullptr) specificStyle.fontptr = GetFont(GLIMMER_DEFAULT_FONTFAMILY,
                 specificStyle.fontsz, FT_Bold);
 
             renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            text = renderer.GetTextSize("ONOFF", specificStyle.fontptr, specificStyle.fontsz);
+            text = renderer.GetTextSize(Config.toggleButtonText, specificStyle.fontptr, specificStyle.fontsz);
             result.Max += text;
             renderer.ResetFont();
 
@@ -1542,7 +1584,6 @@ namespace glimmer
             tcol = ToRGBA(tr, tg, tb, ta);
         }
 
-        auto [tr, tg, tb, ta] = DecomposeColor(tcol);
         renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
         renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
             specificStyle.trackBorderThickness);
@@ -1551,8 +1592,10 @@ namespace glimmer
         {
             renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
             auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
-            state.checked ? renderer.DrawText("ON", extent.Min + ImVec2{ extra, texth }, specificStyle.indicatorTextColor) :
-                renderer.DrawText("OFF", extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
+            state.checked ? renderer.DrawText(Config.toggleButtonText.substr(0, Config.toggleButtonTextSplit), 
+                    extent.Min + ImVec2{extra, texth}, specificStyle.indicatorTextColor) :
+                renderer.DrawText(Config.toggleButtonText.substr(Config.toggleButtonTextSplit), 
+                    extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
             renderer.ResetFont();
         }
 
@@ -2173,6 +2216,10 @@ namespace glimmer
 
                     state.minState &= ~WS_Dragged;
                     state.maxState &= ~WS_Dragged;
+                }
+                else if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                {
+
                 }
 
                 state.state = WS_Hovered | WS_Default;
@@ -3250,7 +3297,7 @@ namespace glimmer
                 auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
                     (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
                 const auto style = context.GetStyle(flag, id);
-                auto txtsz = renderer.GetTextSize(item.name, style.font.font, style.font.size);
+                auto txtsz = GetTextSize(item.nameType, item.name, style.font, tab.extent.GetWidth(), renderer);
                 tab.extent.Min = offset;
 
                 switch (context.currentTab.sizing)
@@ -3405,8 +3452,7 @@ namespace glimmer
             {
                 const auto style = context.GetStyle(state.hovered == ExpandTabsIndex ? WS_Hovered : WS_Default, id);
                 state.expand.Min = offset;
-                auto sz = state.expandType == TextType::PlainText ? renderer.GetTextSize(state.expandContent, style.font.font, style.font.size) :
-                    ImVec2{ style.font.size, style.font.size };
+                auto sz = GetTextSize(state.expandType, state.expandContent, style.font, -1.f, renderer);
                 state.expand.Max = state.expand.Min + sz;
                 offset.y += sz.y + config.spacing.y;
             }
@@ -3417,8 +3463,7 @@ namespace glimmer
                 auto flag = tabidx == state.current ? WS_Selected : tabidx == state.hovered ? WS_Hovered :
                     (tab.state & TI_Disabled) ? WS_Disabled : WS_Default;
                 const auto style = context.GetStyle(flag, id);
-                auto txtsz = item.nameType == TextType::PlainText ? renderer.GetTextSize(item.name, style.font.font, style.font.size) : 
-                    ImVec2{ style.font.size, style.font.size };
+                auto txtsz = GetTextSize(ToTextTypeEnum(style.font.flags), item.name, style.font, -1.f, renderer);
                 tab.extent.Min = offset;
 
                 switch (context.currentTab.sizing)
@@ -3795,7 +3840,7 @@ namespace glimmer
         accordion.isPath[1] = isPath;
     }
 
-    void AddAccordionHeaderText(std::string_view content, bool isRichText)
+    void AddAccordionHeaderText(std::string_view content, TextType textType)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
@@ -3803,11 +3848,10 @@ namespace glimmer
         const auto style = context.GetStyle(state.hstates[accordion.totalRegions]);
         auto haswrap = !(style.font.flags & FontStyleNoWrap) && !(style.font.flags & FontStyleOverflowEllipsis) &&
             !(style.font.flags & FontStyleOverflowMarquee);
-        accordion.textsz = Config.renderer->GetTextSize(content, style.font.font, style.font.size, 
-            haswrap ? accordion.content.GetWidth() : -1.f);
+        accordion.textsz = GetTextSize(textType, content, style.font, haswrap ? accordion.content.GetWidth() : -1.f, context.GetRenderer());
         accordion.headerHeight = accordion.textsz.y;
         accordion.text = content;
-        accordion.isRichText = isRichText;
+        accordion.textType = textType;
     }
 
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result)
@@ -3871,7 +3915,7 @@ namespace glimmer
         nextpos.y = prevy;
         DrawText(nextpos, nextpos + ImVec2{ accordion.size.x, accordion.headerHeight }, 
             ImRect{ nextpos, nextpos + accordion.textsz }, accordion.text, false, style, renderer, 
-            ToTextFlags(accordion.isRichText ? TextType::RichText : TextType::PlainText));
+            ToTextFlags(accordion.textType));
         context.RecordDeferRange(accordion.regions[accordion.totalRegions].hrange, false);
 
         accordion.regions[accordion.totalRegions].header = bg.GetSize();
@@ -4372,8 +4416,8 @@ namespace glimmer
             memset(buffer, ' ', 255);
 
             auto width = (config.props & COL_WidthAbsolute) ? config.width :
-                config.width > 0.f ? renderer.GetTextSize(std::string_view{ buffer, (size_t)config.width },
-                    style.font.font, style.font.size).x : FLT_MAX;
+                config.width > 0.f ? GetTextSize(ToTextTypeEnum(style.font.flags), std::string_view{ buffer, (size_t)config.width },
+                    style.font, style.font.size, renderer).x : FLT_MAX;
 
             header.content.Max.x = header.content.Min.x + width;
             header.extent.Max.x = width == FLT_MAX ? FLT_MAX : header.content.Max.x + itemcfg.cellpadding.x;
@@ -4918,11 +4962,11 @@ namespace glimmer
             config.cellwidget(bounds, row, col, builder.depth);
         else
         {
-            auto text = config.cellcontent(bounds, row, col, builder.depth);
+            auto [text, txtype] = config.cellcontent(bounds, row, col, builder.depth);
             auto style = context.GetStyle(props.disabled ? WS_Disabled :
                 colprops.selected ? WS_Selected : colprops.highlighted ? WS_Hovered : WS_Default);
-            auto textsz = Config.renderer->GetTextSize(text, style.font.font, style.font.size,
-                props.wrapText ? (bounds.second - builder.nextpos.x - config.cellpadding.x) : -1.f);
+            auto textsz = GetTextSize(txtype, text, style.font, props.wrapText ? 
+                (bounds.second - builder.nextpos.x - config.cellpadding.x) : -1.f, *Config.renderer);
             builder.maxCellExtent = builder.nextpos + textsz;
             ImRect textrect{ builder.nextpos, builder.nextpos + textsz };
             ImVec2 textend{ bounds.second, builder.nextpos.y + textsz.y };
@@ -5925,13 +5969,39 @@ namespace glimmer
 
 #pragma region Public APIs
 
-    static void UpdateTooltip(std::string_view& tooltip)
+    struct RichTextPlatformSupport : public ImRichText::IPlatform
     {
-        if (!NextTootip.empty())
+		ImVec2 GetCurrentMousePos() { return Config.platform->CurrentIO().mousepos; }
+		bool IsMouseClicked() { return Config.platform->CurrentIO().clicked(); }
+
+		// TODO: Implement these methods to provide full hyperlink and frame support
+        void HandleHyperlink(std::string_view) {}
+        void RequestFrame() {}
+        void HandleHover(bool) {}
+	};
+
+    UIConfig& GetUIConfig(bool needsRichText)
+    {
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+		if (needsRichText && Config.richTextConfig == nullptr)
         {
-            tooltip = NextTootip;
-            NextTootip = "";
+			ImRichText::DefaultConfigParams rtparams;
+			rtparams.Charset = TextContentCharset::UTF8Simple;
+            rtparams.DefaultFontSize = Config.defaultFontSz;
+            rtparams.FontScale = Config.fontScaling;
+
+            Config.richTextConfig = ImRichText::GetDefaultConfig(rtparams);
+            Config.richTextConfig->Renderer = Config.renderer;
+#ifdef _DEBUG
+			Config.richTextConfig->OverlayRenderer = Config.renderer;
+#endif
+            Config.richTextConfig->RTRenderer = new ImRichText::IRenderer{};
+            Config.richTextConfig->RTRenderer->UserData = Config.renderer;
+            Config.richTextConfig->Platform = new RichTextPlatformSupport{};
         }
+#endif
+
+        return Config;
     }
 
     // Widget rendering are of three types:
@@ -6746,7 +6816,7 @@ namespace glimmer
     }
 
     WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, 
-        std::string_view(*cell)(int32_t, int16_t), int32_t totalRows, int32_t geometry, const NeighborWidgets& neighbors)
+        std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), int32_t totalRows, int32_t geometry, const NeighborWidgets& neighbors)
     {
         static auto fptr = cell;
 
@@ -6768,11 +6838,6 @@ namespace glimmer
         EndItemGridHeader();
         PopulateItemGrid(totalRows);
         return EndItemGrid();
-    }
-
-    UIConfig& GetUIConfig()
-    {
-        return Config;
     }
 
     int32_t GetNextId(WidgetType type)

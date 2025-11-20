@@ -3,9 +3,9 @@
 
 namespace glimmer
 {
-    UIConfig& GetUIConfig();
+    UIConfig& GetUIConfig(bool needRichText);
 
-    struct WidgetBuilder
+    /*struct WidgetBuilder
     {
         WidgetBuilder& Style(const std::initializer_list<std::pair<int32_t, std::string_view>>& css);
         WidgetBuilder& Style(int32_t state, std::string_view& css);
@@ -37,7 +37,7 @@ namespace glimmer
         WidgetDrawResult Done();
     };
 
-    WidgetBuilder& Widget(WidgetType wt, std::string_view id);
+    WidgetBuilder& Widget(WidgetType wt, std::string_view id);*/
 
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
@@ -114,7 +114,7 @@ namespace glimmer
     WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::string_view (*cell)(int32_t, int16_t), 
+    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), 
         int32_t totalRows, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
@@ -146,7 +146,7 @@ namespace glimmer
     bool StartAccordionHeader();
     void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath);
     void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath);
-    void AddAccordionHeaderText(std::string_view content, bool isRichText = false);
+    void AddAccordionHeaderText(std::string_view content, TextType textType = TextType::PlainText);
     void EndAccordionHeader(std::optional<bool> expanded = std::nullopt);
     bool StartAccordionContent(float height = FLT_MAX, int32_t scrollflags = 0, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     void EndAccordionContent();

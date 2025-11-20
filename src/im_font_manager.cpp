@@ -20,6 +20,9 @@
 #include <deque>
 #include <cassert>
 
+#include "imrichtext.h"
+#include "context.h"
+
 #ifdef _DEBUG
 #include <iostream>
 #endif
@@ -245,15 +248,15 @@ namespace glimmer
     static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale, bool hinting, bool antialias)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
+        LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
         // TODO: Add default fonts for other platforms
     }
@@ -261,15 +264,15 @@ namespace glimmer
     static void LoadDefaultMonospaceFont(float sz, const ImFontConfig& fconfig, bool autoScale, bool hinting, bool antialias)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, true, hinting, antialias);
+        LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, true, hinting, antialias);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias);
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
         // TODO: Add default fonts for other platforms
     }
@@ -279,15 +282,15 @@ namespace glimmer
     static void LoadDefaultProportionalFont(float sz)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz);
+        LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { WINDOWS_DEFAULT_FONT }, sz);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/open-sans";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_FONT }, sz) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz);
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_FONT }, sz) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_FONT }, sz);
 #endif
         // TODO: Add default fonts for other platforms
     }
@@ -295,15 +298,15 @@ namespace glimmer
     static void LoadDefaultMonospaceFont(float sz)
     {
 #ifdef _WIN32
-        LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz);
+        LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, { WINDOWS_DEFAULT_MONOFONT }, sz);
 #elif __linux__
         std::filesystem::path fedoradir = "/usr/share/fonts/liberation-mono";
         std::filesystem::path ubuntudir = "/usr/share/fonts/truetype/freefont";
         std::filesystem::exists(fedoradir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { FEDORA_DEFAULT_MONOFONT }, sz) :
             std::filesystem::exists(ubuntudir) ?
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz) :
-            LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz);
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { POPOS_DEFAULT_MONOFONT }, sz) :
+            LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, { MANJARO_DEFAULT_MONOFONT }, sz);
 #endif
         // TODO: Add default fonts for other platforms
     }
@@ -391,10 +394,10 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false, hinting, antialias);
+                LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
-                LoadFonts(IM_RICHTEXT_DEFAULT_FONTFAMILY, files, sz);
+                LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, files, sz);
 #endif
             }
             else
@@ -414,10 +417,10 @@ namespace glimmer
                 files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
 #ifdef IM_RICHTEXT_TARGET_IMGUI
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true, hinting, antialias);
+                LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true, hinting, antialias);
 #endif
 #ifdef IM_RICHTEXT_TARGET_BLEND2D
-                LoadFonts(IM_RICHTEXT_MONOSPACE_FONTFAMILY, files, sz);
+                LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, files, sz);
 #endif
             }
             else
@@ -473,14 +476,46 @@ namespace glimmer
         return true;
     }
 
-    bool LoadDefaultFonts(const FontDescriptor* descriptors, int total)
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+    std::vector<float> GetFontSizes(const ImRichText::RenderConfig& config, uint64_t flt)
+    {
+        std::vector<float> sizes;
+        sizes.push_back(config.DefaultFontSize * config.FontScale);
+
+        if (flt & FLT_HasSubscript) sizes.push_back(config.DefaultFontSize * config.ScaleSubscript * config.FontScale);
+        if (flt & FLT_HasSuperscript) sizes.push_back(config.DefaultFontSize * config.ScaleSuperscript * config.FontScale);
+        if (flt & FLT_HasSmall) sizes.push_back(config.DefaultFontSize * 0.8f * config.FontScale);
+        if (flt & FLT_HasH1) sizes.push_back(config.HFontSizes[0] * config.FontScale);
+        if (flt & FLT_HasH2) sizes.push_back(config.HFontSizes[1] * config.FontScale);
+        if (flt & FLT_HasH3) sizes.push_back(config.HFontSizes[2] * config.FontScale);
+        if (flt & FLT_HasH4) sizes.push_back(config.HFontSizes[3] * config.FontScale);
+        if (flt & FLT_HasH5) sizes.push_back(config.HFontSizes[4] * config.FontScale);
+        if (flt & FLT_HasH6) sizes.push_back(config.HFontSizes[5] * config.FontScale);
+        if (flt & FLT_HasHeaders) for (auto sz : config.HFontSizes) sizes.push_back(sz * config.FontScale);
+        std::sort(sizes.begin(), sizes.end());
+
+        return (flt & FLT_AutoScale) ? std::vector<float>{ *(--sizes.end()) } : sizes;
+    }
+#endif
+
+    bool LoadDefaultFonts(const FontDescriptor* descriptors, int total, bool needRichText)
     {
         assert(descriptors != nullptr);
 
         for (auto idx = 0; idx < total; ++idx)
         {
             auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
-            LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
+
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+            if (needRichText)
+            {
+                auto sizes = GetFontSizes(*Config.richTextConfig, descriptors[idx].flags);
+				sizes.insert(sizes.begin(), descriptors[idx].sizes.begin(), descriptors[idx].sizes.end());
+                LoadDefaultFonts(sizes, descriptors[idx].flags, descriptors[idx].charset, names);
+            }
+            else
+#endif
+                LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
         }
 
         return true;
@@ -959,7 +994,7 @@ namespace glimmer
         }
 
         if (famit == FontStore.end())
-            famit = FontStore.find(IM_RICHTEXT_DEFAULT_FONTFAMILY);
+            famit = FontStore.find(GLIMMER_DEFAULT_FONTFAMILY);
 
         if (famit == FontStore.end())
             famit = FontStore.begin();

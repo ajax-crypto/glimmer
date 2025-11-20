@@ -19,7 +19,7 @@ namespace glimmer
 
     struct ColorGradient
     {
-        ColorStop colorStops[IM_RICHTEXT_MAX_COLORSTOPS];
+        ColorStop colorStops[GLIMMER_MAX_COLORSTOPS];
         int totalStops = 0;
         float angleDegrees = 0.f;
         ImGuiDir dir = ImGuiDir::ImGuiDir_Down;
@@ -69,7 +69,7 @@ namespace glimmer
     struct FontStyle
     {
         void* font = nullptr; // Pointer to font object
-        std::string_view family = IM_RICHTEXT_DEFAULT_FONTFAMILY;
+        std::string_view family = GLIMMER_DEFAULT_FONTFAMILY;
         float size = 16.f;
         int32_t flags = TextIsPlainText;
     };
@@ -302,7 +302,7 @@ namespace glimmer
         CommonWidgetStyleDescriptor() {}
     };
 
-    // Set all styles for ids/classes as a stylesheet (This should be done before event loop, or at the starting
+    // Set all styles for ids/classes as a stylesheet (This should be done before event loop, or at the start
     // of a frame ideally)
     void SetStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css);
     void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...);
@@ -317,6 +317,11 @@ namespace glimmer
     void PushStyle(int32_t state, std::string_view css);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+    void PushTextType(TextType type);
+	void PopTextType();
+#endif
+
     template <typename... ArgsT>
     void IgnoreStyleStack(ArgsT... args)
     {
@@ -326,6 +331,35 @@ namespace glimmer
     void RestoreStyleStack();
 
     std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
+
+#ifdef GLIMMER_ENABLE_RICH_TEXT
+
+    [[nodiscard]] int SkipSpace(const char* text, int idx, int end);
+    [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0);
+    [[nodiscard]] int WholeWord(const std::string_view text, int from = 0);
+    [[nodiscard]] int SkipDigits(const std::string_view text, int from = 0);
+    [[nodiscard]] int SkipFDigits(const std::string_view text, int from = 0);
+
+    [[nodiscard]] bool AreSame(const std::string_view lhs, const char* rhs);
+    [[nodiscard]] bool StartsWith(const std::string_view lhs, const char* rhs);
+    [[nodiscard]] bool AreSame(const std::string_view lhs, const std::string_view rhs);
+
+    [[nodiscard]] int ExtractInt(std::string_view input, int defaultVal);
+    [[nodiscard]] int ExtractIntFromHex(std::string_view input, int defaultVal);
+    [[nodiscard]] IntOrFloat ExtractNumber(std::string_view input, float defaultVal);
+    [[nodiscard]] float ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
+    [[nodiscard]] FourSidedMeasure ExtractWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
+    
+    [[nodiscard]] uint32_t ExtractColor(std::string_view stylePropVal, uint32_t(*NamedColor)(const char*, void*), void* userData);
+    std::pair<uint32_t, float> ExtractColorStop(std::string_view input, uint32_t(*NamedColor)(const char*, void*), void* userData);
+    ColorGradient ExtractLinearGradient(std::string_view input, uint32_t(*NamedColor)(const char*, void*), void* userData);
+    
+    Border ExtractBorder(std::string_view input, float ems, float percent, uint32_t(*NamedColor)(const char*, void*), void* userData);
+    BoxShadow ExtractBoxShadow(std::string_view input, float ems, float percent, uint32_t(*NamedColor)(const char*, void*), void* userData);
+    std::pair<std::string_view, bool> ExtractTag(const char* text, int end, char tagEnd, int& idx, bool& tagStart);
+    [[nodiscard]] std::optional<std::string_view> GetQuotedString(const char* text, int& idx, int end);
+
+#endif
 
 #define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
 #define RECT_FMT "(%f, %f) x (%f, %f)"

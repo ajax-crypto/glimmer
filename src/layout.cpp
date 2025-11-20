@@ -1800,6 +1800,12 @@ namespace glimmer
                 WidgetContextData::RestoreStyleStack();
                 break;
             }
+            case LayoutOps::PushTextType:
+				PushTextType((TextType)(data));
+                break;
+            case LayoutOps::PopTextType:
+                PopTextType();
+                break;
             default:
                 break;
             }
