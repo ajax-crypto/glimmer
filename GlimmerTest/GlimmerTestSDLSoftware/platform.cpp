@@ -17,6 +17,11 @@
 #include "libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+#include <mutex>
+#include "nfd-ext/src/include/nfd.h"
+#endif
+
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -184,27 +189,11 @@ namespace glimmer
                 // Start the Dear ImGui frame
                 ImGui_ImplSDLRenderer3_NewFrame();
                 ImGui_ImplSDL3_NewFrame();
-                ImGui::NewFrame();
 
-                ImVec2 winsz{ (float)width, (float)height };
-                ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
-                ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
-                EnterFrame();
+                if (EnterFrame(width, height))
+                    done = !runner(ImVec2{ width, height }, *this, data);
 
-                if (ImGui::Begin(GLIMMER_IMGUI_MAINWINDOW_NAME, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
-                {
-                    auto dl = ImGui::GetWindowDrawList();
-                    Config.renderer->UserData = dl;
-                    dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
-                    done = !runner(winsz, *this, data);
-                }
-
-                ImGui::End();
                 ExitFrame();
-
-                // Rendering
-                ImGui::Render();
 
                 auto& io = ImGui::GetIO();
                 SDL_SetRenderScale(renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
@@ -223,6 +212,9 @@ namespace glimmer
 
             SDL_DestroyRenderer(renderer);
             SDL_DestroyWindow(window);
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+            NFD_Quit();
+#endif
             SDL_Quit();
             Cleanup();
             return done;
@@ -237,8 +229,127 @@ namespace glimmer
             return (ImTextureID)(intptr_t)(texture);
         }
 
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+
+        void GetWindowHandle(void* out) override
+        {
+            std::call_once(nfdInitialized, [] { NFD_Init(); });
+            auto nativeWindow = (nfdwindowhandle_t*)out;
+#if defined(__WIN32__)
+            nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
+            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);;
+#elif defined(__MACOSX__)
+            nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_COCOA;
+            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+#elif defined(__LINUX__)
+            if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
+            {
+                nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_X11;
+                nativeWindow->handle = SDL_GetNumberProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);;
+            }
+#endif
+        }
+
+#elif !defined(__EMSCRIPTEN__)
+
+        int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+            std::string_view location, std::pair<std::string_view, std::string_view>* filters,
+            int totalFilters, const DialogProperties& props) override
+        {
+            struct PathSet
+            {
+                std::string_view* out = nullptr;
+                int32_t outsz = 0;
+                int32_t filled = 0;
+                bool done = false;
+            };
+
+            static PathSet pathset{};
+            static Vector<SDL_DialogFileFilter, int16_t> sdlfilters;
+
+            pathset = PathSet{ out, outsz, 0, false };
+            SDL_DialogFileCallback callback = [](void* userdata, const char* const* filelist, int) {
+                auto& pathset = *(PathSet*)userdata;
+                auto idx = 0;
+
+                while (filelist[idx] != nullptr && idx < pathset.outsz)
+                {
+                    pathset.out[idx] = filelist[idx];
+                    pathset.filled++;
+                    idx++;
+                }
+
+                pathset.done = true;
+            };
+
+            if ((target & OneFile) || (target & MultipleFiles))
+            {
+                sdlfilters.clear(true);
+                for (auto idx = 0; idx < totalFilters; ++idx)
+                {
+                    auto& sdlfilter = sdlfilters.emplace_back();
+                    sdlfilter.name = filters[idx].first.data();
+                    sdlfilter.pattern = filters[idx].second.data();
+                }
+
+                auto allowMany = (target & MultipleFiles) != 0;
+                auto allowMany = (target & MultipleFiles) != 0;
+                auto pset = SDL_CreateProperties();
+                SDL_SetPointerProperty(pset, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, sdlfilters.data());
+                SDL_SetNumberProperty(pset, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, totalFilters);
+                SDL_SetPointerProperty(pset, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, window);
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_LOCATION_STRING, location.data());
+                SDL_SetBooleanProperty(pset, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, allowMany);
+                if (!props.title.empty())
+                    SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_TITLE_STRING, props.title.data());
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_ACCEPT_STRING, props.confirmBtnText.data());
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_CANCEL_STRING, props.cancelBtnText.data());
+
+                SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFILE, callback, &pathset, pset);
+                SDL_DestroyProperties(pset);
+            }
+            else
+            {
+                auto allowMany = (target & MultipleDirectories) != 0;
+                auto pset = SDL_CreateProperties();
+                SDL_SetPointerProperty(pset, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, window);
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_LOCATION_STRING, location.data());
+                SDL_SetBooleanProperty(pset, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, allowMany);
+                if (!props.title.empty())
+                    SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_TITLE_STRING, props.title.data());
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_ACCEPT_STRING, props.confirmBtnText.data());
+                SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_CANCEL_STRING, props.cancelBtnText.data());
+
+                SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, callback, &pathset, pset);
+                SDL_DestroyProperties(pset);
+            }
+
+            SDL_Event event;
+            while (!pathset.done)
+            {
+                SDL_PollEvent(&event);
+                SDL_Delay(10);
+            }
+
+            return pathset.filled;
+        }
+
+#else
+
+    int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+        std::string_view location, std::pair<std::string_view, std::string_view>* filters,
+        int totalFilters, const DialogProperties& props) override
+    {
+        return -1;
+    }
+
+#endif
+
         SDL_Window* window = nullptr;
         SDL_Renderer* renderer = nullptr;
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+        std::once_flag nfdInitialized;
+#endif
     };
 
     IPlatform* GetPlatform(ImVec2 size)

@@ -2,6 +2,14 @@
 #include "context.h"
 #include "renderer.h"
 
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+#include "nfd-ext/src/include/nfd.h"
+#endif
+
+#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
+#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
+#endif
+
 namespace glimmer
 {
     int64_t FramesRendered()
@@ -15,6 +23,120 @@ namespace glimmer
         for (auto ks = 0; ks < (GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1); ++ks)
             keyStatus[ks] = ButtonStatus::Default;
     }
+
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+
+    static int32_t ExtractPaths(std::string_view* out, int32_t outsz, const nfdpathset_t* outPaths)
+    {
+        nfdpathsetsize_t totalPaths = 0;
+        NFD_PathSet_GetCount(outPaths, &totalPaths);
+        auto pidx = 0;
+
+        for (; pidx < std::min((int32_t)totalPaths, outsz); ++pidx)
+        {
+            nfdu8char_t* path = nullptr;
+            NFD_PathSet_GetPathU8(outPaths, pidx, &path);
+            if (pidx < outsz)
+                out[pidx] = std::string_view((const char*)path);
+            NFD_PathSet_FreePathU8(path);
+        }
+
+        NFD_PathSet_Free(outPaths);
+        return pidx;
+    }
+
+    int32_t IPlatform::ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+        std::string_view location, std::pair<std::string_view, std::string_view>* filters,
+        int totalFilters, const DialogProperties& props)
+    {
+        assert(out != nullptr && outsz >= 1);
+        static Vector<nfdu8filteritem_t, int16_t, 16> filterItems{ false };
+
+        filterItems.clear(true);
+        modalDialog = true;
+
+        for (int idx = 0; idx < totalFilters; ++idx)
+        {
+            nfdu8filteritem_t item{};
+            item.name = filters[idx].first.data();
+            item.spec = filters[idx].second.data();
+            filterItems.emplace_back() = item;
+        }
+
+        nfdresult_t result = NFD_ERROR;
+
+        if ((target & OneFile) || (target & MultipleFiles))
+        {
+            nfdopendialogu8args_t args = { 0 };
+            args.filterList = filterItems.data();
+            args.filterCount = totalFilters;
+            args.defaultPath = location.data();
+            GetWindowHandle(&args.parentWindow);
+
+            if (target & MultipleFiles)
+            {
+                const nfdpathset_t* outPaths = nullptr;
+                result = NFD_OpenDialogMultipleU8_With(&outPaths, &args);
+
+                if (result == NFD_OKAY)
+                {
+                    return ExtractPaths(out, outsz, outPaths);
+                }
+            }
+            else
+            {
+                nfdu8char_t* outPath = nullptr;
+                result = NFD_OpenDialogU8_With(&outPath, &args);
+                out[0] = std::string_view((const char*)outPath);
+                NFD_FreePathU8(outPath);
+                return 1;
+            }
+        }
+        else if ((target & OneDirectory) || (target & MultipleDirectories))
+        {
+            nfdpickfolderu8args_t args = { 0 };
+            args.defaultPath = location.data();
+            GetWindowHandle(&args.parentWindow);
+
+            if (target & OneDirectory)
+            {
+                nfdu8char_t* outPath = nullptr;
+                result = NFD_PickFolderU8_With(&outPath, &args);
+                out[0] = std::string_view((const char*)outPath);
+                NFD_FreePathU8(outPath);
+                return 1;
+            }
+            else
+            {
+                const nfdpathset_t* outPaths = nullptr;
+                result = NFD_PickFolderMultipleU8_With(&outPaths, &args);
+
+                if (result == NFD_OKAY)
+                {
+                    return ExtractPaths(out, outsz, outPaths);
+                }
+            }
+        }
+        else
+        {
+            LOGERROR("Invalid options...\n");
+            return -1;
+        }
+
+        modalDialog = false;
+        return 0;
+    }
+
+#else
+
+    int32_t IPlatform::ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+        std::string_view location, std::pair<std::string_view, std::string_view>* filters,
+        int totalFilters, const DialogProperties& props)
+    {
+        return 0;
+    }
+
+#endif
 
     IODescriptor IPlatform::CurrentIO() const
     {
@@ -33,8 +155,20 @@ namespace glimmer
         cursor = _cursor;
     }
 
-    void IPlatform::EnterFrame()
+    void IPlatform::GetWindowHandle(void* out)
     {
+        out = nullptr;
+    }
+
+    bool IPlatform::EnterFrame(float width, float height)
+    {
+        ImGui::NewFrame();
+        ImGui::GetIO().MouseDrawCursor = softwareCursor;
+
+        ImVec2 winsz{ (float)width, (float)height };
+        ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
+
         auto& io = ImGui::GetIO();
         auto rollover = 0;
         auto escape = false, clicked = false;
@@ -81,10 +215,23 @@ namespace glimmer
 
         InitFrameData();
         cursor = MouseCursor::Arrow;
+
+        if (ImGui::Begin(GLIMMER_IMGUI_MAINWINDOW_NAME, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+        {
+            auto dl = ImGui::GetWindowDrawList();
+            Config.renderer->UserData = dl;
+            dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
+            return true;
+        }
+
+        return false;
     }
 
     void IPlatform::ExitFrame()
     {
+        ImGui::End();
+
         ++frameCount; ++deltaFrames;
         totalDeltaTime += desc.deltaTime;
         maxFrameTime = std::max(maxFrameTime, desc.deltaTime);
@@ -113,6 +260,9 @@ namespace glimmer
             totalDeltaTime = 0.f;
             deltaFrames = 0;
         }
+
+        // Rendering
+        ImGui::Render();
     }
 
     float IPlatform::fps() const
@@ -123,5 +273,10 @@ namespace glimmer
     UIConfig* IPlatform::config() const
     {
         return &Config;
+    }
+
+    bool IPlatform::hasModalDialog() const
+    {
+        return modalDialog;
     }
 }

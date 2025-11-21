@@ -1159,6 +1159,10 @@ namespace glimmer
         return res;
     }
 
+	// This is a global config which can only be set during initialization
+    // Read-only access is provided once set for subsequent frames
+    UIConfig Config{};
+
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
     int32_t WidgetContextData::ContextMenuOptionIdx = 0;

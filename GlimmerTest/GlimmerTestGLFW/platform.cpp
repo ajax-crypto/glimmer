@@ -16,6 +16,12 @@
 #include "libs/inc/imgui/imgui_impl_opengl3.h"
 #include "libs/inc/imgui/imgui_impl_opengl3_loader.h"
 
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+#include <mutex>
+#include "nfd-ext/src/include/nfd.h"
+#include "nfd-ext/src/include/nfd_glfw3.h"
+#endif
+
 #include <stdio.h>
 #define GL_SILENCE_DEPRECATION
 #if defined(IMGUI_IMPL_OPENGL_ES2)
@@ -170,10 +176,10 @@ namespace glimmer
             }
 
             // Create window with graphics context
-            m_window = glfwCreateWindow(width, height, params.title.data(), nullptr, nullptr);
-            if (m_window == nullptr) return false;
+            window = glfwCreateWindow(width, height, params.title.data(), nullptr, nullptr);
+            if (window == nullptr) return false;
 
-            glfwMakeContextCurrent(m_window);
+            glfwMakeContextCurrent(window);
             glfwSwapInterval(1); // Enable vsync
 
             // Setup Dear ImGui context
@@ -184,9 +190,9 @@ namespace glimmer
             io.IniFilename = nullptr;
 
             // Setup Platform/Renderer backends
-            ImGui_ImplGlfw_InitForOpenGL(m_window, true);
+            ImGui_ImplGlfw_InitForOpenGL(window, true);
 #ifdef __EMSCRIPTEN__
-            ImGui_ImplGlfw_InstallEmscriptenCallbacks(m_window, "#canvas");
+            ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
 #endif
             ImGui_ImplOpenGL3_Init(glsl_version);
 
@@ -217,52 +223,36 @@ namespace glimmer
 
             EMSCRIPTEN_MAINLOOP_BEGIN
 #else
-            while (!glfwWindowShouldClose(m_window) && !close)
+            while (!glfwWindowShouldClose(window) && !close)
 #endif
             {
                 glfwPollEvents();
-                if (glfwGetWindowAttrib(m_window, GLFW_ICONIFIED) != 0)
+                if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
                 {
                     ImGui_ImplGlfw_Sleep(10);
                     continue;
                 }
 
                 int width, height;
-                glfwGetWindowSize(m_window, &width, &height);
+                glfwGetWindowSize(window, &width, &height);
 
                 // Start the Dear ImGui frame
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplGlfw_NewFrame();
-                ImGui::NewFrame();
-                ImGui::GetIO().MouseDrawCursor = softwareCursor;
 
-                ImVec2 winsz{ (float)width, (float)height };
-                ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
-                ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
-                EnterFrame();
+                if (EnterFrame(width, height))
+                    close = !runner(ImVec2{ width, height }, *this, data);
 
-                if (ImGui::Begin(GLIMMER_IMGUI_MAINWINDOW_NAME, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
-                {
-                    auto dl = ImGui::GetWindowDrawList();
-                    Config.renderer->UserData = dl;
-                    dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
-                    close = !runner(winsz, *this, data);
-                }
-
-                ImGui::End();
                 ExitFrame();
 
-                // Rendering
-                ImGui::Render();
                 int display_w, display_h;
-                glfwGetFramebufferSize(m_window, &display_w, &display_h);
+                glfwGetFramebufferSize(window, &display_w, &display_h);
                 glViewport(0, 0, display_w, display_h);
                 glClearColor(bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3]);
                 glClear(GL_COLOR_BUFFER_BIT);
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-                glfwSwapBuffers(m_window);
+                glfwSwapBuffers(window);
 
 #ifdef __EMSCRIPTEN__
                 EMSCRIPTEN_MAINLOOP_END;
@@ -270,6 +260,9 @@ namespace glimmer
             }
 #endif
 
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+            NFD_Quit();
+#endif
             Cleanup();
             return true;
         }
@@ -295,7 +288,20 @@ namespace glimmer
             return (ImTextureID)(intptr_t)image_texture;
         }
 
-        GLFWwindow* m_window = nullptr;
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+
+        void GetWindowHandle(void* out) override
+        {
+            std::call_once(nfdInitialized, [] { NFD_Init(); });
+            NFD_GetNativeWindowFromGLFWWindow(window, (nfdwindowhandle_t*)out);
+        }
+
+#endif
+
+        GLFWwindow* window = nullptr;
+#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+        std::once_flag nfdInitialized;
+#endif
     };
 
     IPlatform* GetPlatform(ImVec2 size)

@@ -61,7 +61,7 @@
 
 namespace glimmer
 {
-    inline UIConfig Config{};
+    extern UIConfig Config;
 
     struct AnimationData
     {

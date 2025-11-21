@@ -1396,7 +1396,7 @@ namespace glimmer
 
     StyleDescriptor& GetStyle(std::string_view id, WidgetStateIndex index)
     {
-        static StyleDescriptor invalid;
+        static StyleDescriptor invalid{};
         auto it = StyleSheet.find(id);
         return it == StyleSheet.end() ? invalid : it->second[index];
     }

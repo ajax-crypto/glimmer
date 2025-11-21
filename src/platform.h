@@ -188,6 +188,21 @@ namespace glimmer
 
     struct IPlatform
     {
+        enum FileDialogTarget
+        {
+			OneFile = 1, 
+            OneDirectory = 2, 
+            MultipleFiles = 4,
+			MultipleDirectories = 8
+        };
+
+        struct DialogProperties
+        {
+            std::string_view title;
+            std::string_view confirmBtnText = "OK";
+            std::string_view cancelBtnText = "Cancel";
+        };
+
         friend int64_t FramesRendered();
 
         virtual void SetClipboardText(std::string_view input) = 0;
@@ -196,16 +211,23 @@ namespace glimmer
         virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
         virtual ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels) = 0;
 
-        IODescriptor CurrentIO() const;
+        virtual void GetWindowHandle(void*);
+        virtual int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+            std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
+            int totalFilters = 0, const DialogProperties& props = DialogProperties{});
+
         void SetMouseCursor(MouseCursor cursor);
+
+        IODescriptor CurrentIO() const;
         float fps() const;
         UIConfig* config() const;
+        bool hasModalDialog() const;
 
         IODescriptor desc;
 
     protected:
 
-        void EnterFrame();
+        bool EnterFrame(float w, float h);
         void ExitFrame();
 
         int64_t frameCount = 0;
@@ -216,6 +238,7 @@ namespace glimmer
         MouseCursor cursor;
         float bgcolor[4];
         bool softwareCursor = false;
+		bool modalDialog = false;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
