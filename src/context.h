@@ -414,6 +414,8 @@ namespace glimmer
     constexpr int16_t DropDownTabIndex = -2;
     constexpr int16_t ExpandTabsIndex = -3;
     constexpr int16_t InvalidTabIndex = -4;
+    constexpr int16_t MoveBackwardIndex = -4;
+    constexpr int16_t MoveForwardIndex = -4;
 
     struct TabBarPersistentState
     {
@@ -434,6 +436,7 @@ namespace glimmer
         ImRect create;
         ImRect dropdown;
         ImRect expand;
+        ImRect moveForward, moveBackward;
         float createHoverDuration = 0.f;
         ScrollableRegion scroll;
         bool expanded = false;
@@ -548,7 +551,7 @@ namespace glimmer
 
         Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
         FixedSizeStack<int32_t, 16> containerStack;
-        //Vector<TabBarBuilder, int16_t, 8> tabbars{ false };
+        TabBarBuilder tabbar;
 
         LayoutBuilder()
         {
@@ -790,9 +793,9 @@ namespace glimmer
         RendererEventIndexRange popupRange;
         PopUpCallbackT popupCallbacks[PRP_Total] = { nullptr, nullptr, nullptr };
         void* popupCallbackData[PRP_Total] = { nullptr, nullptr, nullptr };
+
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;
-
         static UIElementDescriptor RightClickContext;
         static int32_t ContextMenuOptionIdx;
         static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;

@@ -3276,12 +3276,12 @@ namespace glimmer
 
 #pragma region TabBar
 
-    // TODO: Find a faster bounds computation method, move detailed computation to draw method?
     ImRect TabBarBounds(int32_t id, const ImRect& content, IRenderer& renderer)
     {
         ImRect result;
         auto& context = GetContext();
         auto& state = context.TabBarState(id);
+        const auto& currentTab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
         const auto& config = context.GetState(id).state.tab;
         int16_t tabidx = 0, lastRowStart = 0;
         auto height = 0.f, width = 0.f;
@@ -3291,7 +3291,7 @@ namespace glimmer
 
         if (config.direction == FD_Horizontal)
         {
-            for (const auto& item : context.currentTab.items)
+            for (const auto& item : currentTab.items)
             {
                 auto& tab = state.tabs[tabidx];
                 auto flag = tabidx == state.current ? WS_Focused : tabidx == state.hovered ? WS_Hovered :
@@ -3300,7 +3300,7 @@ namespace glimmer
                 auto txtsz = GetTextSize(item.nameType, item.name, style.font, tab.extent.GetWidth(), renderer);
                 tab.extent.Min = offset;
 
-                switch (context.currentTab.sizing)
+                switch (currentTab.sizing)
                 {
                 case TabBarItemSizing::Scrollable:
                 {
@@ -3395,7 +3395,7 @@ namespace glimmer
                 tabidx++;
             }
 
-            if (context.currentTab.newTabButton)
+            if (currentTab.newTabButton)
             {
                 const auto style = context.GetStyle(WS_Default, id);
 
@@ -3408,31 +3408,45 @@ namespace glimmer
             {
                 const auto style = context.GetStyle(WS_Default, id);
 
+                if (config.addNavigationButtons)
+                {
+                    offset.x += config.spacing.x;
+                    state.moveBackward = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+                    offset.x += state.create.GetWidth();
+
+                    offset.x += config.spacing.x;
+                    state.moveForward = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
+                    offset.x += state.create.GetWidth();
+                }
+
                 offset.x += config.spacing.x;
                 state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
                 offset.x += state.create.GetWidth();
             }
 
-            if (context.currentTab.sizing == TabBarItemSizing::ResizeToFit)
+            if (currentTab.sizing == TabBarItemSizing::ResizeToFit)
             {
-                auto extrah = (offset.x - content.Min.x) - content.GetWidth() + state.create.GetWidth() + state.dropdown.GetWidth();
+                auto extrah = content.GetWidth() - ((offset.x - content.Min.x) +
+                    state.create.GetWidth() + state.dropdown.GetWidth() + 
+                    state.moveBackward.GetWidth() + state.moveForward.GetWidth());
 
                 if ((extrah > 0.f) || config.expandTabs)
                 {
                     auto cumulative = 0.f;
-                    extrah /= (float)tabidx;
+					auto totalTabs = tabidx;
+                    extrah /= (float)totalTabs;
 
-                    for (auto idx = 0; idx < tabidx; ++idx)
+                    for (auto idx = 0; idx < totalTabs; ++idx)
                     {
-                        state.tabs[idx].extent.Min.x -= cumulative;
-                        state.tabs[idx].extent.Max.x -= (cumulative + extrah);
-                        state.tabs[idx].pin.TranslateX(-(cumulative + extrah));
-                        state.tabs[idx].close.TranslateX(-(cumulative + extrah));
-                        state.tabs[idx].text.TranslateX(-cumulative);
+                        state.tabs[idx].extent.Min.x += cumulative;
+                        state.tabs[idx].extent.Max.x += (cumulative + extrah);
+                        state.tabs[idx].pin.TranslateX(cumulative + extrah);
+                        state.tabs[idx].close.TranslateX(cumulative + extrah);
+                        state.tabs[idx].text.TranslateX(cumulative);
                         cumulative += extrah;
                     }
 
-                    if (context.currentTab.newTabButton)
+                    if (currentTab.newTabButton)
                     {
                         const auto& last = state.tabs.back();
                         auto sz = state.create.GetSize();
@@ -3448,16 +3462,7 @@ namespace glimmer
         }
         else
         {
-            if (config.showExpanded)
-            {
-                const auto style = context.GetStyle(state.hovered == ExpandTabsIndex ? WS_Hovered : WS_Default, id);
-                state.expand.Min = offset;
-                auto sz = GetTextSize(state.expandType, state.expandContent, style.font, -1.f, renderer);
-                state.expand.Max = state.expand.Min + sz;
-                offset.y += sz.y + config.spacing.y;
-            }
-
-            for (const auto& item : context.currentTab.items)
+            for (const auto& item : currentTab.items)
             {
                 auto& tab = state.tabs[tabidx];
                 auto flag = tabidx == state.current ? WS_Selected : tabidx == state.hovered ? WS_Hovered :
@@ -3466,7 +3471,7 @@ namespace glimmer
                 auto txtsz = GetTextSize(ToTextTypeEnum(style.font.flags), item.name, style.font, -1.f, renderer);
                 tab.extent.Min = offset;
 
-                switch (context.currentTab.sizing)
+                switch (currentTab.sizing)
                 {
                 case TabBarItemSizing::Scrollable:
                 {
@@ -3551,6 +3556,7 @@ namespace glimmer
                 {
                     state.expanded = !state.expanded;
                     result.event = WidgetEvent::Clicked;
+                    result.tabtype = TabButtonType::ExpandTabs;
                     return;
                 }
             }
@@ -3565,12 +3571,14 @@ namespace glimmer
                 if (tab.close.Contains(io.mousepos) && io.clicked())
                 {
                     result.event = WidgetEvent::Clicked;
-                    result.tabclosed = tabidx;
+                    result.tabidx = tabidx;
+                    result.tabtype = TabButtonType::CloseTab;
                 }
                 else if (tab.pin.Contains(io.mousepos) && io.clicked())
                 {
                     result.event = WidgetEvent::Clicked;
                     tab.pinned = !tab.pinned;
+                    result.tabtype = TabButtonType::PinTab;
                 }
                 else if (rect.Contains(io.mousepos) && (state.current != tabidx))
                 {
@@ -3582,6 +3590,7 @@ namespace glimmer
                         result.event = WidgetEvent::Clicked;
                         state.current = tabidx;
                         result.tabidx = tabidx;
+                        result.tabtype = TabButtonType::AddedTab;
                         return;
                     }
                 }
@@ -3603,7 +3612,7 @@ namespace glimmer
                 if (io.clicked())
                 {
                     result.event = WidgetEvent::Clicked;
-                    result.newTab = true;
+                    result.tabtype = TabButtonType::NewTab;
                     return;
                 }
             }
@@ -3611,10 +3620,38 @@ namespace glimmer
             const auto& config = GetWidgetConfig(id).state.tab;
             ShowTooltip(state.createHoverDuration, state.create, config.newTabTooltip, io);
 
+			if (state.moveBackward.Contains(io.mousepos))
+            {
+                state.hovered = MoveBackwardIndex;
+                if (io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.tabtype = TabButtonType::MoveBackward;
+                    return;
+                }
+            }
+
+            if (state.moveForward.Contains(io.mousepos))
+            {
+                state.hovered = MoveForwardIndex;
+                if (io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.tabtype = TabButtonType::MoveForward;
+                    return;
+                }
+			}
+
             if (state.dropdown.Contains(io.mousepos))
             {
-                // TODO: Show other tabs in drop down format...
                 state.hovered = DropDownTabIndex;
+
+                if (io.clicked())
+                {
+                    result.event = WidgetEvent::Clicked;
+                    result.tabtype = TabButtonType::MoreTabs;
+                    return;
+                }
             }
 
             if (state.scroll.type & ST_Horizontal)
@@ -3635,6 +3672,7 @@ namespace glimmer
         auto& context = GetContext();
         auto& state = context.TabBarState(id);
         const auto& config = context.GetState(id).state.tab;
+        const auto& currentTab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
         auto tabidx = 0;
         
         for (const auto& tab : state.tabs)
@@ -3651,14 +3689,14 @@ namespace glimmer
             DrawBackground(rect.Min, rect.Max, style, renderer);
             DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
 
-            if (context.currentTab.items[tabidx].nameType == TextType::PlainText)
-                DrawText(rect.Min, rect.Max, tab.text, context.currentTab.items[tabidx].name, flag & WS_Disabled,
+            if (currentTab.items[tabidx].nameType == TextType::PlainText)
+                DrawText(rect.Min, rect.Max, tab.text, currentTab.items[tabidx].name, flag & WS_Disabled,
                     style, renderer);
-            else if (context.currentTab.items[tabidx].nameType == TextType::SVG)
-                renderer.DrawSVG(rect.Min, rect.GetSize(), style.fgcolor, context.currentTab.items[tabidx].name, false);
+            else if (currentTab.items[tabidx].nameType == TextType::SVG)
+                renderer.DrawSVG(rect.Min, rect.GetSize(), style.fgcolor, currentTab.items[tabidx].name, false);
 
             if (tab.pinned || (((tabidx == state.current) || (tabidx == state.hovered)) &&
-                context.currentTab.items[tabidx].itemflags & TI_Pinnable))
+                currentTab.items[tabidx].itemflags & TI_Pinnable))
             {
                 if (config.circularButtons)
                 {
@@ -3675,7 +3713,7 @@ namespace glimmer
                     specificStyle.pincolor, specificStyle.pinbgcolor, 2.f, renderer);
             }
             
-            if ((context.currentTab.items[tabidx].itemflags & TI_Closeable) && ((tabidx == state.current) ||
+            if ((currentTab.items[tabidx].itemflags & TI_Closeable) && ((tabidx == state.current) ||
                 (tabidx == state.hovered)))
             {
                 if (config.circularButtons)
@@ -3726,8 +3764,8 @@ namespace glimmer
     bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
-        auto& tab = context.currentTab; //  context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.emplace_back();
-        tab.id = id; // context.layouts.empty() ? id : (int32_t)(context.layouts.top().tabbars.size() - 1);
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        tab.id = id;
         tab.geometry = geometry; tab.neighbors = neighbors;
 
         const auto& config = context.GetState(id).state.tab;
@@ -3739,7 +3777,7 @@ namespace glimmer
     void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
     {
         auto& context = GetContext();
-        auto& tab = context.currentTab; // context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
         auto& item = tab.items.emplace_back();
         item.name = name;
         item.itemflags = flags;
@@ -3749,7 +3787,7 @@ namespace glimmer
     void AddTab(TextType type, std::string_view name, TextType extype, std::string_view expanded, int32_t flags)
     {
         auto& context = GetContext();
-        auto& tab = context.currentTab; // context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
         auto& item = tab.items.emplace_back();
         item.name = name;
         item.nameType = type;
@@ -3761,7 +3799,7 @@ namespace glimmer
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab)
     {
         auto& context = GetContext();
-        auto& tab = context.currentTab; // context.layouts.empty() ? context.currentTab : context.layouts.top().tabbars.back();
+        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
         tab.newTabButton = canAddTab.has_value() ? canAddTab.value() : tab.newTabButton;
         auto& state = context.TabBarState(tab.id);
         state.tabs.resize(tab.items.size());
@@ -6355,9 +6393,10 @@ namespace glimmer
             if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
             {
                 auto& layout = context.layouts.top();
+                const auto& currentTab = context.layouts.top().tabbar;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                AddExtent(layoutItem, style, context.currentTab.neighbors, { 0.f, 0.f }, maxxy);
-                auto bounds = TabBarBounds(context.currentTab.id, layoutItem.padding, renderer);
+                AddExtent(layoutItem, style, currentTab.neighbors, { 0.f, 0.f }, maxxy);
+                auto bounds = TabBarBounds(currentTab.id, layoutItem.padding, renderer);
                 bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
                 layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
                 AddItemToLayout(layout, layoutItem, style);

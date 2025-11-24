@@ -343,7 +343,7 @@ namespace glimmer
             }
 
             return fontpath;
-            };
+        };
 
         if (names == nullptr)
         {
@@ -908,6 +908,11 @@ namespace glimmer
                     }
                 }
             }
+
+#ifdef _DEBUG
+            auto end = std::chrono::system_clock().now().time_since_epoch().count();
+            std::printf("Font lookup completed in %lld ms\n", (end - start) / 1000000);
+#endif
 #elif __linux__
             if (isDefaultPath)
             {
@@ -925,6 +930,11 @@ namespace glimmer
                             if (timeoutMs != -1 && (int)(current - start) > timeoutMs) break;
                         }
                     }
+
+#ifdef _DEBUG
+					auto end = std::chrono::system_clock().now().time_since_epoch().count();
+					std::printf("Font lookup completed in %lld ms\n", (end - start) / 1000000);
+#endif
                 }
             }
             else
@@ -944,6 +954,11 @@ namespace glimmer
                         }
                     }
                 }
+
+#ifdef _DEBUG
+                auto end = std::chrono::system_clock().now().time_since_epoch().count();
+                std::printf("Font lookup completed in %lld ms\n", (end - start) / 1000000);
+#endif
             }
 #endif      
         }
@@ -968,6 +983,10 @@ namespace glimmer
                 it = isDefaultMonospace ? FontLookup.MonospaceFontFamilies.find("Consolas") :
                     isDefaultSerif ? FontLookup.ProportionalFontFamilies.find("Times New Roman") :
                     FontLookup.ProportionalFontFamilies.find("Segoe UI");
+#elif __linux__
+                it = isDefaultMonospace ? FontLookup.MonospaceFontFamilies.find("DejaVu Mono") :
+                    isDefaultSerif ? FontLookup.ProportionalFontFamilies.find("DejaVu Serif") :
+					FontLookup.ProportionalFontFamilies.find("DejaVu Sans");
 #endif
                 // TODO: Implement for Linux
             }

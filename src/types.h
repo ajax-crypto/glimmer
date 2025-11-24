@@ -397,7 +397,7 @@ namespace glimmer
         bool expandTabs = false;
         bool circularButtons = true;
         bool createNewTabs = false;
-        bool showExpanded = false; // pop out drawer for vertical tabs
+		bool addNavigationButtons = false;
     };
 
     enum ColumnProperty : int32_t
@@ -458,6 +458,11 @@ namespace glimmer
         Dragged, Edited, Selected, Scrolled
     };
 
+    enum class TabButtonType
+    {
+        None, AddedTab, NewTab, PinTab, CloseTab, ExpandTabs, MoreTabs, MoveBackward, MoveForward
+    };
+
     struct WidgetDrawResult
     {
         int32_t id = -1;
@@ -465,12 +470,11 @@ namespace glimmer
         int32_t row = -1;
         int16_t col = -1;
         int16_t depth = -1;
-        int16_t tabclosed = -1;
         int16_t tabidx = -1;
         int16_t optidx = -1;
         ImRect geometry, content;
         float wheel = 0.f;
-        bool newTab = false;
+        TabButtonType tabtype = TabButtonType::None;
         bool order = false;
     };
 

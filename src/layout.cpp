@@ -59,6 +59,7 @@ namespace glimmer
     WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult RangeSliderImpl(int32_t id, RangeSliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, 
         const ImRect& prefix, const ImRect& suffix, IRenderer& renderer, const IODescriptor& io);
@@ -1287,6 +1288,16 @@ namespace glimmer
                 RecordItemGeometry(item);
             break;
         }
+        case glimmer::WT_RangeSlider: {
+            auto& state = context.GetState(item.id).state.rangeSlider;
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+            UpdateGeometry(item, bbox, style);
+            context.AddItemGeometry(item.id, bbox);
+            result = RangeSliderImpl(item.id, state, style, item.border, renderer, io);
+            if (!context.nestedContextStack.empty())
+                RecordItemGeometry(item);
+            break;
+        }
         case glimmer::WT_TextInput: {
             auto& state = context.GetState(item.id).state.input;
             const auto& style = GetStyle(context, item.id, StyleStack, state.state);
@@ -1328,14 +1339,13 @@ namespace glimmer
             break;
         }
         case WT_TabBar: {
-            /*const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
+            auto& state = context.TabBarState(item.id);
+            const auto style = context.GetStyle(WS_Default, item.id);
             UpdateGeometry(item, bbox, style);
-            context.AddItemGeometry(item.id, bbox);
-            context.currentTab = layout.tabbars[item.id];
-            result = TabBarImpl(item.id, item.content, style, io, renderer);
+            result = TabBarImpl(item.id, item.margin, style, io, renderer);
+            if (result.event != WidgetEvent::Clicked) result.tabidx = state.current;
             if (!context.nestedContextStack.empty())
-                RecordItemGeometry(item);*/
-            assert(false);
+                RecordItemGeometry(item);
             break;
         }
         default:

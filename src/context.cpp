@@ -80,6 +80,7 @@ namespace glimmer
         hofmode = OverflowMode::Scroll;
         vofmode = OverflowMode::Scroll;
         scroll = ScrollableRegion{};
+		tabbar = TabBarBuilder{};
         popSizingOnEnd = false;
         currspan.first = currspan.second = 1;
 
@@ -90,7 +91,6 @@ namespace glimmer
 
         itemIndexes.clear(true);
         griditems.clear(true);
-        //tabbars.clear(false);
         containerStack.clear(true);
         rows.clear(true);
         cols.clear(true);

@@ -283,6 +283,8 @@ namespace glimmer
 
         Iterator begin() { return _data; }
         Iterator end() { return _data + _size; }
+        Iterator begin() const { return _data; }
+        Iterator end() const { return _data + _size; }
 
         const T& operator[](Sz idx) const { assert(idx < _size); return _data[idx]; }
         T& operator[](Sz idx) { assert(idx < _size); return _data[idx]; }
