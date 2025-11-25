@@ -457,6 +457,15 @@ namespace glimmer
             if (thickness > 0.f) renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
             break;
         }
+        case glimmer::SymbolIcon::LeftTriangle:
+        {
+            ImVec2 pos1{ startpos.x, startpos.y + (0.5f * size.y) };
+            ImVec2 pos2{ startpos.x + size.x, startpos.y };
+            ImVec2 pos3{ startpos.x + size.x, startpos.y + size.y };
+            renderer.DrawTriangle(pos1, pos2, pos3, fillColor, true);
+            if (thickness > 0.f) renderer.DrawTriangle(pos1, pos2, pos3, outlineColor, false, thickness);
+            break;
+        }
         case glimmer::SymbolIcon::RightTriangle:
         {
             ImVec2 pos1{ startpos.x, startpos.y };

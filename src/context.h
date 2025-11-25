@@ -388,10 +388,11 @@ namespace glimmer
 
     struct TabItemDescriptor
     {
-        std::string_view name, tooltip, expanded;
+        std::string_view name, tooltip, icon;
         TextType nameType = TextType::PlainText;
-        TextType expandedType = TextType::PlainText;
+        ResourceType iconType = ResourceType::RT_SVG;
         int32_t itemflags = 0;
+        ImVec2 iconsz{};
     };
 
     struct TabBarBuilder
@@ -422,10 +423,11 @@ namespace glimmer
         struct ItemDescriptor
         {
             int16_t state = 0;
-            ImRect extent, close, pin, text;
+            int16_t pos = -1;
+            ImRect extent, close, pin, text, icon;
             float tabHoverDuration = 0.f, pinHoverDuration = 0.f, closeHoverDuration = 0.f;
-            bool pinned = false;
             TabItemDescriptor descriptor;
+            bool pinned = false;
         };
 
         int16_t current = InvalidTabIndex;
@@ -438,6 +440,10 @@ namespace glimmer
         ImRect expand;
         ImRect moveForward, moveBackward;
         float createHoverDuration = 0.f;
+		float lastRowStarty = 0.f;
+        int32_t tabBeingDragged = -1;
+        ImVec2 dragPosition{};
+        ImVec2 dragStart{};
         ScrollableRegion scroll;
         bool expanded = false;
     };

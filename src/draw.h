@@ -9,15 +9,6 @@ namespace glimmer
     struct FourSidedBorder;
     struct ColorGradient;
 
-    enum class SymbolIcon 
-    {
-        // These icons are drawn directly
-        DownArrow, UpArrow, DownTriangle, UpTriangle, RightTriangle, Plus, Minus, Cross,
-
-        // Below icons are by default SVGs
-        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
-    };
-
     IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
     RectBreakup ComputeRectBreakups(ImRect rect, float amount);
 

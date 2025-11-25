@@ -455,7 +455,7 @@ namespace glimmer
     enum class WidgetEvent
     {
         None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, 
-        Dragged, Edited, Selected, Scrolled
+        Dragged, Edited, Selected, Scrolled, Reordered
     };
 
     enum class TabButtonType
@@ -472,6 +472,7 @@ namespace glimmer
         int16_t depth = -1;
         int16_t tabidx = -1;
         int16_t optidx = -1;
+		std::pair<int32_t, int32_t> range; // For reorder events
         ImRect geometry, content;
         float wheel = 0.f;
         TabButtonType tabtype = TabButtonType::None;
@@ -681,5 +682,14 @@ namespace glimmer
         int optidx = -1;
         int row = -1, col = -1;
         bool isHeader = false;
+    };
+
+    enum class SymbolIcon
+    {
+        // These icons are drawn directly
+        DownArrow, UpArrow, DownTriangle, UpTriangle, LeftTriangle, RightTriangle, Plus, Minus, Cross,
+
+        // Below icons are by default SVGs
+        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
     };
 }
