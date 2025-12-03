@@ -48,12 +48,22 @@ namespace glimmer
     void SetPrevTooltip(std::string_view tooltip);
     void SetNextTooltip(std::string_view tooltip);
 
+	WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+
+    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets & neighbors = NeighborWidgets{});
+    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult EndRegion();
+
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     
     WidgetDrawResult Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginButton(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult EndButton();
     
     WidgetDrawResult ToggleButton(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult ToggleButton(bool* state, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});

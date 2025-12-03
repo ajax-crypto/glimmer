@@ -59,6 +59,10 @@
 #define GLIMMER_MAX_LAYOUT_NESTING 8
 #endif
 
+#ifndef GLIMMER_MAX_REGION_NESTING 
+#define GLIMMER_MAX_REGION_NESTING 8
+#endif
+
 namespace glimmer
 {
     extern UIConfig Config;
@@ -83,6 +87,7 @@ namespace glimmer
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
     using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
+	using RegionStackT = DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING>;
 
     struct RendererEventIndexRange
     {
@@ -97,6 +102,18 @@ namespace glimmer
     };
 
 #pragma region Widget Specific Persistent-States/Builders
+
+    struct RegionBuilder
+    {
+        int32_t id = -1;
+        ImVec2 origin;
+        ImVec2 size;
+        int32_t depth = 0;
+		Layout layout = Layout::Invalid;
+		StyleDescriptor style;
+		bool fixedWidth = false;
+		bool fixedHeight = false;
+    };
 
     struct ItemGridStyleDescriptor
     {
@@ -524,6 +541,7 @@ namespace glimmer
     { 
         PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
 		PushTextType, PopTextType,
+		PushRegion, PopRegion,
         AddWidget, AddLayout 
     };
 
@@ -547,12 +565,15 @@ namespace glimmer
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
         Vector<int16_t, int16_t> griditems{ false };
+        //Vector<RegionBuilder, int16_t> regions{ false };
         std::pair<int, int> gridsz;
         std::pair<int16_t, int16_t> currspan{ 1, 1 };
         ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
         OverflowMode hofmode = OverflowMode::Scroll;
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
+        int32_t regionIdx = -1;
+		void* implData = nullptr;
         bool popSizingOnEnd = false;
 
         Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
@@ -583,6 +604,10 @@ namespace glimmer
         int32_t id;
 
         union ParamsT {
+            struct {
+                ImRect margin, border, padding, content;
+            } region;
+
             struct {
                 ImRect margin, border, padding, content, text;
             } label;
@@ -643,6 +668,8 @@ namespace glimmer
 
         EventDeferInfo() : type{ WT_Invalid }, id{ -1 } {}
 
+        static EventDeferInfo ForRegion(int32_t id, const ImRect& margin, const ImRect& border,
+			const ImRect& padding, const ImRect& content);
         static EventDeferInfo ForLabel(int32_t id, const ImRect& margin, const ImRect& border, 
             const ImRect& padding, const ImRect& content, const ImRect& text);
         static EventDeferInfo ForButton(int32_t id, const ImRect& margin, const ImRect& border,
@@ -662,7 +689,7 @@ namespace glimmer
 
     enum class NestedContextSourceType
     {
-        None, Layout, ItemGrid, // add others...
+        None, Region, Layout, ItemGrid, // add others...
     };
 
     struct NestedContextSource
@@ -703,6 +730,10 @@ namespace glimmer
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
         
+        // Regions stack
+        DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING> regionBuilders{ false };
+        Vector<RegionBuilder, int16_t, GLIMMER_MAX_REGION_NESTING> regions{ false };
+
         // Tab bars are not nested
         TabBarBuilder currentTab;
 
@@ -739,6 +770,7 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ false },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
@@ -754,6 +786,7 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true } 
         };
         Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
+            Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
@@ -775,18 +808,21 @@ namespace glimmer
         };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
-        FixedSizeStack<LayoutBuilder, GLIMMER_MAX_LAYOUT_NESTING> layouts;
+        FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> layoutStack;
+        Vector<LayoutBuilder, int16_t> layouts;
+
         FixedSizeStack<AccordionBuilder, 4> accordions;
         FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
         FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
         DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
-        Vector<std::pair<int64_t, LayoutOps>, int16_t> layoutReplayContent;
+        Vector<std::pair<int64_t, LayoutOps>, int16_t> replayContent;
         StyleStackT layoutStyles[WSI_Total]{ false, false, false, false,
             false, false, false, false, false };
 
         // Keep track of widget IDs
         int maxids[WT_TotalTypes];
         int tempids[WT_TotalTypes];
+        int32_t lastLayoutIdx = -1;
 
         // Whether we are in a frame being rendered + current renderer
         bool InsideFrame = false;
@@ -805,6 +841,7 @@ namespace glimmer
         static UIElementDescriptor RightClickContext;
         static int32_t ContextMenuOptionIdx;
         static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;
+        static int32_t CurrentWidgetId;
 
         int32_t GetNextCount(WidgetType type);
 
@@ -939,71 +976,7 @@ namespace glimmer
 
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT* StyleStack, int32_t state);
 
-    inline NestedContextSource InvalidSource{};
+    extern NestedContextSource InvalidSource;
 
 #pragma endregion
-
-    /*
-    struct WidgetContextData;
-
-    enum class UIOperationType
-    {
-        Invalid, Widget, Movement, LayoutBegin, LayoutEnd, PopupBegin, PopupEnd
-    };
-
-    struct ItemGridUIOperation 
-    { 
-        union OpData {
-            struct {
-                int32_t id;
-                int32_t geometry;
-                ImRect bounds;
-                ImRect text;
-                NeighborWidgets neighbors;
-            } widget;
-            
-            struct {
-                Layout layout;
-                int32_t fill;
-                int32_t alignment;
-                ImVec2 spacing;
-                NeighborWidgets neighbors;
-                bool wrap = false;
-            } layoutBegin;
-
-            struct {
-                int depth = 1;
-            } layoutEnd;
-
-            struct {
-                int32_t direction = 0;
-                int32_t hid = -1, vid = -1;
-                ImVec2 amount;
-            } movement;
-
-            struct {
-                int32_t id = -1;
-                ImVec2 origin;
-            } popupBegin;
-
-            OpData() {}
-        } data;
-        UIOperationType type = UIOperationType::Invalid;
-
-        ItemGridUIOperation() {}
-    };
-
-    struct LayoutItemDescriptor;
-    void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
-    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction);
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom);
-    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction);
-    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap,
-        ImVec2 spacing, const NeighborWidgets& neighbors);
-    void RecordEndLayout(ItemGridUIOperation& el, int depth);
-    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin);
-    void RecordPopupEnd(ItemGridUIOperation& el);
-    */
 }

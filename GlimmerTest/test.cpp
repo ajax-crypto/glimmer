@@ -198,8 +198,20 @@ void TestWindow(glimmer::UIConfig& config)
                 SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
             {
                 Label(widgets[LEFT], ExpandAll);
+                
                 NextSplitRegion();
-                Label(widgets[LEFT2], ExpandV);
+
+                PushStyle("padding: 5px; background-color: gray;");
+                BeginFlexRegion("test-region", DIR_Vertical, ImVec2{}, false, ETP_Hovered, ExpandAll);
+                {
+                    PushStyle("padding: 5px; background-color: lightblue;");
+                    Label(widgets[CONTENT], ExpandAll);
+
+                    PushStyle("padding: 5px; background-color: lightgreen;");
+                    Label(widgets[LEFT2], ExpandV);
+				}
+                EndRegion();
+                PopStyle(3, WS_Default);
             }
             EndSplitRegion();
             PopStyle(1, WS_Default);
@@ -267,7 +279,7 @@ void TestWindow(glimmer::UIConfig& config)
             AddColumnCategory(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
 
             EndItemGridHeader();
-            PopulateItemGrid(32, ItemGridPopulateMethod::ByColumns);
+            PopulateItemGrid(100, ItemGridPopulateMethod::ByColumns);
             EndItemGrid();
         }
 

@@ -13,6 +13,8 @@
 #define GLIMMER_GLOBAL_ANIMATION_FRAMETIME 18
 #endif
 
+#include "draw.h"
+
 namespace glimmer
 {
     static std::list<WidgetContextData> WidgetContexts;
@@ -24,6 +26,8 @@ namespace glimmer
     static int32_t IgnoreStyleStackBits = -1;
 
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
+    void HandleRegionEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
     void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
     void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -158,76 +162,6 @@ namespace glimmer
         hscroll = vscroll = false;
     }
 
-    /*void RecordWidget(ItemGridUIOperation& el, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        el.type = UIOperationType::Widget;
-        el.data.widget.id = id; el.data.widget.geometry = geometry; el.data.widget.neighbors = neighbors;
-    }
-
-    void RecordWidget(ItemGridUIOperation& el, const LayoutItemDescriptor& item, int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        el.type = UIOperationType::Widget;
-        el.data.widget.id = id; el.data.widget.geometry = geometry; el.data.widget.neighbors = neighbors;
-        el.data.widget.bounds = item.margin; el.data.widget.text = item.text;
-    }
-
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t direction)
-    {
-        el.type = UIOperationType::Movement;
-        el.data.movement.direction = direction;
-    }
-
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t id, int32_t direction)
-    {
-        el.type = UIOperationType::Movement;
-        el.data.movement.hid = id;
-        el.data.movement.direction = direction;
-    }
-
-    void RecordAdhocMovement(ItemGridUIOperation& el, int32_t hid, int32_t vid, bool toRight, bool toBottom)
-    {
-        el.type = UIOperationType::Movement;
-        el.data.movement.direction = toRight ? ToRight : ToLeft;
-        el.data.movement.direction |= toBottom ? ToBottom : ToTop;
-        el.data.movement.hid = hid; el.data.movement.vid = vid;
-    }
-
-    void RecordAdhocMovement(ItemGridUIOperation& el, ImVec2 amount, int32_t direction)
-    {
-        el.type = UIOperationType::Movement;
-        el.data.movement.direction = direction;
-        el.data.movement.amount = amount;
-    }
-
-    void RecordBeginLayout(ItemGridUIOperation& el, Layout layout, int32_t fill, int32_t alignment, bool wrap, ImVec2 spacing, const NeighborWidgets& neighbors)
-    {
-        el.type = UIOperationType::LayoutBegin;
-        el.data.layoutBegin.layout = layout;
-        el.data.layoutBegin.fill = fill;
-        el.data.layoutBegin.alignment = alignment;
-        el.data.layoutBegin.wrap = wrap;
-        el.data.layoutBegin.spacing = spacing;
-        el.data.layoutBegin.neighbors = neighbors;
-    }
-
-    void RecordEndLayout(ItemGridUIOperation& el, int depth)
-    {
-        el.type = UIOperationType::LayoutEnd;
-        el.data.layoutEnd.depth = depth;
-    }
-
-    void RecordPopupBegin(ItemGridUIOperation& el, int32_t id, ImVec2 origin)
-    {
-        el.type = UIOperationType::PopupBegin;
-        el.data.popupBegin.id = id;
-        el.data.popupBegin.origin = origin;
-    }
-
-    void RecordPopupEnd(ItemGridUIOperation& el)
-    {
-        el.type = UIOperationType::PopupEnd;
-    }*/
-
     ImVec2 WidgetContextData::NextAdHocPos() const
     {
         const auto& layout = adhocLayout.top();
@@ -311,8 +245,11 @@ namespace glimmer
             context.maxids[WT_SplitterRegion] = 0;
             context.maxids[WT_Layout] = 0;
             context.maxids[WT_Charts] = 0;
+            context.regions.clear(true);
+            context.layouts.clear(true);
+            context.lastLayoutIdx = -1;
 
-            assert(context.layouts.empty());
+            assert(context.layoutStack.empty());
         }
 
         CurrentContext = &(*(WidgetContexts.begin()));
@@ -336,7 +273,7 @@ namespace glimmer
 
     void WidgetContextData::RecordForReplay(int64_t data, LayoutOps ops)
     {
-        layoutReplayContent.emplace_back(data, ops);
+        replayContent.emplace_back(data, ops);
     }
 
     int32_t WidgetContextData::GetNextCount(WidgetType type)
@@ -394,12 +331,35 @@ namespace glimmer
                 break;
             }
             case WT_DropDown: {
-                dropDownOptions.reserve(spinnerStates.size() + sz);
+                dropDownOptions.reserve(dropDownOptions.size() + sz);
                 for (auto idx = 0; idx < sz; ++idx)
                     dropDownOptions.emplace_back();
                 break;
             }
-                           // TODO: Add others...
+            case WT_Accordion: {
+                accordionStates.reserve(accordionStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    accordionStates.emplace_back();
+                break;
+			}
+			case WT_TabBar: {
+				tabBarStates.reserve(tabBarStates.size() + sz);
+				for (auto idx = 0; idx < sz; ++idx)
+					tabBarStates.emplace_back();
+				break;
+			}
+			case WT_ItemGrid: {
+				gridStates.reserve(gridStates.size() + sz);
+				for (auto idx = 0; idx < sz; ++idx)
+					gridStates.emplace_back();
+				break;
+			}
+            case WT_Splitter: {
+                splitterStates.reserve(splitterStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    splitterStates.emplace_back();
+                break;
+            }
             default: break;
             }
         }
@@ -588,6 +548,18 @@ namespace glimmer
         itemSizes[wtype][index] = sz;
     }
 
+    EventDeferInfo EventDeferInfo::ForRegion(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content)
+    {
+        EventDeferInfo info;
+		info.type = WT_Region;
+        info.id = id;
+        info.params.region.margin = margin;
+        info.params.region.border = border;
+        info.params.region.padding = padding;
+        info.params.region.content = content;
+		return info;
+    }
+
     EventDeferInfo EventDeferInfo::ForLabel(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text)
     {
@@ -731,6 +703,14 @@ namespace glimmer
 
             switch (ev.type)
             {
+            case WT_Region:
+                ev.params.region.margin.Translate(origin);
+                ev.params.region.border.Translate(origin);
+                ev.params.region.padding.Translate(origin);
+                ev.params.region.content.Translate(origin);
+                HandleRegionEvent(ev.id, ev.params.label.margin, ev.params.label.border,
+                    ev.params.label.padding, ev.params.label.content, renderer, io, result);
+				break;
             case WT_Label: 
                 ev.params.label.margin.Translate(origin);
                 ev.params.label.border.Translate(origin);
@@ -815,15 +795,12 @@ namespace glimmer
 
     void WidgetContextData::ResetLayoutData()
     {
-        for (auto lidx = 0; lidx < layouts.size(); ++lidx)
-            layouts[lidx].reset();
-
         for (auto idx = 0; idx < WSI_Total; ++idx)
             layoutStyles[idx].clear(true);
 
-        layouts.clear(false);
+        layoutStack.clear(false);
         layoutItems.clear(true);
-        layoutReplayContent.clear(true);
+        replayContent.clear(true);
     }
 
     void WidgetContextData::ClearDeferredData()
@@ -848,8 +825,7 @@ namespace glimmer
 
     ImRect WidgetContextData::GetLayoutSize() const
     {
-        auto idx = layouts.size();
-        return itemGeometries[WT_Layout][idx];
+        return lastLayoutIdx == -1 ? ImRect{} : itemGeometries[WT_Layout][lastLayoutIdx];
     }
 
     ImVec2 WidgetContextData::MaximumSize() const
@@ -1106,7 +1082,7 @@ namespace glimmer
                 ctx.InsideFrame = CurrentContext->InsideFrame;
 
                 auto& children = CurrentContext->nestedContexts[wtype];
-                if (children.empty()) children.resize(32, nullptr);
+                if (children.empty()) children.resize(WT_TotalNestedContexts, nullptr);
                 children[index] = &ctx;
 
                 auto& layout = ctx.adhocLayout.push();
@@ -1163,6 +1139,8 @@ namespace glimmer
     // Read-only access is provided once set for subsequent frames
     UIConfig Config{};
 
+    NestedContextSource InvalidSource{};
+
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
     int32_t WidgetContextData::ContextMenuOptionIdx = 0;
@@ -1170,6 +1148,7 @@ namespace glimmer
     int32_t WidgetContextData::PopupTarget = -1;
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
+	int32_t WidgetContextData::CurrentWidgetId = -1;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
     DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];

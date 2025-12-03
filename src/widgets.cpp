@@ -116,6 +116,7 @@ namespace glimmer
     {
         switch (type)
         {
+        case WT_Region: ::new (&state.region) RegionState{}; break;
         case WT_Label: ::new (&state.label) LabelState{}; break;
         case WT_Button: ::new (&state.button) ButtonState{}; break;
         case WT_RadioButton: new (&state.radio) RadioButtonState{}; break;
@@ -123,6 +124,7 @@ namespace glimmer
         case WT_Checkbox: new (&state.checkbox) CheckboxState{}; break;
         case WT_Spinner: new (&state.spinner) SpinnerState{}; break;
         case WT_Slider: new (&state.slider) SliderState{}; break;
+        case WT_RangeSlider: new (&state.slider) RangeSliderState{}; break;
         case WT_TextInput: new (&state.input) TextInputState{}; break;
         case WT_DropDown: new (&state.dropdown) DropDownState{}; break;
         case WT_SplitterRegion: [[fallthrough]];
@@ -138,6 +140,7 @@ namespace glimmer
     {
         switch (type)
         {
+        case WT_Region: state.region = src.state.region; break;
         case WT_Label: state.label = src.state.label; break;
         case WT_Button: state.button = src.state.button; break;
         case WT_RadioButton: state.radio = src.state.radio; break;
@@ -145,6 +148,7 @@ namespace glimmer
         case WT_Checkbox: state.checkbox = src.state.checkbox; break;
         case WT_Spinner: state.spinner = src.state.spinner; break;
         case WT_Slider: state.slider = src.state.slider; break;
+        case WT_RangeSlider: state.rangeSlider = src.state.rangeSlider; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
         case WT_SplitterRegion: [[fallthrough]];
@@ -161,12 +165,14 @@ namespace glimmer
         switch (src.type)
         {
         case WT_Label: state.label = src.state.label; break;
+        case WT_Region: state.region = src.state.region; break;
         case WT_Button: state.button = src.state.button; break;
         case WT_RadioButton: state.radio = src.state.radio; break;
         case WT_ToggleButton: state.toggle = src.state.toggle; break;
         case WT_Checkbox: state.checkbox = src.state.checkbox; break;
         case WT_Spinner: state.spinner = src.state.spinner; break;
         case WT_Slider: state.slider = src.state.slider; break;
+        case WT_RangeSlider: state.rangeSlider = src.state.rangeSlider; break;
         case WT_TextInput: state.input = src.state.input; break;
         case WT_DropDown: state.dropdown = src.state.dropdown; break;
         case WT_SplitterRegion: [[fallthrough]];
@@ -182,10 +188,19 @@ namespace glimmer
     {
         switch (type)
         {
+        case WT_Region: state.region.~RegionState(); break;
         case WT_Label: state.label.~LabelState(); break;
         case WT_Button: state.button.~ButtonState(); break;
-        case WT_RadioButton: break;
-        case WT_ToggleButton: break;
+        case WT_RadioButton: state.radio.~RadioButtonState(); break;
+        case WT_ToggleButton: state.toggle.~ToggleButtonState(); break;
+        case WT_Checkbox: state.checkbox.~CheckboxState(); break;
+        case WT_Spinner: state.spinner.~SpinnerState(); break;
+        case WT_Slider: state.slider.~SliderState(); break;
+        case WT_RangeSlider: state.rangeSlider.~RangeSliderState(); break;
+        case WT_TextInput: state.input.~TextInputState(); break;
+        case WT_DropDown: state.dropdown.~DropDownState(); break;
+        case WT_Scrollable: state.scroll.~ScrollableRegion(); break;
+        case WT_TabBar: state.tab.~TabBarState(); break;
         case WT_ItemGrid: state.grid.~ItemGridConfig(); break;
         default: break;
         }
@@ -630,7 +645,7 @@ namespace glimmer
         renderer.SetClipRect(content.Min, content.Max);
         context.AddItemGeometry(id, region.viewport);
         context.containerStack.push() = id;
-        if (context.layouts.empty())
+        if (context.layoutStack.empty())
             context.adhocLayout.top().insideContainer = true;
     }
 
@@ -639,10 +654,10 @@ namespace glimmer
     {
         auto& context = GetContext();
 
-        if (!context.layouts.empty())
+        if (!context.layoutStack.empty())
         {
             const auto style = context.GetStyle(WS_Default, id);
-            auto& layout = context.layouts.top();
+            auto& layout = context.layouts[context.layoutStack.top()];
             LayoutItemDescriptor layoutItem;
             layoutItem.wtype = WT_Scrollable;
             layoutItem.id = id;
@@ -694,7 +709,7 @@ namespace glimmer
 
         context.containerStack.pop(1, true);
         context.AddItemGeometry(id, region.viewport);
-        if (context.layouts.empty())
+        if (context.layoutStack.empty())
         {
             context.adhocLayout.top().insideContainer = false;
             context.adhocLayout.top().addedOffset = false;
@@ -710,9 +725,9 @@ namespace glimmer
     {
         auto& context = GetContext();
 
-        if (!context.layouts.empty())
+        if (!context.layoutStack.empty())
         {
-            auto& layout = context.layouts.top();
+            auto& layout = context.layouts[context.layoutStack.top()];
             auto id = layout.containerStack.top();
             const auto style = context.GetStyle(WS_Default, id);
             LayoutItemDescriptor layoutItem;
@@ -918,9 +933,9 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (!context.layouts.empty())
+            if (!context.layoutStack.empty())
             {
-                const auto& layout = context.layouts.top();
+                const auto& layout = context.layouts[context.layoutStack.top()];
                 auto isLayoutFit = (layout.fill & FD_Horizontal) == 0 && layout.type == Layout::Vertical && layout.vofmode != OverflowMode::Wrap;
 
                 if (!isLayoutFit)
@@ -960,9 +975,9 @@ namespace glimmer
         {
             // If we are inside a layout, and layout has expand policy, then it has a geometry
             // Use said geometry or set from content dimensions
-            if (!context.layouts.empty())
+            if (!context.layoutStack.empty())
             {
-                const auto& layout = context.layouts.top();
+                const auto& layout = context.layouts[context.layoutStack.top()];
                 auto isLayoutFit = (layout.fill & FD_Vertical) == 0 && layout.type == Layout::Horizontal && layout.hofmode != OverflowMode::Wrap;
 
                 if (!isLayoutFit)
@@ -1093,6 +1108,53 @@ namespace glimmer
         return std::make_tuple(content, padding, border, margin, ImRect{ textpos, textpos + textsz });
     }
 
+    std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style)
+    {
+        ImRect margin, border, padding;
+
+        if (style.dimension.x > 0.f)
+        {
+            margin = content;
+            border.Min.x = margin.Min.x + style.border.left.thickness;
+            border.Max.x = margin.Max.x - style.border.right.thickness;
+            padding.Min.x = border.Min.x + style.padding.left;
+            padding.Max.x = border.Max.x - style.padding.right;
+            content.Min.x = padding.Min.x + style.padding.left;
+            content.Max.x = padding.Max.x - style.padding.right;
+        }
+        else
+        {
+            padding.Min.x = content.Min.x - style.padding.left;
+            padding.Max.x = content.Max.x + style.padding.right;
+            border.Min.x = padding.Min.x - style.border.left.thickness;
+            border.Max.x = padding.Max.x + style.border.right.thickness;
+            margin.Min.x = border.Min.x - style.margin.left;
+            margin.Max.x = border.Max.x + style.margin.right;
+        }
+
+        if (style.dimension.y > 0.f)
+        {
+            margin = content;
+            border.Min.y = margin.Min.y + style.border.top.thickness;
+            border.Max.y = margin.Max.y - style.border.bottom.thickness;
+            padding.Min.y = border.Min.y + style.padding.top;
+            padding.Max.y = border.Max.y - style.padding.bottom;
+            content.Min.y = padding.Min.y + style.padding.top;
+            content.Max.y = padding.Max.y - style.padding.bottom;
+        }
+        else
+        {
+            padding.Min.y = content.Min.y - style.padding.top;
+            padding.Max.y = content.Max.y + style.padding.bottom;
+            border.Min.y = padding.Min.y - style.border.top.thickness;
+            border.Max.y = padding.Max.y + style.border.bottom.thickness;
+            margin.Min.y = border.Min.y - style.margin.top;
+            margin.Max.y = border.Max.y + style.margin.bottom;
+        }
+
+        return std::make_tuple(content, padding, border, margin);
+    }
+
     static ImVec2 DetermineBounds(ImVec2 textsz, std::string_view prefix, std::string_view suffix, 
         ImVec2 pos, LayoutItemDescriptor& item, const StyleDescriptor& style,
         IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors)
@@ -1212,6 +1274,47 @@ namespace glimmer
         return item.margin.GetSize();
     }
 
+    void HandleRegionEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.region;
+
+            if (state.events != 0)
+            {
+                auto hasmouseover = state.events & ETP_Hovered;
+                auto ismouseover = padding.Contains(io.mousepos);
+
+                if (hasmouseover && ismouseover)
+                    result.event = WidgetEvent::Hovered;
+                
+                if (ismouseover && (state.events & ETP_Clicked) && io.clicked())
+                    result.event = WidgetEvent::Clicked;
+                
+                if (ismouseover && (state.events & ETP_DoubleClicked) && io.isLeftMouseDoubleClicked())
+                    result.event = WidgetEvent::DoubleClicked;
+
+                if (ismouseover && (state.events & ETP_RightClicked) && io.isRightClicked())
+                    result.event = WidgetEvent::RightClicked;
+
+                if (ismouseover)
+                {
+                    //Config.platform->SetMouseCursor(MouseCursor::Grab);
+                    WidgetContextData::CurrentWidgetId = id;
+                }
+            } 
+
+            if (WidgetContextData::CurrentWidgetId == -1)
+            {
+                ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
+                HandleContextMenu(id, content, io);
+            }
+        }
+        else context.deferedEvents.emplace_back(EventDeferInfo::ForRegion(id, margin, border, padding, content));
+    }
+
     void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
@@ -1221,6 +1324,7 @@ namespace glimmer
             auto& state = context.GetState(id).state.label;
             auto ismouseover = padding.Contains(io.mousepos);
             state.state = !ismouseover ? WS_Default : WS_Hovered;
+            if (ismouseover) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             HandleContextMenu(id, content, io);
         }
@@ -1247,11 +1351,35 @@ namespace glimmer
                 io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
             if (ismouseover && io.clicked())
                 result.event = WidgetEvent::Clicked;
-            if (ismouseover) Config.platform->SetMouseCursor(MouseCursor::Grab);
+            if (ismouseover)
+            {
+                Config.platform->SetMouseCursor(MouseCursor::Grab);
+                WidgetContextData::CurrentWidgetId = id;
+            }
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             HandleContextMenu(id, content, io);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForButton(id, margin, border, padding, content, text));
+    }
+
+    WidgetDrawResult RegionImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io, int depth)
+    {
+        auto& context = GetContext();
+        assert((id & WidgetIndexMask) <= (int)context.states[WT_Label].size());
+
+        WidgetDrawResult result;
+
+        if (!context.regionBuilders.empty())
+        {
+            DrawBoxShadow(border.Min, border.Max, style, renderer);
+            DrawBackground(border.Min, border.Max, style, renderer);
+            DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        }
+    
+        HandleRegionEvent(id, margin, border, padding, content, renderer, io, result);
+        result.geometry = margin;
+        return result;
     }
 
     WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -1412,7 +1540,7 @@ namespace glimmer
         auto pos = context.NextAdHocPos();
         if (type == TextType::RichText) style.font.flags |= TextIsRichText;
 
-		DrawSymbol(pos, prefixsz, { 0.f, 0.f }, icon, style.fgcolor, style.fgcolor, 1.f, renderer);
+        DrawSymbol(pos, prefixsz, { 0.f, 0.f }, icon, style.fgcolor, style.fgcolor, 1.f, renderer);
         pos.x += prefixsz.x + style.padding.left;
 
         auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
@@ -1573,6 +1701,7 @@ namespace glimmer
             state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
                 mouseover ? WS_Hovered : WS_Default;
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+            if (mouseover) WidgetContextData::CurrentWidgetId = id;
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
@@ -1673,6 +1802,7 @@ namespace glimmer
             state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
                 mouseover ? WS_Hovered : WS_Default;
             state.state = state.checked ? state.state | WS_Checked : state.state & ~WS_Checked;
+            if (mouseover) WidgetContextData::CurrentWidgetId = id;
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
@@ -1744,6 +1874,7 @@ namespace glimmer
                 check.progress = 0.f;
             }
 
+            if (mouseover) WidgetContextData::CurrentWidgetId = id;
             if (state.out) *state.out = state.check;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
@@ -1919,6 +2050,7 @@ namespace glimmer
                 }
             }
 
+            if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
         }
@@ -2121,6 +2253,7 @@ namespace glimmer
                 }
             }
 
+            if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
         }
@@ -2229,7 +2362,7 @@ namespace glimmer
 
                     if (isForMin)
                     {
-						auto offset = specificStyle.minThumb.offset + radius + specificStyle.trackBorderThickness;
+                        auto offset = specificStyle.minThumb.offset + radius + specificStyle.trackBorderThickness;
                         auto space = horizontal ? width - specificStyle.offset() : height - specificStyle.offset();
                         auto where = horizontal ? io.mousepos.x - extent.Min.x - offset : io.mousepos.y - extent.Min.y - offset;
                         auto relative = where / space;
@@ -2269,6 +2402,7 @@ namespace glimmer
             if (state.out_min && state.outType == OutPtrType::f64) *(double*)(state.out_min) = state.min_val;
             if (state.out_max && state.outType == OutPtrType::f64) *(double*)(state.out_max) = state.max_val;
 
+            if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
         }
@@ -2445,6 +2579,7 @@ namespace glimmer
             ispressed ? state.state |= WS_Pressed : state.state &= ~WS_Pressed;
             isclicked ? state.state |= WS_Focused : state.state &= ~WS_Focused;
             if (input.lastClickTime != -1.f) input.lastClickTime += io.deltaTime;
+            if (mouseover) WidgetContextData::CurrentWidgetId = id;
 
             if (mouseover) 
                 Config.platform->SetMouseCursor(MouseCursor::TextInput);
@@ -3224,7 +3359,13 @@ namespace glimmer
             auto ismouseover = padding.Contains(io.mousepos);
             state.state = !ismouseover ? WS_Default :
                 io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
-            if (ismouseover) Config.platform->SetMouseCursor(MouseCursor::Grab);
+
+            if (ismouseover)
+            {
+                Config.platform->SetMouseCursor(MouseCursor::Grab);
+                WidgetContextData::CurrentWidgetId = id;
+            }
+
             if (ismouseover && io.clicked())
             {
                 result.event = WidgetEvent::Clicked; state.opened = !state.opened;
@@ -3313,7 +3454,8 @@ namespace glimmer
         ImRect result;
         auto& context = GetContext();
         auto& state = context.TabBarState(id);
-        const auto& currentTab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        const auto& currentTab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         const auto& config = context.GetState(id).state.tab;
         int16_t tabidx = 0, lastRowStart = 0;
         auto height = 0.f, width = 0.f;
@@ -3335,12 +3477,12 @@ namespace glimmer
                 if (!item.icon.empty())
                 {
                     if (item.iconsz == ImVec2{})
-						item.iconsz = ImVec2{ txtsz.y, txtsz.y };
+                        item.iconsz = ImVec2{ txtsz.y, txtsz.y };
                     tab.icon.Min = offset + ImVec2{ config.btnspacing, 0.f };
-					tab.icon.Max = tab.icon.Min + item.iconsz;
-					tab.text.Min.x = tab.icon.Max.x + config.btnspacing;
+                    tab.icon.Max = tab.icon.Min + item.iconsz;
+                    tab.text.Min.x = tab.icon.Max.x + config.btnspacing;
                     tab.text.Min.y = offset.y;
-					tab.text.Max = tab.text.Min + txtsz;
+                    tab.text.Max = tab.text.Min + txtsz;
                     offset.x = tab.text.Min.x;
                 }
                 else
@@ -3443,7 +3585,7 @@ namespace glimmer
                 tabidx++;
             }
 
-			if (currentTab.sizing != TabBarItemSizing::MultiRow)
+            if (currentTab.sizing != TabBarItemSizing::MultiRow)
                 state.lastRowStarty = offset.y;
 
             if (currentTab.newTabButton)
@@ -3484,7 +3626,7 @@ namespace glimmer
                 if ((extrah > 0.f) || config.expandTabs)
                 {
                     auto cumulative = 0.f;
-					auto totalTabs = tabidx;
+                    auto totalTabs = tabidx;
                     extrah /= (float)totalTabs;
 
                     for (auto idx = 0; idx < totalTabs; ++idx)
@@ -3513,7 +3655,7 @@ namespace glimmer
         }
         else
         {
-			assert(false); // Vertical tab bars not yet implemented
+            assert(false); // Vertical tab bars not yet implemented
             /*for (const auto& item : currentTab.items)
             {
                 auto& tab = state.tabs[tabidx];
@@ -3598,6 +3740,7 @@ namespace glimmer
             auto& state = context.TabBarState(id);
             auto tabidx = 0;
             state.hovered = InvalidTabIndex;
+            if (content.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
 
             if (state.expand.Contains(io.mousepos))
             {
@@ -3715,7 +3858,7 @@ namespace glimmer
             const auto& config = GetWidgetConfig(id).state.tab;
             ShowTooltip(state.createHoverDuration, state.create, config.newTabTooltip, io);
 
-			if (state.moveBackward.Contains(io.mousepos))
+            if (state.moveBackward.Contains(io.mousepos))
             {
                 state.hovered = MoveBackwardIndex;
                 if (io.clicked())
@@ -3735,7 +3878,7 @@ namespace glimmer
                     result.tabtype = TabButtonType::MoveForward;
                     return;
                 }
-			}
+            }
 
             if (state.dropdown.Contains(io.mousepos))
             {
@@ -3782,13 +3925,13 @@ namespace glimmer
             {
             case RT_IMG:
                 renderer.DrawImage(tab.icon.Min, tab.icon.GetSize(), currentTab.items[tabidx].icon);
-				break;
+                break;
             case RT_PATH:
                 renderer.DrawSVG(tab.icon.Min, tab.icon.GetSize(), style.fgcolor, currentTab.items[tabidx].icon, true);
                 break;
             case RT_SVG:
                 renderer.DrawSVG(tab.icon.Min, tab.icon.GetSize(), style.fgcolor, currentTab.items[tabidx].icon, false);
-				break;
+                break;
             default: break;
             }
         }
@@ -3799,9 +3942,9 @@ namespace glimmer
         {
             auto startpos = tab.text.Min, endpos = tab.extent.Max;
             if (currentTab.items[tabidx].itemflags & TI_Pinnable)
-				endpos.x = tab.pin.Min.x - config.btnspacing;
+                endpos.x = tab.pin.Min.x - config.btnspacing;
             else if (currentTab.items[tabidx].itemflags & TI_Closeable)
-				endpos.x = tab.close.Min.x - config.btnspacing;
+                endpos.x = tab.close.Min.x - config.btnspacing;
             DrawText(startpos, endpos, tab.text, currentTab.items[tabidx].name, flag & WS_Disabled,
                 style, renderer);
         }
@@ -3852,7 +3995,8 @@ namespace glimmer
         auto& context = GetContext();
         auto& state = context.TabBarState(id);
         const auto& config = context.GetState(id).state.tab;
-        const auto& currentTab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        const auto& currentTab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         auto tabidx = 0;
         
         for (const auto& tab : state.tabs)
@@ -3866,10 +4010,10 @@ namespace glimmer
         {
             auto movedTab = state.tabs[state.tabBeingDragged];
             auto diff = state.dragPosition - state.dragStart;
-			movedTab.extent.Translate(diff);
-			movedTab.text.Translate(diff);
-			movedTab.close.Translate(diff);
-			movedTab.pin.Translate(diff);
+            movedTab.extent.Translate(diff);
+            movedTab.text.Translate(diff);
+            movedTab.close.Translate(diff);
+            movedTab.pin.Translate(diff);
             DrawTab(currentTab, config, state, movedTab, state.tabBeingDragged, renderer);
         }
 
@@ -3914,7 +4058,7 @@ namespace glimmer
                     DrawSymbol(state.moveForward.Min, state.moveForward.GetSize(),
                         { mfstyle.padding.left, mfstyle.padding.top },
                         SymbolIcon::RightTriangle, mfstyle.fgcolor, 0, 2.f, renderer);
-				}
+                }
             }
 
             DrawSymbol(state.create.Min, state.create.Max, {}, SymbolIcon::DownTriangle, style.fgcolor, 
@@ -3929,7 +4073,8 @@ namespace glimmer
     bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        auto& tab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         tab.id = id;
         tab.geometry = geometry; tab.neighbors = neighbors;
 
@@ -3942,7 +4087,8 @@ namespace glimmer
     void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
     {
         auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        auto& tab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         auto& item = tab.items.emplace_back();
         item.name = name;
         item.itemflags = flags;
@@ -3952,7 +4098,8 @@ namespace glimmer
     void AddTab(ResourceType type, std::string_view icon, TextType extype, std::string_view text, int32_t flags, ImVec2 iconsz)
     {
         auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        auto& tab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         auto& item = tab.items.emplace_back();
         item.name = text;
         item.nameType = extype;
@@ -3965,7 +4112,8 @@ namespace glimmer
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab)
     {
         auto& context = GetContext();
-        auto& tab = context.layouts.empty() ? context.currentTab : context.layouts.top().tabbar;
+        auto& tab = context.layoutStack.empty() ? context.currentTab : 
+            context.layouts[context.layoutStack.top()].tabbar;
         tab.newTabButton = canAddTab.has_value() ? canAddTab.value() : tab.newTabButton;
         auto& state = context.TabBarState(tab.id);
         state.tabs.resize(tab.items.size());
@@ -4067,6 +4215,7 @@ namespace glimmer
         {
             auto& state = context.AccordionState(accordion.id);
             auto contains = region.Contains(io.mousepos);
+            if (contains) WidgetContextData::CurrentWidgetId = id;
 
             if (contains && io.isLeftMouseDown()) state.hstates[ridx] = WS_Hovered | WS_Pressed;
             else if (contains) state.hstates[ridx] = WS_Hovered;
@@ -4513,23 +4662,38 @@ namespace glimmer
             std::make_pair(builder.origin.y, builder.origin.y + builder.size.y));
     }
 
-    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem)
+    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style)
     {
         auto& context = GetContext();
-
-        if (context.CurrentItemGridContext != nullptr)
+        
+        if (!context.nestedContextStack.empty())
         {
-            auto& grid = context.CurrentItemGridContext->itemGrids.top();
-            if (grid.phase == ItemGridConstructPhase::HeaderCells)
+            auto& nestedSrc = context.nestedContextStack.top();
+
+            if (nestedSrc.source == NestedContextSourceType::ItemGrid && context.CurrentItemGridContext != nullptr)
             {
-                grid.maxHeaderExtent.x = std::max(grid.maxHeaderExtent.x, layoutItem.margin.Max.x);
-                grid.maxHeaderExtent.y = std::max(grid.maxHeaderExtent.y, layoutItem.margin.Max.y);
+                auto& grid = context.CurrentItemGridContext->itemGrids.top();
+                if (grid.phase == ItemGridConstructPhase::HeaderCells)
+                {
+                    grid.maxHeaderExtent.x = std::max(grid.maxHeaderExtent.x, layoutItem.margin.Max.x);
+                    grid.maxHeaderExtent.y = std::max(grid.maxHeaderExtent.y, layoutItem.margin.Max.y);
+                }
+                else
+                {
+                    grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
+                    grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
+                }
             }
-            else
+            /*else if (nestedSrc.source == NestedContextSourceType::Region)
             {
-                grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
-                grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
-            }
+                auto& region = context.regionBuilders.top();
+
+                if (!region.fixedWidth)
+                    region.size.x = std::max(region.size.x, layoutItem.margin.Max.x - region.origin.x);
+
+                if (!region.fixedHeight)
+                    region.size.y = std::max(region.size.y, layoutItem.margin.Max.y - region.origin.y);
+            }*/
         }
     }
 
@@ -6175,29 +6339,29 @@ namespace glimmer
 
     struct RichTextPlatformSupport : public ImRichText::IPlatform
     {
-		ImVec2 GetCurrentMousePos() { return Config.platform->CurrentIO().mousepos; }
-		bool IsMouseClicked() { return Config.platform->CurrentIO().clicked(); }
+        ImVec2 GetCurrentMousePos() { return Config.platform->CurrentIO().mousepos; }
+        bool IsMouseClicked() { return Config.platform->CurrentIO().clicked(); }
 
-		// TODO: Implement these methods to provide full hyperlink and frame support
+        // TODO: Implement these methods to provide full hyperlink and frame support
         void HandleHyperlink(std::string_view) {}
         void RequestFrame() {}
         void HandleHover(bool) {}
-	};
+    };
 
     UIConfig& GetUIConfig(bool needsRichText)
     {
 #ifdef GLIMMER_ENABLE_RICH_TEXT
-		if (needsRichText && Config.richTextConfig == nullptr)
+        if (needsRichText && Config.richTextConfig == nullptr)
         {
-			ImRichText::DefaultConfigParams rtparams;
-			rtparams.Charset = TextContentCharset::UTF8Simple;
+            ImRichText::DefaultConfigParams rtparams;
+            rtparams.Charset = TextContentCharset::UTF8Simple;
             rtparams.DefaultFontSize = Config.defaultFontSz;
             rtparams.FontScale = Config.fontScaling;
 
             Config.richTextConfig = ImRichText::GetDefaultConfig(rtparams);
             Config.richTextConfig->Renderer = Config.renderer;
 #ifdef _DEBUG
-			Config.richTextConfig->OverlayRenderer = Config.renderer;
+            Config.richTextConfig->OverlayRenderer = Config.renderer;
 #endif
             Config.richTextConfig->RTRenderer = new ImRichText::IRenderer{};
             Config.richTextConfig->RTRenderer->UserData = Config.renderer;
@@ -6236,17 +6400,48 @@ namespace glimmer
             auto& extent = grid.headers[grid.currlevel][grid.currCol].content;
             maxxy.x = extent.Max.x; // Bounded in x direction, y is from content
         }
+        /*else if (nestedCtx.source == NestedContextSourceType::Region)
+        {
+            const auto& region = context.regionBuilders.top();
+            auto& state = context.GetState(region.id).state.region;
+            auto style = context.GetStyle(state.state, region.id);
+
+            if (style.dimension.x > 0.f)
+                maxxy.x = region.size.x + region.origin.x - (style.margin.right + 
+                    style.border.right.thickness + style.padding.right);
+
+            if (style.dimension.y > 0.f)
+                maxxy.y = region.size.y + region.origin.y - (style.margin.bottom +
+                    style.border.bottom.thickness + style.padding.bottom);
+        }*/
 
         switch (type)
         {
+        case WT_Region: {
+            auto& state = context.GetState(wid).state.region;
+            auto style = context.GetStyle(state.state, wid);
+            const auto& region = context.regions[context.regionBuilders.top()];
+            UpdateTooltip(state.tooltip);
+
+            if (context.layoutStack.empty())
+            {
+                std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin) =
+                    GetBoxModelBounds(ImRect{ region.origin, region.origin + region.size }, style);
+                context.AddItemGeometry(wid, layoutItem.margin);
+                result = RegionImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, 
+                    layoutItem.content, renderer, io, -1);
+                RecordItemGeometry(layoutItem, style);
+            }
+            break;
+        }
         case WT_Label: {
             auto& state = context.GetState(wid).state.label;
             auto style = context.GetStyle(state.state, wid);
             UpdateTooltip(state.tooltip);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
@@ -6264,7 +6459,7 @@ namespace glimmer
                 auto flags = ToTextFlags(state.type);
                 result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
                     layoutItem.content, layoutItem.text, renderer, io, flags);
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             break;
         }
@@ -6273,9 +6468,9 @@ namespace glimmer
             auto style = context.GetStyle(state.state, wid);
             UpdateTooltip(state.tooltip);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 ButtonBounds(wid, layout.nextpos, layoutItem, style, renderer, geometry, neighbors, maxxy.x);
                 AddItemToLayout(layout, layoutItem, style);
@@ -6287,7 +6482,7 @@ namespace glimmer
                 context.AddItemGeometry(wid, layoutItem.margin);
                 result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content,
                     layoutItem.text, layoutItem.prefix, renderer, io);
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
 
             break;
@@ -6300,9 +6495,9 @@ namespace glimmer
             AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
             auto bounds = RadioButtonBounds(state, layoutItem.margin);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 AddItemToLayout(layout, layoutItem, style);
             }
             else
@@ -6311,7 +6506,7 @@ namespace glimmer
                 result = RadioButtonImpl(wid, state, style, bounds, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
 
             break;
@@ -6330,9 +6525,9 @@ namespace glimmer
             layoutItem.text.Min = layoutItem.margin.Min;
             layoutItem.text.Max = layoutItem.text.Min + textsz;
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 AddItemToLayout(layout, layoutItem, style);
             }
             else
@@ -6341,7 +6536,7 @@ namespace glimmer
                 result = ToggleButtonImpl(wid, state, style, bounds, textsz, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             
             break;
@@ -6364,9 +6559,9 @@ namespace glimmer
                 layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
             }
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 AddItemToLayout(layout, layoutItem, style);
             }
             else
@@ -6375,7 +6570,7 @@ namespace glimmer
                 result = CheckboxImpl(wid, state, style, layoutItem.margin, layoutItem.padding, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             
             break;
@@ -6393,9 +6588,9 @@ namespace glimmer
             layoutItem.margin.Max = layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom };
             layoutItem.content = layoutItem.padding = bounds;
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 AddItemToLayout(layout, layoutItem, style);
             }
             else
@@ -6404,7 +6599,7 @@ namespace glimmer
                 result = SpinnerImpl(wid, state, style, layoutItem.padding, io, renderer);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
 
             break;
@@ -6432,9 +6627,9 @@ namespace glimmer
 
             layoutItem.content = layoutItem.padding;
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
                 if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
@@ -6447,7 +6642,7 @@ namespace glimmer
                 result = SliderImpl(wid, state, style, layoutItem.border, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
 
             break;
@@ -6474,9 +6669,9 @@ namespace glimmer
 
             layoutItem.content = layoutItem.padding;
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty()) 
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty()) 
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
                 if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
@@ -6489,7 +6684,7 @@ namespace glimmer
                 result = RangeSliderImpl(wid, state, style, layoutItem.border, renderer, io);
                 context.AddItemGeometry(wid, bounds);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             break;
         }
@@ -6498,9 +6693,9 @@ namespace glimmer
             auto style = context.GetStyle(state.state, wid);
             UpdateTooltip(state.tooltip);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.nextpos;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
@@ -6515,7 +6710,7 @@ namespace glimmer
                 result = TextInputImpl(wid, state, style, layoutItem.border, layoutItem.content, layoutItem.prefix, layoutItem.suffix, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             
             break;
@@ -6530,9 +6725,9 @@ namespace glimmer
                 GetTextSize(TextType::PlainText, std::string_view{ DummyString, (size_t)state.width }, style.font, maxxy.x, renderer);
             UpdateTooltip(state.tooltip);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
+                auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 DetermineBounds(textsz, state.prefix, "", pos, layoutItem, style, renderer, geometry, neighbors);
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
@@ -6548,7 +6743,7 @@ namespace glimmer
                     layoutItem.content, layoutItem.text, layoutItem.prefix, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
             
             break;
@@ -6556,10 +6751,10 @@ namespace glimmer
         case WT_TabBar: {
             const auto style = context.GetStyle(WS_Default, wid);
 
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                auto& layout = context.layouts.top();
-                const auto& currentTab = context.layouts.top().tabbar;
+                auto& layout = context.layouts[context.layoutStack.top()];
+                const auto& currentTab = layout.tabbar;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 AddExtent(layoutItem, style, currentTab.neighbors, { 0.f, 0.f }, maxxy);
                 auto bounds = TabBarBounds(currentTab.id, layoutItem.padding, renderer);
@@ -6575,7 +6770,7 @@ namespace glimmer
 
                 result = TabBarImpl(wid, bounds, style, io, renderer);
                 context.AddItemGeometry(wid, bounds);
-                RecordItemGeometry(layoutItem);
+                RecordItemGeometry(layoutItem, style);
             }
 
             break;
@@ -6594,9 +6789,9 @@ namespace glimmer
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
             }
-            else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layouts.empty())
+            else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
             {
-                /*auto& layout = context.layouts.top();
+                /*auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
@@ -6617,6 +6812,72 @@ namespace glimmer
         result.id = wid;
         PreviousWidget = wid;
         return result;
+    }
+
+    ImRect BeginFlexLayoutRegion(Direction dir, int32_t geometry, bool wrap,
+        ImVec2 spacing, ImVec2 size, const NeighborWidgets& neighbors, int regionIdx);
+    ImRect BeginGridLayoutRegion(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents,
+        const std::initializer_list<float>& colExtents, ImVec2 spacing, ImVec2 size,
+        const NeighborWidgets& neighbors, int regionIdx);
+
+    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = dir == DIR_Horizontal ? Layout::Horizontal : Layout::Vertical;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginFlexLayoutRegion(dir, geometry, wrap, spacing, style.dimension, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginFlexRegion(wid, dir, spacing, wrap, events, geometry, neighbors);
+    }
+
+    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = Layout::Grid;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginGridLayoutRegion(rows, cols, GridLayoutDirection::ByRows, geometry, {}, {}, spacing, 
+            style.dimension, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginGridRegion(wid, rows, cols, spacing, events, geometry, neighbors);
+    }
+
+    WidgetDrawResult EndRegion()
+    {
+        auto& context = GetContext();
+        auto idx = context.regionBuilders.top();
+        context.RecordForReplay(idx, LayoutOps::PopRegion);
+
+        auto pos = EndLayout();
+        context.regionBuilders.pop(1, true);
+        return pos;
     }
 
     WidgetDrawResult Label(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
@@ -6648,7 +6909,18 @@ namespace glimmer
     {
         auto wid = GetIdFromString(id, WT_Button).first;
         GetWidgetConfig(wid).state.button.text = content;
-        return Widget(wid, WT_Label, geometry, neighbors);
+        return Widget(wid, WT_Button, geometry, neighbors);
+    }
+
+    void BeginButton(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Button).first;
+        BeginFlexRegion(wid, DIR_Horizontal, { 0.f, 0.f }, true, ETP_Hovered | ETP_Clicked, geometry, neighbors);
+    }
+
+    WidgetDrawResult EndButton()
+    {
+        return EndRegion();
     }
 
     WidgetDrawResult ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)

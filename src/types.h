@@ -117,7 +117,7 @@ namespace glimmer
     {
         WT_Invalid = -1,
         WT_Sublayout = -2,
-        WT_Label = 0, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
+        WT_Region = 0, WT_Label, WT_Button, WT_RadioButton, WT_ToggleButton, WT_Checkbox,
         WT_Layout, WT_Scrollable, WT_Splitter, WT_SplitterRegion, WT_Accordion,
         WT_Slider, WT_RangeSlider, WT_Spinner,
         WT_TextInput,
@@ -172,7 +172,7 @@ namespace glimmer
 #endif
         int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;
         std::string_view widgetNames[WT_TotalTypes] = {
-            "label", "button", "radio", "toggle", "checkbox", "layout",
+            "region", "label", "button", "radio", "toggle", "checkbox", "layout",
             "scroll", "splitter", "invalid", "accordion", "slider", "rangeslider", "spinner",
             "text", "dropdown", "tab", "itemgrid", "chart"
         };
@@ -199,6 +199,16 @@ namespace glimmer
             WS_PartialCheck | WS_Selected | WS_Dragged | WS_Disabled
     };
 
+    enum EventsToProcess
+    {
+		ETP_Hovered = 1,
+		ETP_Clicked = 1 << 1,
+		ETP_DoubleClicked = 1 << 2,
+		ETP_RightClicked = 1 << 3,
+		ETP_MouseEnter = 1 << 4,
+		ETP_MouseLeave = 1 << 5
+    };
+
     enum class TextType { PlainText, RichText, SVG, ImagePath, SVGPath };
 
     struct CommonWidgetData
@@ -212,6 +222,11 @@ namespace glimmer
     enum ResourceType
     {
         RT_INVALID = 0, RT_IMG = 1, RT_PATH = 2, RT_SVG = 4,
+    };
+
+    struct RegionState : public CommonWidgetData
+    {
+		int32_t events = 0; // bitmask of WidgetState
     };
 
     struct ButtonState : public CommonWidgetData
@@ -560,6 +575,7 @@ namespace glimmer
         WidgetType type;
 
         union SharedWidgetState {
+            RegionState region;
             LabelState label;
             ButtonState button;
             ToggleButtonState toggle;
@@ -692,4 +708,9 @@ namespace glimmer
         // Below icons are by default SVGs
         Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
     };
+
+    enum class IconSizingType
+    {
+		Fixed, DefaultFontSz, CurrentFontSz
+	};
 }

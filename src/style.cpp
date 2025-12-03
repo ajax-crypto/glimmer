@@ -1283,9 +1283,9 @@ namespace glimmer
         std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, "", "", "", disblcss };
         auto& context = GetContext();
         
-        if (!context.layouts.empty())
+        if (!context.layoutStack.empty())
         {
-            auto& layout = context.layouts[0];
+            auto& layout = context.layoutStack[0];
             auto state = PushStyle(css, context.layoutStyles);
 
             // Enqueue multiple layout ops, to capture indexes of each widget state specific style stack
@@ -1338,9 +1338,9 @@ namespace glimmer
         {
             if ((1 << style) & state)
             {
-                if (!context.layouts.empty())
+                if (!context.layoutStack.empty())
                 {
-                    auto& layout = context.layouts[0];
+                    auto& layout = context.layoutStack[0];
                     PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
 
                     if (!css.empty())
@@ -1411,7 +1411,7 @@ namespace glimmer
     {
         auto& context = GetContext();
 
-        if (!context.layouts.empty())
+        if (!context.layoutStack.empty())
         {
             auto dd = (int64_t)depth;
             context.RecordForReplay((dd << 32) | state, LayoutOps::PopStyle);
@@ -1432,7 +1432,7 @@ namespace glimmer
     {
         auto& context = GetContext();
 
-        if (!context.layouts.empty())
+        if (!context.layoutStack.empty())
         {
             context.RecordForReplay((int64_t)type, LayoutOps::PushTextType);
         }
@@ -1454,9 +1454,9 @@ namespace glimmer
 
     void _IgnoreStyleStackInternal(int32_t wtypes)
     {
-        if (!GetContext().layouts.empty())
+        if (!GetContext().layoutStack.empty())
         {
-            auto& op = GetContext().layoutReplayContent.emplace_back();
+            auto& op = GetContext().replayContent.emplace_back();
             op.first = wtypes;
             op.second = LayoutOps::IgnoreStyleStack;
         }
@@ -1466,9 +1466,9 @@ namespace glimmer
 
     void RestoreStyleStack()
     {
-        if (!GetContext().layouts.empty())
+        if (!GetContext().layoutStack.empty())
         {
-            auto& op = GetContext().layoutReplayContent.emplace_back();
+            auto& op = GetContext().replayContent.emplace_back();
             op.second = LayoutOps::RestoreStyleStack;
         }
 

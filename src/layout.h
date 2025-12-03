@@ -22,7 +22,7 @@ namespace glimmer
 
     // Structured Layout inside container
     ImRect BeginFlexLayout(Direction dir, int32_t geometry, bool wrap = false,
-        ImVec2 spacing = { 0.f, 0.f }, ImVec2 size = { 0.f, 0.f }, const NeighborWidgets & neighbors = NeighborWidgets{});
+        ImVec2 spacing = { 0.f, 0.f }, ImVec2 size = { 0.f, 0.f }, const NeighborWidgets& neighbors = NeighborWidgets{});
     ImRect BeginGridLayout(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents = {},
         const std::initializer_list<float>& colExtents = {}, ImVec2 spacing = { 0.f, 0.f }, ImVec2 size = { 0.f, 0.f },
         const NeighborWidgets& neighbors = NeighborWidgets{});
