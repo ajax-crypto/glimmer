@@ -256,7 +256,7 @@ namespace glimmer
         auto rtpos = WidgetContextData::RightClickContext.pos;
         WidgetContextData::RightClickContext = UIElementDescriptor{};
         WidgetContextData::RightClickContext.pos = rtpos;
-        WidgetContextData::ContextMenuOptionIdx = 0;
+        WidgetContextData::ContextMenuOptionParams.clear(true);
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
@@ -1143,8 +1143,8 @@ namespace glimmer
 
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
-    int32_t WidgetContextData::ContextMenuOptionIdx = 0;
     Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions;
+    Vector<ContextMenuItemParams, int16_t, 16> WidgetContextData::ContextMenuOptionParams;
     int32_t WidgetContextData::PopupTarget = -1;
     StyleStackT WidgetContextData::StyleStack[WSI_Total];
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;

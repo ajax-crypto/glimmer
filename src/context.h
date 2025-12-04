@@ -700,6 +700,18 @@ namespace glimmer
 
 #pragma endregion
 
+    struct ContextMenuItemParams
+    {
+        std::string_view text, prefix;
+        TextType type;
+        ResourceType rt;
+        CheckState* check = nullptr;
+        StyleDescriptor style;
+        uint32_t color = 0;
+        SymbolIcon icon = SymbolIcon::None;
+        float thickness = 0.f;
+    };
+
     struct ContextMenuItemDescriptor
     {
         int32_t state = WS_Default;
@@ -839,8 +851,8 @@ namespace glimmer
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;
         static UIElementDescriptor RightClickContext;
-        static int32_t ContextMenuOptionIdx;
         static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;
+        static Vector<ContextMenuItemParams, int16_t, 16> ContextMenuOptionParams;
         static int32_t CurrentWidgetId;
 
         int32_t GetNextCount(WidgetType type);

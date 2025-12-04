@@ -702,6 +702,8 @@ namespace glimmer
 
     enum class SymbolIcon
     {
+        None = -1,
+
         // These icons are drawn directly
         DownArrow, UpArrow, DownTriangle, UpTriangle, LeftTriangle, RightTriangle, Plus, Minus, Cross,
 

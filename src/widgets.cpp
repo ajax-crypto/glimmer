@@ -1454,7 +1454,7 @@ namespace glimmer
                 }
                 else
                 {
-                    for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionIdx; ++idx)
+                    for (auto idx = 0; idx < WidgetContextData::ContextMenuOptions.size(); ++idx)
                     {
                         auto& option = WidgetContextData::ContextMenuOptions[idx];
                         option.content.Translate(offset);
@@ -1485,143 +1485,154 @@ namespace glimmer
     void AddContextMenuEntry(std::string_view text, TextType type, std::string_view prefix, ResourceType rt)
     {
         auto& context = GetContext();
-        auto& renderer = *context.deferedRenderer;
-
-        auto totalopts = WidgetContextData::ContextMenuOptions.size();
-        auto curropt = WidgetContextData::ContextMenuOptionIdx;
-        if (totalopts <= curropt)
-            WidgetContextData::ContextMenuOptions.expand_and_create(curropt - totalopts + 1);
-        auto& option = WidgetContextData::ContextMenuOptions[curropt];
-
-        auto style = context.GetStyle(option.state);
-        ImVec2 prefixsz{ style.font.size, style.font.size };
-        auto pos = context.NextAdHocPos();
-        if (type == TextType::RichText) style.font.flags |= TextIsRichText;
-
-        if (!prefix.empty() && rt != RT_INVALID)
-        {
-            switch (rt)
-            {
-            case RT_SVG | RT_PATH: renderer.DrawSVG(pos, prefixsz, style.fgcolor, prefix, true); break;
-            case RT_SVG: renderer.DrawSVG(pos, prefixsz, style.fgcolor, prefix, false); break;
-            case RT_IMG: renderer.DrawImage(pos, prefixsz, prefix); break;
-            default: break;
-            }
-
-            pos.x += prefixsz.x + style.padding.left;
-        }
-
-        auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
-            type, {}, FLT_MAX, FLT_MAX);
-        DrawBackground(margin.Min, margin.Max, style, renderer);
-        DrawText(content.Min, content.Max, textrect, text, option.state & WS_Disabled, style, renderer, style.font.flags);
-
-        option.content.Min = { 0.f, margin.Min.y };
-        option.content.Max = margin.Max;
-        option.textrect = margin;
-
-        context.adhocLayout.top().nextpos.y += margin.GetHeight();
-        WidgetContextData::ContextMenuOptionIdx++;
+        auto& option = WidgetContextData::ContextMenuOptionParams.emplace_back();
+        option.text = text;
+        option.prefix = prefix;
+        option.type = type;
+        option.rt = rt;
     }
 
     void AddContextMenuEntry(SymbolIcon icon, std::string_view text, TextType type)
     {
         auto& context = GetContext();
-        auto& renderer = *context.deferedRenderer;
-
-        auto totalopts = WidgetContextData::ContextMenuOptions.size();
-        auto curropt = WidgetContextData::ContextMenuOptionIdx;
-        if (totalopts <= curropt)
-            WidgetContextData::ContextMenuOptions.expand_and_create(curropt - totalopts + 1);
-        auto& option = WidgetContextData::ContextMenuOptions[curropt];
-
-        auto style = context.GetStyle(option.state);
-        ImVec2 prefixsz{ style.font.size, style.font.size };
-        auto pos = context.NextAdHocPos();
-        if (type == TextType::RichText) style.font.flags |= TextIsRichText;
-
-        DrawSymbol(pos, prefixsz, { 0.f, 0.f }, icon, style.fgcolor, style.fgcolor, 1.f, renderer);
-        pos.x += prefixsz.x + style.padding.left;
-
-        auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
-            type, {}, FLT_MAX, FLT_MAX);
-        DrawBackground(margin.Min, margin.Max, style, renderer);
-        DrawText(content.Min, content.Max, textrect, text, option.state & WS_Disabled, style, renderer, style.font.flags);
-
-        option.content.Min = { 0.f, margin.Min.y };
-        option.content.Max = margin.Max;
-        option.textrect = margin;
-
-        context.adhocLayout.top().nextpos.y += margin.GetHeight();
-        WidgetContextData::ContextMenuOptionIdx++;
+        auto& option = WidgetContextData::ContextMenuOptionParams.emplace_back();
+        option.text = text;
+        option.type = type;
+        option.icon = icon;
     }
 
     void AddContextMenuEntry(CheckState* state, std::string_view text, TextType type)
     {
         auto& context = GetContext();
-        auto& renderer = *context.deferedRenderer;
-
-        auto totalopts = WidgetContextData::ContextMenuOptions.size();
-        auto curropt = WidgetContextData::ContextMenuOptionIdx;
-        if (totalopts <= curropt)
-            WidgetContextData::ContextMenuOptions.expand_and_create(curropt - totalopts + 1);
-        auto& option = WidgetContextData::ContextMenuOptions[curropt];
-
-        auto style = context.GetStyle(option.state);
-        ImVec2 prefixsz{ style.font.size, style.font.size };
-        auto pos = context.NextAdHocPos();
-        if (type == TextType::RichText) style.font.flags |= TextIsRichText;
-
-        auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, text, renderer, ToBottomRight,
-            type, {}, context.popupSize.x, context.popupSize.y);
-
-        auto oldy = pos.y;
-        pos.y += (margin.GetHeight() - (style.font.size * 0.6f)) * 0.5f;
-        context.adhocLayout.top().nextpos.y = pos.y;
-
-        auto checkstyle = style;
-        checkstyle.padding = checkstyle.margin = FourSidedMeasure{};
-        // TODO: Add default checkbox styling...
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-            WidgetContextData::StyleStack[idx].push() = checkstyle;
-        auto res = Checkbox(state);
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-            WidgetContextData::StyleStack[idx].pop(1, true);
-
-        auto shiftx = res.geometry.GetWidth() + style.padding.left;
-        option.prefix = res.geometry;
-        option.prefixId = res.id;
-
-        context.adhocLayout.top().nextpos.y = pos.y = oldy;
-        
-        margin.TranslateX(shiftx); content.TranslateX(shiftx); textrect.TranslateX(shiftx);
-        DrawBackground(margin.Min, margin.Max, style, renderer);
-        DrawText(content.Min, content.Max, textrect, text, option.state & WS_Disabled, style, renderer, style.font.flags);
-
-        option.content.Min = { 0.f, margin.Min.y };
-        option.content.Max = margin.Max;
-        option.textrect = margin;
-
-        context.adhocLayout.top().nextpos.y += margin.GetHeight();
-        WidgetContextData::ContextMenuOptionIdx++;
+        auto& option = WidgetContextData::ContextMenuOptionParams.emplace_back();
+        option.text = text;
+        option.type = type;
+        option.check = state;
     }
 
     void AddContextMenuSeparator(uint32_t color, float thickness)
     {
-        auto& context = GetContext();
-        auto& renderer = *context.deferedRenderer;
-        auto pos = context.NextAdHocPos();
-        renderer.DrawRect(pos, pos + ImVec2{ FLT_MAX, 0.f }, color, true, thickness);
-        pos.y += thickness;
+        auto& option = WidgetContextData::ContextMenuOptionParams.emplace_back();
+        option.thickness = thickness;
+        option.color = color;
     }
 
     WidgetDrawResult EndContextMenu()
     {
+        enum PrefixType
+        {
+            NoPrefix, Checkable = 1, Icon = 2
+        };
+
+        int hasPrefix = PrefixType::NoPrefix;
+        auto& context = GetContext();
+        auto& renderer = *context.deferedRenderer;
+
+        for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionParams.size(); ++idx)
+            if (WidgetContextData::ContextMenuOptionParams[idx].check != nullptr)
+                hasPrefix |= PrefixType::Checkable;
+            else if (!WidgetContextData::ContextMenuOptionParams[idx].prefix.empty() ||
+                WidgetContextData::ContextMenuOptionParams[idx].icon != SymbolIcon::None)
+                hasPrefix |= PrefixType::Icon;
+
+        for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionParams.size(); ++idx)
+        {
+            if (idx >= WidgetContextData::ContextMenuOptions.size())
+                WidgetContextData::ContextMenuOptions.expand_and_create(1, true);
+
+            auto& option = WidgetContextData::ContextMenuOptions[idx];
+            const auto& params = WidgetContextData::ContextMenuOptionParams[idx];
+
+            auto style = context.GetStyle(option.state);
+            auto xprefix = (hasPrefix & PrefixType::Icon) ? style.font.size :
+                (hasPrefix & PrefixType::Checkable) ? (style.font.size * 0.6f) : 0.f;
+
+            if (params.thickness > 0.f)
+            {
+                auto pos = context.NextAdHocPos();
+                renderer.DrawRect(pos, pos + ImVec2{ FLT_MAX, 0.f }, params.color, true, params.thickness);
+                context.adhocLayout.top().nextpos.y += params.thickness;
+            }
+            else if (params.check == nullptr)
+            {
+                ImVec2 prefixsz{ style.font.size, style.font.size };
+                auto pos = context.NextAdHocPos();
+                context.adhocLayout.top().nextpos.x = pos.x = style.padding.left;
+
+                if (!params.prefix.empty() && params.rt != RT_INVALID)
+                {
+                    switch (params.rt)
+                    {
+                    case RT_SVG | RT_PATH: renderer.DrawSVG(pos, prefixsz, style.fgcolor, params.prefix, true); break;
+                    case RT_SVG: renderer.DrawSVG(pos, prefixsz, style.fgcolor, params.prefix, false); break;
+                    case RT_IMG: renderer.DrawImage(pos, prefixsz, params.prefix); break;
+                    default: break;
+                    }
+
+                    pos.x += prefixsz.x + 10.f;
+                }
+                else if (params.icon != SymbolIcon::None)
+                {
+                    DrawSymbol(pos, prefixsz, { 0.f, 0.f }, params.icon, style.fgcolor, style.fgcolor, 2.f, renderer);
+                    pos.x += prefixsz.x + 10.f;
+                }
+                else if (hasPrefix) pos.x += prefixsz.x + 10.f;
+
+                auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, params.text, renderer, ToBottomRight,
+                    params.type, {}, FLT_MAX, FLT_MAX);
+                DrawBackground(margin.Min, margin.Max, style, renderer);
+                DrawText(content.Min, content.Max, textrect, params.text, option.state & WS_Disabled, style, renderer, style.font.flags);
+
+                option.content.Min = { 0.f, margin.Min.y };
+                option.content.Max = margin.Max;
+                option.textrect = margin;
+
+                context.adhocLayout.top().nextpos.y += margin.GetHeight();
+            }
+            else
+            {
+                auto pos = context.NextAdHocPos();
+                context.adhocLayout.top().nextpos.x = pos.x = style.padding.left;
+
+                auto [content, padding, border, margin, textrect] = GetBoxModelBounds(pos, style, params.text, renderer, ToBottomRight,
+                    params.type, {}, context.popupSize.x, context.popupSize.y);
+
+                auto oldy = pos.y;
+                pos.y += (margin.GetHeight() - (style.font.size * 0.6f)) * 0.5f;
+                context.adhocLayout.top().nextpos.y = pos.y;
+
+                auto checkstyle = style;
+                checkstyle.padding = checkstyle.margin = FourSidedMeasure{};
+                // TODO: Add default checkbox styling...
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                    WidgetContextData::StyleStack[idx].push() = checkstyle;
+                auto res = Checkbox(params.check);
+                for (auto idx = 0; idx < WSI_Total; ++idx)
+                    WidgetContextData::StyleStack[idx].pop(1, true);
+
+                auto shiftx = xprefix + 10.f;
+                option.prefix = res.geometry;
+                option.prefixId = res.id;
+
+                context.adhocLayout.top().nextpos.y = pos.y = oldy;
+
+                margin.TranslateX(shiftx); content.TranslateX(shiftx); textrect.TranslateX(shiftx);
+                DrawBackground(margin.Min, margin.Max, style, renderer);
+                DrawText(content.Min, content.Max, textrect, params.text, option.state & WS_Disabled, style, renderer, style.font.flags);
+
+                option.content.Min = { 0.f, margin.Min.y };
+                option.content.Max = margin.Max;
+                option.textrect = margin;
+
+                context.adhocLayout.top().nextpos.y += margin.GetHeight();
+            }
+        }
+
         auto res = EndPopUp();
 
         if (res.event == WidgetEvent::None)
         {
-            for (auto idx = 0; idx < WidgetContextData::ContextMenuOptionIdx; ++idx)
+            for (auto idx = 0; idx < WidgetContextData::ContextMenuOptions.size(); ++idx)
                 if (WidgetContextData::ContextMenuOptions[idx].state & WS_Selected)
                 {
                     res.event = WidgetEvent::Clicked;
@@ -6228,7 +6239,7 @@ namespace glimmer
             if (overlayctx.popupSize.x != FLT_MAX) size.x = overlayctx.popupSize.x;
             if (overlayctx.popupSize.y != FLT_MAX) size.x = overlayctx.popupSize.y;
 
-            if ((origin.y + size.y) > available.y)
+            if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
                 origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
 
             if ((origin.x + size.x) > available.x)
