@@ -167,7 +167,7 @@ namespace glimmer
         LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
         ImRichText::RenderConfig* richTextConfig = nullptr;
 #endif
         int32_t(*GetTotalWidgetCount)(WidgetType) = nullptr;

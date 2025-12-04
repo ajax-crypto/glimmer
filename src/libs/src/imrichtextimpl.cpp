@@ -1,7 +1,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 #include "imrichtextimpl.h"
 #include "imrichtext.h"
 

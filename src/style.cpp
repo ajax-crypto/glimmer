@@ -1427,7 +1427,7 @@ namespace glimmer
         }
     }
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
     void PushTextType(TextType type)
     {
         auto& context = GetContext();

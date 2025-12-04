@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 
 #include <string_view>
 #include <optional>

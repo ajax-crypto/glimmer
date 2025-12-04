@@ -6,15 +6,23 @@
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+
+#ifndef GLIMMER_DISABLE_SVG
 #include <libs/inc/lunasvg/lunasvg.h>
+#endif
+
 #include <style.h>
 
+#ifndef GLIMMER_DISABLE_IMAGES
 #define STB_IMAGE_IMPLEMENTATION
 #include <libs/inc/stb_image/stb_image.h>
+#endif
 
+#ifdef _WIN32
 #undef min
 #undef max
 #undef DrawText
+#endif
 
 // TODO: Test out pluto svg
 /*auto doc = plutosvg_document_load_from_data(buffer, csz, size.x, size.y, nullptr, nullptr);
@@ -481,6 +489,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
     {
+#ifndef GLIMMER_DISABLE_SVG
         Round(pos); Round(size);
 
         constexpr int bufsz = 1 << 13;
@@ -534,10 +543,12 @@ namespace glimmer
                 dl.AddImage(texid, pos, pos + size);
             }
         }
+#endif
     }
 
     void ImGuiRenderer::DrawImage(ImVec2 pos, ImVec2 size, std::string_view file)
     {
+ #ifndef GLIMMER_DISABLE_IMAGES
         Round(pos); Round(size);
 
         auto& dl = *((ImDrawList*)UserData);
@@ -589,6 +600,7 @@ namespace glimmer
                 std::fclose(fptr);
             }
         }
+#endif
     }
 
     void ImGuiRenderer::ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr)

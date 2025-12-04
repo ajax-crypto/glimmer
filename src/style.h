@@ -317,7 +317,7 @@ namespace glimmer
     void PushStyle(int32_t state, std::string_view css);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
     void PushTextType(TextType type);
 	void PopTextType();
 #endif
@@ -332,7 +332,7 @@ namespace glimmer
 
     std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end);
     [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0);

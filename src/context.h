@@ -43,8 +43,8 @@
 #define GLIMMER_MAX_SPLITTER_REGIONS 4
 #endif
 
-#ifndef GLLIMMER_MAX_STYLE_STACKSZ
-#define GLLIMMER_MAX_STYLE_STACKSZ 16
+#ifndef GLIMMER_MAX_STYLE_STACKSZ
+#define GLIMMER_MAX_STYLE_STACKSZ 16
 #endif
 
 #ifndef GLIMMER_MAX_WIDGET_SPECIFIC_STYLES
@@ -86,7 +86,7 @@ namespace glimmer
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
-    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLLIMMER_MAX_STYLE_STACKSZ>;
+    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLIMMER_MAX_STYLE_STACKSZ>;
 	using RegionStackT = DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING>;
 
     struct RendererEventIndexRange

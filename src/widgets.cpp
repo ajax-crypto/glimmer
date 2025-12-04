@@ -10,8 +10,11 @@
 #include "context.h"
 #include "layout.h"
 #include "im_font_manager.h"
-#include "libs/inc/implot/implot.h"
 #include "imrichtext.h"
+
+#ifndef GLIMMER_DISABLE_PLOTS
+#include "libs/inc/implot/implot.h"
+#endif
 
 #include <unordered_map>
 #include <string>
@@ -227,7 +230,7 @@ namespace glimmer
     {
         switch (type)
         {
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
         case glimmer::TextType::RichText: 
         {
             auto id = ImRichText::CreateRichText(text.data(), text.data() + text.size());
@@ -6284,6 +6287,7 @@ namespace glimmer
 
 #pragma endregion
 
+#ifndef GLIMMER_DISABLE_PLOTS
 #pragma region Charts
 
     bool StartPlot(std::string_view str, ImVec2 size, int32_t flags)
@@ -6345,8 +6349,11 @@ namespace glimmer
     }
 
 #pragma endregion
+#endif
 
 #pragma region Public APIs
+
+#ifndef GLIMMER_DISABLE_RICHTEXT
 
     struct RichTextPlatformSupport : public ImRichText::IPlatform
     {
@@ -6359,9 +6366,11 @@ namespace glimmer
         void HandleHover(bool) {}
     };
 
+#endif
+
     UIConfig& GetUIConfig(bool needsRichText)
     {
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
         if (needsRichText && Config.richTextConfig == nullptr)
         {
             ImRichText::DefaultConfigParams rtparams;
@@ -7345,7 +7354,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         int32_t wid = id;
-        wid = wid | (type << 16);
+        wid = wid | (type << WidgetTypeBits);
 
         if (context.InsideFrame)
             context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
@@ -7360,9 +7369,11 @@ namespace glimmer
             case WT_Checkbox: state.state.checkbox.id = wid; break;
             case WT_Spinner: state.state.spinner.id = wid; break;
             case WT_Slider: state.state.slider.id = wid; break;
+            case WT_RangeSlider: state.state.rangeSlider.id = wid; break;
             case WT_TextInput: state.state.input.id = wid; break;
             case WT_DropDown: state.state.dropdown.id = wid; break;
             case WT_ItemGrid: state.state.grid.id = wid; break;
+            default: break;
         }
         return state;
     }
@@ -7397,6 +7408,9 @@ namespace glimmer
             break;
         case glimmer::WT_Slider:
             state.slider.tooltip = tooltip;
+            break;
+        case glimmer::WT_RangeSlider:
+            state.rangeSlider.tooltip = tooltip;
             break;
         case glimmer::WT_Spinner:
             state.spinner.tooltip = tooltip;

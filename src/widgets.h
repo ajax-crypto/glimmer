@@ -172,6 +172,8 @@ namespace glimmer
     void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows);
     WidgetDrawResult EndItemGrid();
 
+#ifndef GLIMMER_DISABLE_PLOTS
     bool StartPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
     WidgetDrawResult EndPlot();
+#endif
 }

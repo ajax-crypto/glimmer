@@ -47,7 +47,7 @@ namespace glimmer
         FLT_Proportional = 1,
         FLT_Monospace = 2,
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 		// These are for rich text specific features
         FLT_HasSmall = 4,
         FLT_HasSuperscript = 8,
@@ -80,7 +80,7 @@ namespace glimmer
         uint64_t flags = FLT_Proportional;
     };
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
     // Get font sizes required from the specified config and flt
     // flt is a bitwise OR of FontLoadType flags
     std::vector<float> GetFontSizes(const RenderConfig& config, uint64_t flt);

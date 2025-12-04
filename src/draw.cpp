@@ -406,7 +406,7 @@ namespace glimmer
 
             renderer.ResetFont();
         }
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
         else if (flags & TextIsRichText)
         {
             auto id = ImRichText::CreateRichText(text.data(), text.data() + text.size());

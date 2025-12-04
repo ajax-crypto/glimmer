@@ -1,5 +1,5 @@
 #pragma once
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 #include "imrichtextutils.h"
 
 namespace ImRichText

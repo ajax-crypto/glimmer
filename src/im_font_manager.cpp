@@ -476,7 +476,7 @@ namespace glimmer
         return true;
     }
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
     std::vector<float> GetFontSizes(const ImRichText::RenderConfig& config, uint64_t flt)
     {
         std::vector<float> sizes;
@@ -506,7 +506,7 @@ namespace glimmer
         {
             auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
             if (needRichText)
             {
                 auto sizes = GetFontSizes(*Config.richTextConfig, descriptors[idx].flags);

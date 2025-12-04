@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef GLIMMER_ENABLE_RICH_TEXT
+#ifndef GLIMMER_DISABLE_RICHTEXT
 
 #ifdef IM_RICHTEXT_TARGET_IMGUI
 #include "imgui.h"
