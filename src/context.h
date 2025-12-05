@@ -554,9 +554,8 @@ namespace glimmer
         int16_t from = -1, to = -1, itemidx = -1;
         int16_t styleStartIdx[WSI_Total];
         int16_t currow = -1, currcol = -1;
-        int32_t NextEnabledStyles = 0;
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
-        ImRect available;
+        ImRect available; // Available space in the direction of layout in current window
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f }, startpos{};
         ImVec2 spacing{ 0.f, 0.f };
         ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
@@ -565,7 +564,6 @@ namespace glimmer
         Vector<ImVec2, int16_t> rows;
         Vector<ImVec2, int16_t> cols;
         Vector<int16_t, int16_t> griditems{ false };
-        //Vector<RegionBuilder, int16_t> regions{ false };
         std::pair<int, int> gridsz;
         std::pair<int16_t, int16_t> currspan{ 1, 1 };
         ItemGridPopulateMethod gpmethod = ItemGridPopulateMethod::ByRows;
@@ -576,7 +574,7 @@ namespace glimmer
 		void* implData = nullptr;
         bool popSizingOnEnd = false;
 
-        Vector<std::pair<int64_t, LayoutOps>, int16_t> itemIndexes;
+        Vector<std::pair<int32_t, LayoutOps>, int16_t> itemIndexes;
         FixedSizeStack<int32_t, 16> containerStack;
         TabBarBuilder tabbar;
 

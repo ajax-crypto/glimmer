@@ -71,7 +71,6 @@ namespace glimmer
         alignment = TextAlignLeading;
         from = -1, to = -1, itemidx = -1;
         currow = -1, currcol = -1;
-        NextEnabledStyles = 0;
         geometry = ImRect{ { FIT_SZ, FIT_SZ },{ FIT_SZ, FIT_SZ } };
         available = ImRect{ };
         nextpos = ImVec2{ 0.f, 0.f };
