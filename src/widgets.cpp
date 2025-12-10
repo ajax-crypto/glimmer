@@ -302,7 +302,8 @@ namespace glimmer
         int32_t res = 0;
         if (resflags & RT_SVG)
             res = (resflags & RT_PATH) ? TextIsSVGFile : TextIsSVG;
-        if (resflags & RT_IMG)
+        if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+            (resflags & RT_GENERIC_IMG))
             res = TextIsImgPath;
         return res;
     }
@@ -1558,14 +1559,7 @@ namespace glimmer
 
                 if (!params.prefix.empty() && params.rt != RT_INVALID)
                 {
-                    switch (params.rt)
-                    {
-                    case RT_SVG | RT_PATH: renderer.DrawSVG(pos, prefixsz, style.fgcolor, params.prefix, true); break;
-                    case RT_SVG: renderer.DrawSVG(pos, prefixsz, style.fgcolor, params.prefix, false); break;
-                    case RT_IMG: renderer.DrawImage(pos, prefixsz, params.prefix); break;
-                    default: break;
-                    }
-
+                    renderer.DrawResource(params.rt, pos, prefixsz, style.fgcolor, params.prefix);
                     pos.x += prefixsz.x + 10.f;
                 }
                 else if (params.icon != SymbolIcon::None)
@@ -3927,38 +3921,27 @@ namespace glimmer
         DrawBackground(rect.Min, rect.Max, style, renderer);
         DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
 
-        if (!currentTab.items[tabidx].icon.empty())
+        auto& currtab = currentTab.items[tabidx];
+        if (!currtab.icon.empty())
         {
-            switch (currentTab.items[tabidx].iconType)
-            {
-            case RT_IMG:
-                renderer.DrawImage(tab.icon.Min, tab.icon.GetSize(), currentTab.items[tabidx].icon);
-                break;
-            case RT_PATH:
-                renderer.DrawSVG(tab.icon.Min, tab.icon.GetSize(), style.fgcolor, currentTab.items[tabidx].icon, true);
-                break;
-            case RT_SVG:
-                renderer.DrawSVG(tab.icon.Min, tab.icon.GetSize(), style.fgcolor, currentTab.items[tabidx].icon, false);
-                break;
-            default: break;
-            }
+            renderer.DrawResource(currtab.iconType, tab.icon.Min, tab.icon.GetSize(), style.fgcolor, currtab.icon);
         }
 
-        if (currentTab.items[tabidx].nameType == TextType::SVG)
-            renderer.DrawSVG(tab.text.Min, tab.text.GetSize(), style.fgcolor, currentTab.items[tabidx].name, false);
+        if (currtab.nameType == TextType::SVG)
+            renderer.DrawResource(RT_SVG, tab.text.Min, tab.text.GetSize(), style.fgcolor, currtab.name);
         else
         {
             auto startpos = tab.text.Min, endpos = tab.extent.Max;
-            if (currentTab.items[tabidx].itemflags & TI_Pinnable)
+            if (currtab.itemflags & TI_Pinnable)
                 endpos.x = tab.pin.Min.x - config.btnspacing;
-            else if (currentTab.items[tabidx].itemflags & TI_Closeable)
+            else if (currtab.itemflags & TI_Closeable)
                 endpos.x = tab.close.Min.x - config.btnspacing;
-            DrawText(startpos, endpos, tab.text, currentTab.items[tabidx].name, flag & WS_Disabled,
+            DrawText(startpos, endpos, tab.text, currtab.name, flag & WS_Disabled,
                 style, renderer);
         }
 
         if (tab.pinned || (((tabidx == state.current) || (tabidx == state.hovered)) &&
-            currentTab.items[tabidx].itemflags & TI_Pinnable))
+            currtab.itemflags & TI_Pinnable))
         {
             if (config.circularButtons)
             {
@@ -3975,7 +3958,7 @@ namespace glimmer
                 specificStyle.pincolor, specificStyle.pinbgcolor, 2.f, renderer);
         }
 
-        if ((currentTab.items[tabidx].itemflags & TI_Closeable) && ((tabidx == state.current) ||
+        if ((currtab.itemflags & TI_Closeable) && ((tabidx == state.current) ||
             (tabidx == state.hovered)))
         {
             if (config.circularButtons)
@@ -4103,7 +4086,7 @@ namespace glimmer
         item.tooltip = tooltip;
     }
 
-    void AddTab(ResourceType type, std::string_view icon, TextType extype, std::string_view text, int32_t flags, ImVec2 iconsz)
+    void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags, ImVec2 iconsz)
     {
         auto& context = GetContext();
         auto& tab = context.layoutStack.empty() ? context.currentTab : 
@@ -4112,7 +4095,7 @@ namespace glimmer
         item.name = text;
         item.nameType = extype;
         item.icon = icon;
-        item.iconType = type;
+        item.iconType = resflags;
         item.itemflags = flags;
         item.iconsz = iconsz;
     }
@@ -4182,22 +4165,20 @@ namespace glimmer
         return true;
     }
 
-    void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath)
+    void AddAccordionHeaderExpandedIcon(int32_t resflags, std::string_view res)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         accordion.icon[0] = res;
-        accordion.svgOrImage[0] = svgOrImage;
-        accordion.isPath[0] = isPath;
+        accordion.resflags[0] = resflags;
     }
 
-    void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath)
+    void AddAccordionHeaderCollapsedIcon(int32_t resflags, std::string_view res)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         accordion.icon[1] = res;
-        accordion.svgOrImage[1] = svgOrImage;
-        accordion.isPath[1] = isPath;
+        accordion.resflags[1] = resflags;
     }
 
     void AddAccordionHeaderText(std::string_view content, TextType textType)
@@ -4265,9 +4246,8 @@ namespace glimmer
         nextpos.x += 0.25f * accordion.headerHeight;
         if (!accordion.icon[iconidx].empty())
         {
-            accordion.svgOrImage[iconidx] ? renderer.DrawSVG(nextpos, { iconsz, iconsz }, style.fgcolor,
-                accordion.icon[iconidx], accordion.isPath[iconidx]) :
-                renderer.DrawImage(nextpos, { iconsz, iconsz }, accordion.icon[iconidx]);
+            renderer.DrawResource(accordion.resflags[iconidx], nextpos, { iconsz, iconsz }, style.fgcolor,
+                accordion.icon[iconidx]);
         }
         else
             DrawSymbol(nextpos, { iconsz, iconsz }, {}, expanded ? SymbolIcon::DownTriangle : SymbolIcon::RightTriangle,
@@ -6808,6 +6788,73 @@ namespace glimmer
         result.id = wid;
         PreviousWidget = wid;
         return result;
+    }
+
+    static ImVec2 GetIconSize(IconSizingType sztype)
+    {
+        ImVec2 size;
+        auto& context = GetContext();
+        auto style = context.GetStyle(WS_Default);
+
+        switch (sztype)
+        {
+        case IconSizingType::Fixed:
+            size = style.dimension;
+            break;
+        case IconSizingType::CurrentFontSz:
+            size = ImVec2{ style.font.size, style.font.size };
+            break;
+        case IconSizingType::DefaultFontSz:
+            size = ImVec2{ Config.defaultFontSz, Config.defaultFontSz };
+            break;
+        }
+
+        return size;
+    }
+
+    static void IconImpl()
+    {
+
+    }
+
+#if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_ICONS)
+
+    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry)
+    {
+        ImVec2 size = GetIconSize(sztype);
+        auto& context = GetContext();
+		auto pos = !context.layoutStack.empty() ? 
+            context.layouts[context.layoutStack.top()].nextpos : context.NextAdHocPos();
+        auto style = context.GetStyle(WS_Default);
+        WidgetDrawResult res;
+
+        if (geometry & ToTop) pos.y = pos.y - size.y;
+		if (geometry & ToLeft) pos.x = pos.x - size.x;
+
+        context.GetRenderer().DrawResource(rtype, pos, size, style.fgcolor, resource);
+        res.geometry.Min = pos;
+        res.geometry.Max = pos + size;
+        return res;
+    }
+    
+#endif
+
+    WidgetDrawResult Icon(SymbolIcon icon, IconSizingType sztype, int32_t geometry)
+    {
+        ImVec2 size = GetIconSize(sztype);
+        auto& context = GetContext();
+        auto pos = !context.layoutStack.empty() ?
+            context.layouts[context.layoutStack.top()].nextpos : context.NextAdHocPos();
+        auto style = context.GetStyle(WS_Default);
+        WidgetDrawResult res;
+
+        if (geometry & ToTop) pos.y = pos.y - size.y;
+        if (geometry & ToLeft) pos.x = pos.x - size.x;
+
+        DrawSymbol(pos, size, { 0.f, 0.f }, icon, style.fgcolor, style.fgcolor, 1.f, context.GetRenderer());
+        res.geometry.Min = pos;
+        res.geometry.Max = pos + size;
+        return res;
     }
 
     ImRect BeginFlexLayoutRegion(Direction dir, int32_t geometry, bool wrap,

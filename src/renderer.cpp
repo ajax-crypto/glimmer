@@ -1,8 +1,13 @@
 #include "renderer.h"
 #include "context.h"
+#include "draw.h"
 
 #include <cstdio>
 #include <charconv>
+
+#ifndef GLIMMER_DISABLE_GIF
+#include <chrono>
+#endif
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -97,23 +102,36 @@ namespace glimmer
         bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override;
         void EndOverlay() override;
 
-        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) override;
-        void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) override;
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override;
 
     private:
 
         void ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr);
+
+        void RecordImage(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz);
+        void RecordGif(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz);
 
         struct ImageLookupKey
         {
             ImVec2 size;
             uint32_t color;
             std::string data;
-            bool isFile;
+        };
+
+        struct GifLookupKey
+        {
+            int32_t currframe = 0;
+            int32_t totalframe = 0;
+            long long lastTime = 0;
+            ImVec2 size;
+            int* delays = nullptr;
+            stbi_uc* frames = nullptr;
+            std::string data;
         };
 
         float _currentFontSz = 0.f;
         std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
+        std::vector<std::pair<GifLookupKey, std::vector<ImTextureID>>> gifframes;
         ImDrawList* prevlist = nullptr;
     };
 
@@ -487,120 +505,195 @@ namespace glimmer
         prevlist = nullptr;
     }
 
-    void ImGuiRenderer::DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
+    bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content)
     {
-#ifndef GLIMMER_DISABLE_SVG
-        Round(pos); Round(size);
+        auto fromFile = (resflags & RT_PATH) != 0;
 
-        constexpr int bufsz = 1 << 13;
-        static char buffer[bufsz] = { 0 };
-
-        auto& dl = *((ImDrawList*)UserData);
-        bool found = false;
-
-        for (const auto& [key, texid] : bitmaps)
+        if (resflags & RT_SYMBOL)
         {
-            if (key.size == size && key.color == color && key.isFile == fromFile && key.data == content)
-            {
-                found = true;
-                dl.AddImage(texid, pos, pos + size);
-                break;
-            }
+            Round(pos); Round(size);
+            auto icon = GetSymbolIcon(content);
+            DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
         }
-
-        if (!found)
+        else if (resflags & RT_SVG)
         {
-            int csz = fromFile ? 0 : (int)content.size();
+#ifndef GLIMMER_DISABLE_SVG
+            Round(pos); Round(size);
 
-            if (fromFile)
+            constexpr int bufsz = 1 << 13;
+            static char buffer[bufsz] = { 0 };
+
+            auto& dl = *((ImDrawList*)UserData);
+            bool found = false;
+
+            for (const auto& [key, texid] : bitmaps)
             {
-#ifdef _WIN32
-                FILE* fptr = nullptr;
-                fopen_s(&fptr, content.data(), "r");
-#else
-                auto fptr = std::fopen(content.data(), "r");
-#endif
-                
-                if (fptr != nullptr)
+                if (key.data == content)
                 {
-                    csz = (int)std::fread(buffer, 1, bufsz - 1, fptr);
-                    std::fclose(fptr);
+                    found = true;
+                    dl.AddImage(texid, pos, pos + size);
+                    break;
                 }
             }
-            else
-                memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
 
-            if (csz > 0)
+            if (!found)
             {
-                auto& entry = bitmaps.emplace_back();
-                entry.first = ImageLookupKey{ size, color, std::string{ content.data(), content.size() }, fromFile };
-                auto document = lunasvg::Document::loadFromData(buffer);
-                auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
-                bitmap.convertToRGBA();
-                auto pixels = bitmap.data();
-                auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
-                entry.second = texid;
-                dl.AddImage(texid, pos, pos + size);
-            }
-        }
-#endif
-    }
+                int csz = fromFile ? 0 : (int)content.size();
 
-    void ImGuiRenderer::DrawImage(ImVec2 pos, ImVec2 size, std::string_view file)
-    {
- #ifndef GLIMMER_DISABLE_IMAGES
-        Round(pos); Round(size);
-
-        auto& dl = *((ImDrawList*)UserData);
-        bool found = false;
-
-        for (const auto& [key, texid] : bitmaps)
-        {
-            if (key.size == size && key.data == file)
-            {
-                found = true;
-                dl.AddImage(texid, pos, pos + size);
-                break;
-            }
-        }
-
-        if (!found)
-        {
-#ifdef _WIN32
-            FILE* fptr = nullptr;
-            fopen_s(&fptr, file.data(), "r");
-#else
-            auto fptr = std::fopen(file.data(), "r");
-#endif
-            
-            if (fptr != nullptr)
-            {
-                std::fseek(fptr, 0, SEEK_END);
-                auto bufsz = (int)std::ftell(fptr);
-                std::fseek(fptr, 0, SEEK_SET);
-
-                if (bufsz > 0)
+                if (fromFile)
                 {
-                    auto buffer = (char*)malloc(bufsz + 1);
-                    assert(buffer != nullptr);
-                    auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
+#ifdef _WIN32
+                    FILE* fptr = nullptr;
+                    fopen_s(&fptr, content.data(), "r");
+#else
+                    auto fptr = std::fopen(content.data(), "r");
+#endif
 
+                    if (fptr != nullptr)
+                    {
+                        csz = (int)std::fread(buffer, 1, bufsz - 1, fptr);
+                        std::fclose(fptr);
+                    }
+                }
+                else
+                    memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
+
+                if (csz > 0)
+                {
                     auto& entry = bitmaps.emplace_back();
-                    entry.first.data.assign(file.data(), file.size());
-                    entry.first.size = size;
-
-                    int width = 0, height = 0;
-                    auto pixels = stbi_load_from_memory((const unsigned char*)buffer, csz, &width, &height, NULL, 4);
+                    entry.first = ImageLookupKey{ size, color, std::string{ content.data(), content.size() } };
+                    auto document = lunasvg::Document::loadFromData(buffer);
+                    auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
+                    bitmap.convertToRGBA();
+                    auto pixels = bitmap.data();
                     auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
                     entry.second = texid;
                     dl.AddImage(texid, pos, pos + size);
-                    std::free(buffer);
                 }
-
-                std::fclose(fptr);
             }
-        }
+#else
+            assert(false); // Unsupported
 #endif
+        }
+        else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) || 
+            (resflags & RT_GENERIC_IMG))
+        {
+#ifndef GLIMMER_DISABLE_IMAGES
+            Round(pos); Round(size);
+
+            auto& dl = *((ImDrawList*)UserData);
+            bool found = false;
+
+            for (const auto& [key, texid] : bitmaps)
+            {
+                if (key.data == content)
+                {
+                    found = true;
+                    dl.AddImage(texid, pos, pos + size);
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                if (resflags & RT_PATH)
+                {
+#ifdef _WIN32
+                    FILE* fptr = nullptr;
+                    fopen_s(&fptr, content.data(), "r");
+#else
+                    auto fptr = std::fopen(file.data(), "r");
+#endif
+
+                    if (fptr != nullptr)
+                    {
+                        std::fseek(fptr, 0, SEEK_END);
+                        auto bufsz = (int)std::ftell(fptr);
+                        std::fseek(fptr, 0, SEEK_SET);
+
+                        if (bufsz > 0)
+                        {
+                            auto buffer = (char*)malloc(bufsz + 1);
+                            assert(buffer != nullptr);
+                            auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
+                            std::fclose(fptr);
+                            RecordImage(pos, size, (stbi_uc*)buffer, bufsz);
+                            std::free(buffer);
+                        }
+                    }
+                }
+                else if (resflags & RT_BIN)
+                    RecordImage(pos, size, (stbi_uc*)content.data(), (int)content.size());
+            }
+#else
+            assert(false); // Unsupported
+#endif
+        }
+        else if (resflags & RT_GIF)
+        {
+#ifndef GLIMMER_DISABLE_GIF
+            using namespace std::chrono;
+            Round(pos); Round(size);
+
+            auto& dl = *((ImDrawList*)UserData);
+            bool found = false;
+
+            for (auto& [key, texid] : gifframes)
+            {
+                if (key.data == content)
+                {
+                    found = true;
+                    auto currts = system_clock::now().time_since_epoch();
+                    auto ms = duration_cast<milliseconds>(currts).count();
+                    if (key.delays[key.currframe] <= (ms - key.lastTime))
+                    {
+                        key.currframe = (key.currframe + 1) % key.totalframe;
+                        key.lastTime = ms;
+                    }
+
+                    dl.AddImage(texid[key.currframe], pos, pos + size);
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                if (resflags & RT_PATH)
+                {
+#ifdef _WIN32
+                    FILE* fptr = nullptr;
+                    fopen_s(&fptr, content.data(), "r");
+#else
+                    auto fptr = std::fopen(file.data(), "r");
+#endif
+
+                    if (fptr != nullptr)
+                    {
+                        std::fseek(fptr, 0, SEEK_END);
+                        auto bufsz = (int)std::ftell(fptr);
+                        std::fseek(fptr, 0, SEEK_SET);
+
+                        if (bufsz > 0)
+                        {
+                            auto buffer = (char*)malloc(bufsz + 1);
+                            assert(buffer != nullptr);
+                            auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
+                            std::fclose(fptr);
+                            RecordGif(pos, size, (stbi_uc*)buffer, bufsz);
+                            std::free(buffer);
+                        }
+                    }
+                }
+                else if (resflags & RT_BIN)
+                    RecordGif(pos, size, (stbi_uc*)content.data(), (int)content.size());
+            }
+#else
+            assert(false); // Unsupported
+#endif
+        }
+
+        // TODO: return correct status
+        return true;
     }
 
     void ImGuiRenderer::ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr)
@@ -624,6 +717,59 @@ namespace glimmer
         if (bottomleftr > 0.f) dl.PathArcToFast(ImVec2{ startpos.x + bottomleftr, endpos.y - bottomleftr }, bottomleftr, 3, 6);
     }
 
+    void ImGuiRenderer::RecordImage(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz)
+    {
+        auto& dl = *((ImDrawList*)UserData);
+        int width = 0, height = 0;
+        auto pixels = stbi_load_from_memory(data, bufsz, &width, &height, NULL, 4);
+
+        if (pixels != nullptr && width > 0 && height > 0)
+        {
+            auto& entry = bitmaps.emplace_back();
+            entry.first.data.assign((char*)data, bufsz);
+            entry.first.size = ImVec2{ (float)width, (float)height };
+
+            auto texid = Config.platform->UploadTexturesToGPU(entry.first.size, pixels);
+            entry.second = texid;
+            dl.AddImage(texid, pos, pos + size);
+        }
+        else
+            fprintf(stderr, "Image provided is not valid...\n");
+
+        stbi_image_free(pixels);
+    }
+
+    void ImGuiRenderer::RecordGif(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz)
+    {
+        using namespace std::chrono;
+
+        auto& dl = *((ImDrawList*)UserData);
+        int width, height, frames, channels;
+        int* delays = nullptr;
+        auto pixels = stbi_load_gif_from_memory(data, bufsz, &delays, &width, &height, &frames, &channels, 4);
+
+        if (pixels != nullptr && width > 0 && height > 0)
+        {
+            auto& entry = gifframes.emplace_back();
+            entry.first.data.assign((char*)data, bufsz);
+            entry.first.totalframe = frames;
+            entry.first.frames = pixels;
+            entry.first.delays = delays;
+            entry.first.lastTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            entry.first.size = ImVec2{ (float)width, (float)height };
+            entry.second.reserve(frames);
+
+            for (auto fidx = 0; fidx < frames; ++fidx)
+            {
+                auto texid = Config.platform->UploadTexturesToGPU(entry.first.size, pixels);
+                entry.second.emplace_back(texid);
+                pixels += (width * height * 4);
+            }
+
+            dl.AddImage(entry.second.front(), pos, pos + size);
+        }
+    }
+
     float IRenderer::EllipsisWidth(void* fontptr, float sz)
     {
         return GetTextSize("...", fontptr, sz).x;
@@ -638,7 +784,7 @@ namespace glimmer
         Line, Triangle, Rectangle, RoundedRectangle, Circle, Sector,
         RectGradient, RoundedRectGradient,
         Text, Tooltip,
-        SVG, Image,
+        Resource,
         PushClippingRect, PopClippingRect,
         PushFont, PopFont
     };
@@ -724,13 +870,13 @@ namespace glimmer
             void* fontptr;
             float size;
         } font;
-
+          
         struct {
+            int32_t resflags;
             ImVec2 pos, size;
             uint32_t color;
             std::string_view content;
-            bool isFile;
-        } svg;
+        } resource;
 
         DrawParams() {}
     };
@@ -810,8 +956,9 @@ namespace glimmer
                     renderer.DrawTooltip(entry.second.tooltip.pos + offset, entry.second.tooltip.text);
                     break;
 
-                case DrawingOps::SVG:
-                    renderer.DrawSVG(entry.second.svg.pos, entry.second.svg.size, entry.second.svg.color, entry.second.svg.content, entry.second.svg.isFile);
+                case DrawingOps::Resource:
+                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos, 
+                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content);
                     break;
 
                 case DrawingOps::PushClippingRect:
@@ -961,10 +1108,11 @@ namespace glimmer
             ::new (&val.second.tooltip.text) std::string_view{ text };
         }
 
-        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile)
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::SVG;
-            val.second.svg = { pos, size, color, content, fromFile };
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Resource;
+            val.second.resource = { resflags, pos, size, color, content };
+            return true;
         }
     };
 
@@ -1825,38 +1973,45 @@ namespace glimmer
         bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override { return true; }
         void EndOverlay() override {}
 
-        void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view svgContentToEmbed, bool fromFile) override
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override
         {
-            if (fromFile) 
+            auto fromFile = (resflags & RT_PATH) != 0;
+
+            if (resflags & RT_SVG)
             {
-                int written = snprintf(scratchBuffer, scratchBufferSize, "  \n", (int)svgContentToEmbed.length(), svgContentToEmbed.data());
-                if (written > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
-                return;
+                if (fromFile)
+                {
+                    int written = snprintf(scratchBuffer, scratchBufferSize, "  \n", (int)content.length(), content.data());
+                    if (written > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+                    return;
+                }
+                if (content.empty()) return;
+
+                int writtenOpen = snprintf(scratchBuffer, scratchBufferSize,
+                    "  <svg x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\">\n",
+                    pos.x, pos.y, size.x, size.y);
+                if (writtenOpen > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, writtenOpen);
+
+                appendStringViewToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, content);
+                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "\n  </svg>\n", strlen("\n  </svg>\n"));
             }
-            if (svgContentToEmbed.empty()) return;
-
-            int writtenOpen = snprintf(scratchBuffer, scratchBufferSize,
-                "  <svg x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\">\n",
-                pos.x, pos.y, size.x, size.y);
-            if (writtenOpen > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, writtenOpen);
-
-            appendStringViewToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, svgContentToEmbed);
-            appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, "\n  </svg>\n", strlen("\n  </svg>\n"));
-        }
-
-        void DrawImage(ImVec2 pos, ImVec2 size, std::string_view filePathOrDataUri) override
-        {
-            if (size.x <= 0.001f || size.y <= 0.001f || filePathOrDataUri.empty()) return;
-            size.x = std::max(0.0f, size.x); size.y = std::max(0.0f, size.y);
-
-            int written = snprintf(scratchBuffer, scratchBufferSize,
-                "  <image x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" xlink:href=\"%.*s\" />\n",
-                pos.x, pos.y, size.x, size.y,
-                (int)filePathOrDataUri.length(), filePathOrDataUri.data());
-            if (written > 0) 
+            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                (resflags & RT_GENERIC_IMG))
             {
-                appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+                if (size.x <= 0.001f || size.y <= 0.001f || content.empty()) return;
+                size.x = std::max(0.0f, size.x); size.y = std::max(0.0f, size.y);
+
+                int written = snprintf(scratchBuffer, scratchBufferSize,
+                    "  <image x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" xlink:href=\"%.*s\" />\n",
+                    pos.x, pos.y, size.x, size.y,
+                    (int)content.length(), content.data());
+                if (written > 0)
+                {
+                    appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
+                }
             }
+
+            return true;
         }
     };
 

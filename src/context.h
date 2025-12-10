@@ -407,7 +407,7 @@ namespace glimmer
     {
         std::string_view name, tooltip, icon;
         TextType nameType = TextType::PlainText;
-        ResourceType iconType = ResourceType::RT_SVG;
+        int32_t iconType = ResourceType::RT_SVG;
         int32_t itemflags = 0;
         ImVec2 iconsz{};
     };
@@ -491,8 +491,7 @@ namespace glimmer
         FourSidedMeasure spacing;
         uint32_t bgcolor;
         TextType textType = TextType::PlainText;
-        bool svgOrImage[2] = { false, false };
-        bool isPath[2] = { false, false };
+        bool resflags[2] = { RT_SYMBOL, RT_SYMBOL };
         bool hscroll = false, vscroll = false;
 
         AccordionBuilder() {}
@@ -794,7 +793,8 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
-            Vector<ImRect, int16_t>{ true } 
+            Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true }
         };
         Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
             Vector<ImVec2, int16_t>{ true },
@@ -807,6 +807,7 @@ namespace glimmer
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ false },
+            Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },

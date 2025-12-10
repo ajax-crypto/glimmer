@@ -125,6 +125,7 @@ namespace glimmer
         WT_TabBar,
         WT_ItemGrid,
         WT_Charts,
+        WT_Icon,
         WT_TotalTypes,
 
         WT_ContextMenu = WT_TotalTypes,
@@ -222,7 +223,14 @@ namespace glimmer
 
     enum ResourceType
     {
-        RT_INVALID = 0, RT_IMG = 1, RT_PATH = 2, RT_SVG = 4,
+        RT_INVALID = 0, 
+        RT_SYMBOL = 1, RT_PNG = 2, RT_SVG = 4, RT_JPG = 8, RT_GIF = 16,
+        RT_BMP = 32, RT_PSD = 64,
+
+        RT_GENERIC_IMG = 1 << 16,
+		RT_PATH = 1 << 17, // treat resource as file path
+		RT_BASE64 = 1 << 18, // treat resource as base64 encoded data
+		RT_BIN = 1 << 19 // treat resource as raw binary data (For SVG, it is markup)
     };
 
     struct RegionState : public CommonWidgetData

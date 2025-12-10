@@ -157,7 +157,7 @@ namespace glimmer
         regions.clear(true);
         border = FourSidedBorder{};
         bgcolor = 0;
-        svgOrImage[0] = svgOrImage[1] = isPath[0] = isPath[1] = false;
+        resflags[0] = resflags[1] = RT_INVALID;
         hscroll = vscroll = false;
     }
 

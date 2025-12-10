@@ -3,6 +3,8 @@
 #include "style.h"
 #include "imrichtext.h"
 
+#include <unordered_map>
+
 auto HomeIconSVG = R"(
 <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
   <path fill-rule="evenodd" d="M11.293 3.293a1 1 0 0 1 1.414 0l6 6 2 2a1 1 0 0 1-1.414 1.414L19 12.414V19a2 2 0 0 1-2 2h-3a1 1 0 0 1-1-1v-3h-2v3a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2v-6.586l-.293.293a1 1 0 0 1-1.414-1.414l2-2 6-6Z" clip-rule="evenodd"/>
@@ -355,7 +357,7 @@ namespace glimmer
             auto sz = content.GetSize();
             sz.x = std::min(sz.x, sz.y);
             sz.y = sz.x;
-            renderer.DrawSVG(content.Min, sz, style.bgcolor, text, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, content.Min, sz, style.bgcolor, text);
         }
         else if (flags & TextIsPlainText)
         {
@@ -501,56 +503,84 @@ namespace glimmer
         }
         case SymbolIcon::Home:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, HomeIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, HomeIconSVG);
             break;
         }
         case SymbolIcon::Browse:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, BrowseIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, BrowseIconSVG);
             break;
         }
         case SymbolIcon::Search:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, SearchIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SearchIconSVG);
             break;
         }
         case SymbolIcon::Gears:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, GearsIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, GearsIconSVG);
             break;
         }
         case SymbolIcon::Spanner:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, SpannerIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SpannerIconSVG);
             break;
         }
         case SymbolIcon::Copy:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, FileCopyIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, FileCopyIconSVG);
             break;
         }
         case SymbolIcon::Pin:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, PinIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, PinIconSVG);
             break;
         }
         case SymbolIcon::Warning:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, WarningIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, WarningIconSVG);
             break;
         }
         case SymbolIcon::Error:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, ErrorIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, ErrorIconSVG);
             break;
         }
         case SymbolIcon::Info:
         {
-            renderer.DrawSVG(startpos, size, outlineColor, InfoIconSVG, false);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, InfoIconSVG);
             break;
         }
         default:
             break;
         }
+    }
+
+    SymbolIcon GetSymbolIcon(std::string_view name)
+    {
+        static const std::unordered_map<std::string_view, SymbolIcon> IconLookup{
+            { "arrow-down", SymbolIcon::DownArrow },
+            { "arrow-up", SymbolIcon::UpArrow },
+            { "triangle-down", SymbolIcon::DownTriangle },
+            { "triangle-up", SymbolIcon::UpTriangle },
+            { "triangle-left", SymbolIcon::LeftTriangle },
+            { "triangle-right", SymbolIcon::RightTriangle },
+            { "plus", SymbolIcon::Plus },
+            { "minus", SymbolIcon::Minus },
+            { "cross", SymbolIcon::Cross },
+            { "home", SymbolIcon::Home },
+            { "browse", SymbolIcon::Browse },
+            { "search", SymbolIcon::Search },
+            { "gears", SymbolIcon::Gears },
+            { "spanner", SymbolIcon::Spanner },
+            { "copy", SymbolIcon::Copy },
+            { "pin", SymbolIcon::Pin },
+            { "warning", SymbolIcon::Warning },
+            { "error", SymbolIcon::Error },
+            { "info", SymbolIcon::Info }
+        };
+
+        auto it = IconLookup.find(name);
+        return it == IconLookup.end() ? SymbolIcon::None : it->second;
     }
 }

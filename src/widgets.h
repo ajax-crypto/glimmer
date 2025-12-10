@@ -4,41 +4,6 @@
 namespace glimmer
 {
     UIConfig& GetUIConfig(bool needRichText);
-
-    /*struct WidgetBuilder
-    {
-        WidgetBuilder& Style(const std::initializer_list<std::pair<int32_t, std::string_view>>& css);
-        WidgetBuilder& Style(int32_t state, std::string_view& css);
-        WidgetBuilder& Content(std::string_view content);
-        WidgetBuilder& Placeholder(std::string_view content);
-        WidgetBuilder& Options(bool(*options)(int32_t));
-        WidgetBuilder& Options(const std::initializer_list<std::string_view>& options);
-        WidgetBuilder& Range(const std::pair<int32_t, int32_t>& range);
-        WidgetBuilder& Range(const std::pair<float, float>& range);
-        WidgetBuilder& Range(const std::pair<double, double>& range);
-        WidgetBuilder& Rows(std::string_view(*cell)(int32_t, int16_t), int32_t totalRows);
-        WidgetBuilder& Headers(const std::initializer_list<std::string_view>& headers);
-        WidgetBuilder& Tooltip(std::string_view tooltip);
-        WidgetBuilder& Geometry(int32_t geometry);
-        WidgetBuilder& BoundBy(const NeighborWidgets& neighbors);
-        WidgetBuilder& Sync(bool* state);
-        WidgetBuilder& Sync(CheckState* state);
-        WidgetBuilder& Sync(int32_t* state);
-        WidgetBuilder& Sync(float* state);
-        WidgetBuilder& Sync(double* state);
-        WidgetBuilder& Sync(char* out, int bufsz);
-
-        template <size_t sz>
-        WidgetBuilder& Sync(char (&out)[sz])
-        {
-            return Sync(out, sz);
-        }
-
-        WidgetDrawResult Done();
-    };
-
-    WidgetBuilder& Widget(WidgetType wt, std::string_view id);*/
-
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 
@@ -48,7 +13,10 @@ namespace glimmer
     void SetPrevTooltip(std::string_view tooltip);
     void SetNextTooltip(std::string_view tooltip);
 
-	WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+#if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_IMAGES)
+	WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight);
+#endif
+    WidgetDrawResult Icon(SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight);
 
     void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets & neighbors = NeighborWidgets{});
     void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -150,13 +118,13 @@ namespace glimmer
 
     bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
-    void AddTab(ResourceType type, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
+    void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
 
     bool StartAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool StartAccordionHeader();
-    void AddAccordionHeaderExpandedIcon(std::string_view res, bool svgOrImage, bool isPath);
-    void AddAccordionHeaderCollapsedIcon(std::string_view res, bool svgOrImage, bool isPath);
+    void AddAccordionHeaderExpandedIcon(int32_t resflags, std::string_view res);
+    void AddAccordionHeaderCollapsedIcon(int32_t resflags, std::string_view res);
     void AddAccordionHeaderText(std::string_view content, TextType textType = TextType::PlainText);
     void EndAccordionHeader(std::optional<bool> expanded = std::nullopt);
     bool StartAccordionContent(float height = FLT_MAX, int32_t scrollflags = 0, ImVec2 maxsz = { FLT_MAX, FLT_MAX });

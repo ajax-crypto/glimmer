@@ -42,8 +42,7 @@ namespace glimmer
         virtual bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) { return true; }
         virtual void EndOverlay() {}
 
-        virtual void DrawSVG(ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, bool fromFile) {}
-        virtual void DrawImage(ImVec2 pos, ImVec2 size, std::string_view file) {}
+        virtual bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) {}
 
         virtual void Render(IRenderer& renderer, ImVec2 offset, int from = 0, int to = -1) {}
         virtual int TotalEnqueued() const { return 0; }

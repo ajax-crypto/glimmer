@@ -20,6 +20,7 @@ namespace glimmer
     void DrawText(ImVec2 startpos, ImVec2 endpos, const ImRect& textrect, std::string_view text, bool disabled,
         const StyleDescriptor& style, IRenderer& renderer, std::optional<int32_t> txtflags = std::nullopt);
     void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, uint32_t fillColor, float thickness, IRenderer& renderer);
+    SymbolIcon GetSymbolIcon(std::string_view name);
 
     template <typename ItrT>
     void DrawLinearGradient(ImVec2 initpos, ImVec2 endpos, float angle, ImGuiDir dir,
