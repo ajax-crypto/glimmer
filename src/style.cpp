@@ -1151,10 +1151,16 @@ namespace glimmer
                     dest.fgcolor = src.fgcolor;
                     break;
                 case glimmer::StyleFontSize:
+                    dest.font.size = src.font.size;
+                    break;
                 case glimmer::StyleFontFamily:
+                    dest.font.family = src.font.family;
+					break;
                 case glimmer::StyleFontWeight:
+                    dest.font.flags = src.font.flags;
+					break;
                 case glimmer::StyleFontStyle:
-                    dest.font = src.font;
+                    dest.font.flags = src.font.flags;
                     break;
                 case glimmer::StyleHeight:
                     dest.dimension.y = src.dimension.y;
@@ -1221,6 +1227,94 @@ namespace glimmer
         }
     }
 
+    static void ResetNonInheritableProps(StyleDescriptor& style)
+    {
+        for (int64_t idx = 0; idx <= StyleTotal; ++idx)
+        {
+            auto prop = (StyleProperty)((1ll << idx));
+			if (Config.implicitInheritedProps & prop) continue;
+
+            switch (prop)
+            {
+            case glimmer::StyleBackground:
+                style.bgcolor = IM_COL32_BLACK_TRANS;
+                style.gradient = ColorGradient{};
+                break;
+            case glimmer::StyleFgColor:
+                style.fgcolor = ToRGBA(0, 0, 0);
+                break;
+            case glimmer::StyleFontSize:
+                style.font.size = Config.defaultFontSz * Config.fontScaling;
+                break;
+            case glimmer::StyleFontFamily:
+                style.font.family = GLIMMER_DEFAULT_FONTFAMILY;
+                break;
+            case glimmer::StyleFontWeight:
+                style.font.flags &= ~(FontStyleBold | FontStyleLight);
+                style.font.flags |= FontStyleNormal;
+                break;
+            case glimmer::StyleFontStyle:
+                style.font.flags &= ~FontStyleItalics;
+                break;
+            case glimmer::StyleHeight:
+                style.dimension.y = -1.f;
+                break;
+            case glimmer::StyleWidth:
+                style.dimension.x = -1.f;
+                break;
+            case glimmer::StyleHAlignment:
+                style.alignment &= ~(TextAlignRight | TextAlignHCenter);
+                style.alignment |= TextAlignLeft;
+                break;
+            case glimmer::StyleVAlignment:
+                style.alignment &= ~(TextAlignBottom | TextAlignVCenter);
+                style.alignment |= TextAlignTop;
+                break;
+            case glimmer::StylePadding:
+                style.padding = FourSidedMeasure{};
+                break;
+            case glimmer::StyleMargin:
+                style.margin = FourSidedMeasure{};
+                break;
+            case glimmer::StyleBorder:
+				style.border = FourSidedBorder{};
+                break;
+            case glimmer::StyleBorderRadius:
+            {
+				style.border.cornerRadius[0] = 0.f;
+				style.border.cornerRadius[1] = 0.f;
+				style.border.cornerRadius[2] = 0.f;
+				style.border.cornerRadius[3] = 0.f;
+                break;
+            }
+            case glimmer::StyleTextWrap:
+				style.font.flags &= ~StyleTextWrap;
+                break;
+            case glimmer::StyleBoxShadow:
+                style.shadow = BoxShadow{};
+                break;
+            case glimmer::StyleTextOverflow:
+                break;
+            case glimmer::StyleMinWidth:
+                style.mindim.x = 0.f;
+                break;
+            case glimmer::StyleMaxWidth:
+                style.maxdim.x = FLT_MAX;
+                break;
+            case glimmer::StyleMinHeight:
+                style.mindim.y = 0.f;
+                break;
+            case glimmer::StyleMaxHeight:
+                style.maxdim.y = FLT_MAX;
+                break;
+            default:
+                break;
+            }
+
+            style.specified &= ~prop;
+        }
+    }
+
     template <typename StackT>
     static int32_t PushStyle(std::string_view* css, StackT* stack)
     {
@@ -1235,10 +1329,11 @@ namespace glimmer
             {
                 if (style == WSI_Default)
                 {
-                    auto parent = stack[WSI_Default].empty() ? GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
+                    auto parent = stack[WSI_Default].empty() ? 
+                        GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
                     auto& pushed = stack[style].push();
                     pushed = parent;
-                    pushed.bgcolor = IM_COL32_BLACK_TRANS;
+                    ResetNonInheritableProps(pushed);
                     pushed.From(css[style]);
                 }
                 else
@@ -1265,7 +1360,7 @@ namespace glimmer
                 auto parent = stack[idx].top();
                 auto& style = stack[idx].push();
                 style = parent;
-                style.bgcolor = IM_COL32_BLACK_TRANS;
+                ResetNonInheritableProps(style);
                 style.From(css);
             }
             else
@@ -1294,7 +1389,7 @@ namespace glimmer
                 if (state & (1 << idx))
                 {
                     auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
-                    context.RecordForReplay((sz << 32) | idx, LayoutOps::PushStyle);
+                    context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
                 }
             }
         }
@@ -1340,14 +1435,13 @@ namespace glimmer
             {
                 if (!context.layoutStack.empty())
                 {
-                    auto& layout = context.layoutStack[0];
                     PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
 
                     if (!css.empty())
                     {
                         auto idx = style;
                         auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
-                        context.RecordForReplay((sz << 32) | idx, LayoutOps::PushStyle);
+                        context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
                     }
                 }
 
@@ -1414,7 +1508,7 @@ namespace glimmer
         if (!context.layoutStack.empty())
         {
             auto dd = (int64_t)depth;
-            context.RecordForReplay((dd << 32) | state, LayoutOps::PopStyle);
+            context.RecordForReplay((dd << 32) | (int64_t)state, LayoutOps::PopStyle);
         }
         
         for (auto style = 0; style < WSI_Total; ++style)
@@ -1552,7 +1646,7 @@ namespace glimmer
 
     StyleDescriptor::StyleDescriptor()
     {
-        font.size = Config.defaultFontSz;
+        font.size = Config.defaultFontSz * Config.fontScaling;
         index.animation = index.custom = 0;
         border.cornerRadius[0] = border.cornerRadius[1] = border.cornerRadius[2] = border.cornerRadius[3] = 0.f;
     }
@@ -1628,7 +1722,7 @@ namespace glimmer
         for (auto idx = 0; idx < StyleTotal; ++idx)
         {
             auto styleprop = 1 << idx;
-            if (overwrite || !(styleprop & style.specified))
+            if ((overwrite || !(styleprop & specified)) && (styleprop & style.specified))
             {
                 switch (styleprop)
                 {
@@ -1688,6 +1782,7 @@ namespace glimmer
                 break;
                 default: break;
                 }
+				specified |= styleprop;
             }
         }
 

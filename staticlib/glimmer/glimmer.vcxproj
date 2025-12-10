@@ -41,6 +41,7 @@
     <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextimpl.h" />
     <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextutils.h" />
     <ClInclude Include="..\..\src\libs\inc\lunasvg\lunasvg.h" />
+    <ClInclude Include="..\..\src\libs\inc\randrew.layout\layout.h" />
     <ClInclude Include="..\..\src\libs\inc\stb_image\stb_image.h" />
     <ClInclude Include="..\..\src\libs\inc\yoga\YGConfig.h" />
     <ClInclude Include="..\..\src\libs\inc\yoga\YGEnums.h" />

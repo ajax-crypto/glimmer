@@ -689,6 +689,14 @@ namespace glimmer
         return info;
     }
 
+    EventDeferInfo EventDeferInfo::ForScrollRegion(int32_t id)
+    {
+        EventDeferInfo info;
+        info.type = WT_Scrollable;
+        info.id = id;
+        return info;
+    }
+
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
         auto io = Config.platform->CurrentIO();
@@ -782,6 +790,9 @@ namespace glimmer
             case WT_Accordion:
                 ev.params.accordion.region.Translate(origin);
                 HandleAccordionEvent(ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
+                break;
+            case WT_Scrollable:
+				// TODO: Handle scrollable events if any in future
                 break;
             default:
                 break;
@@ -1002,7 +1013,6 @@ namespace glimmer
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
                 auto& style = WidgetContextData::StyleStack[idx].push();
-                style.font.size *= Config.fontScaling;
 
                 WidgetContextData::radioButtonStyles[idx].push() = theme.radio;
                 WidgetContextData::sliderStyles[idx].push() = theme.slider;
@@ -1017,7 +1027,6 @@ namespace glimmer
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
                 auto& style = WidgetContextData::StyleStack[idx].push();
-                style.font.size *= Config.fontScaling;
 
                 WidgetContextData::radioButtonStyles[idx].push();
                 auto& slider = WidgetContextData::sliderStyles[idx].push();
@@ -1056,6 +1065,8 @@ namespace glimmer
                 }
             }
         }
+
+
     }
 
     WidgetContextData& PushContext(int32_t id)
@@ -1111,12 +1122,12 @@ namespace glimmer
     {
         StyleDescriptor res;
         StyleDescriptor const* defstyle = nullptr;
-        auto style = log2((unsigned)state);
-        auto wtype = id >> WidgetTypeBits;
+        auto style = (WidgetStateIndex)log2((unsigned)state);
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
         auto index = id & WidgetIndexMask;
 
-        defstyle = &glimmer::GetWidgetStyle((WidgetType)wtype, WidgetStateIndex::WSI_Default);
-        res.From(glimmer::GetWidgetStyle((WidgetType)wtype, (WidgetStateIndex)style));
+        defstyle = &glimmer::GetWidgetStyle(wtype, WidgetStateIndex::WSI_Default);
+        res.From(glimmer::GetWidgetStyle(wtype, style));
 
         if (defstyle->specified == 0) defstyle = &(context.WidgetStyles[wtype][index][WSI_Default]);
         res.From(context.WidgetStyles[wtype][index][style]);
@@ -1129,8 +1140,8 @@ namespace glimmer
         else if (defstyle->specified == 0)
             defstyle = StyleStack[WSI_Default].begin();
 
-        AddFontPtr(res.font);
         if (style != WSI_Default) CopyStyle(*defstyle, res);
+        AddFontPtr(res.font);
         return res;
     }
 
@@ -1142,10 +1153,11 @@ namespace glimmer
 
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
-    Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions;
-    Vector<ContextMenuItemParams, int16_t, 16> WidgetContextData::ContextMenuOptionParams;
+    Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions{ false };
+    Vector<ContextMenuItemParams, int16_t, 16> WidgetContextData::ContextMenuOptionParams{ false };
     int32_t WidgetContextData::PopupTarget = -1;
-    StyleStackT WidgetContextData::StyleStack[WSI_Total];
+    StyleStackT WidgetContextData::StyleStack[WSI_Total]{ false, false, false, false,
+        false, false, false, false, false };
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
 	int32_t WidgetContextData::CurrentWidgetId = -1;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];

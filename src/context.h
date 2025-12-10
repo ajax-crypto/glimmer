@@ -524,6 +524,8 @@ namespace glimmer
     {
         WidgetType wtype = WidgetType::WT_Invalid;
         int32_t id = -1;
+        int32_t scrollid = -1;
+        int16_t layoutIdx = -1;
         ImRect margin, border, padding, content, text;
         ImRect prefix, suffix;
         ImVec2 relative;
@@ -532,9 +534,6 @@ namespace glimmer
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
         void* implData = nullptr;
-        bool isComputed = false;
-        bool closing = false;
-        bool hscroll = false, vscroll = false;
     };
 
     enum class LayoutOps 
@@ -542,6 +541,7 @@ namespace glimmer
         PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
 		PushTextType, PopTextType,
 		PushRegion, PopRegion,
+		PushScrollRegion, PopScrollRegion,
         AddWidget, AddLayout 
     };
 
@@ -683,6 +683,7 @@ namespace glimmer
             const ImRect& padding, const ImRect& content);
         static EventDeferInfo ForTabBar(int32_t id, const ImRect& content);
         static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
+        static EventDeferInfo ForScrollRegion(int32_t id);
     };
 
     enum class NestedContextSourceType

@@ -165,6 +165,9 @@
     <ClInclude Include="..\..\src\libs\inc\imrichtext\imrichtextutils.h">
       <Filter>Header Files\richtext</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\randrew.layout\layout.h">
+      <Filter>Header Files\layout</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\context.cpp">

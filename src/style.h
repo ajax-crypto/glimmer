@@ -94,7 +94,7 @@ namespace glimmer
         StyleBorder = 1 << 13,
         StyleOverflow = 1 << 14,
         StyleBorderRadius = 1 << 16,
-        StyleCellSpacing = 1 << 17,
+        StyleCellSpacing = 1 << 17, // Unused
         StyleBlink = 1 << 18,
         StyleTextWrap = 1 << 19,
         StyleBoxShadow = 1 << 20,

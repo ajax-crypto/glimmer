@@ -731,14 +731,8 @@ namespace glimmer
         if (!context.layoutStack.empty())
         {
             auto& layout = context.layouts[context.layoutStack.top()];
-            auto id = layout.containerStack.top();
-            const auto style = context.GetStyle(WS_Default, id);
-            LayoutItemDescriptor layoutItem;
-            layoutItem.wtype = WT_Scrollable;
-            layoutItem.id = id;
-            layoutItem.closing = true;
-            AddItemToLayout(layout, layoutItem, style);
             layout.containerStack.pop(1, true);
+            EndLayout();
             return ImRect{};
         }
         else
@@ -4698,16 +4692,6 @@ namespace glimmer
                     grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
                 }
             }
-            /*else if (nestedSrc.source == NestedContextSourceType::Region)
-            {
-                auto& region = context.regionBuilders.top();
-
-                if (!region.fixedWidth)
-                    region.size.x = std::max(region.size.x, layoutItem.margin.Max.x - region.origin.x);
-
-                if (!region.fixedHeight)
-                    region.size.y = std::max(region.size.y, layoutItem.margin.Max.y - region.origin.y);
-            }*/
         }
     }
 
@@ -6389,6 +6373,8 @@ namespace glimmer
         }
 #endif
 
+        Config.implicitInheritedProps = ~(StyleBackground | StyleHeight | StyleWidth | StyleMaxWidth |
+            StyleMaxHeight | StyleMinWidth | StyleMinHeight);
         return Config;
     }
 
@@ -6400,6 +6386,10 @@ namespace glimmer
     {
         auto& context = GetContext();
         assert((id & WidgetIndexMask) <= (int)context.states[type].size());
+
+        //If inside layouts, scroll region itself needs a child layout (widgets can't be added in ad-hoc fashion)
+        assert(context.layoutStack.empty() || context.layouts[context.layoutStack.top()].type != Layout::ScrollRegion);
+
         WidgetDrawResult result;
         auto& renderer = context.GetRenderer();
         auto& platform = *Config.platform;
@@ -6420,20 +6410,6 @@ namespace glimmer
             auto& extent = grid.headers[grid.currlevel][grid.currCol].content;
             maxxy.x = extent.Max.x; // Bounded in x direction, y is from content
         }
-        /*else if (nestedCtx.source == NestedContextSourceType::Region)
-        {
-            const auto& region = context.regionBuilders.top();
-            auto& state = context.GetState(region.id).state.region;
-            auto style = context.GetStyle(state.state, region.id);
-
-            if (style.dimension.x > 0.f)
-                maxxy.x = region.size.x + region.origin.x - (style.margin.right + 
-                    style.border.right.thickness + style.padding.right);
-
-            if (style.dimension.y > 0.f)
-                maxxy.y = region.size.y + region.origin.y - (style.margin.bottom +
-                    style.border.bottom.thickness + style.padding.bottom);
-        }*/
 
         switch (type)
         {

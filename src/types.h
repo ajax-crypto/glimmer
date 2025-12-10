@@ -145,8 +145,9 @@ namespace glimmer
 
     struct UIConfig
     {
-        uint32_t bgcolor;
-        uint32_t focuscolor;
+        uint32_t bgcolor = ToRGBA(255, 255, 255);
+        uint32_t focuscolor = ToRGBA(100, 100, 200);
+        uint64_t implicitInheritedProps = 0;
         int32_t tooltipDelay = 500;
         int32_t toggleButtonTextSplit = 2;
         float tooltipFontSz = 16.f;
@@ -626,7 +627,7 @@ namespace glimmer
         int32_t top = -1, left = -1, right = -1, bottom = -1;
     };
 
-    enum class Layout { Invalid, Horizontal, Vertical, Grid };
+    enum class Layout { Invalid, Horizontal, Vertical, Grid, ScrollRegion = 100 };
     enum FillDirection : int32_t { FD_None = 0, FD_Horizontal = 1, FD_Vertical = 2 };
 
     constexpr float EXPAND_SZ = FLT_MAX;

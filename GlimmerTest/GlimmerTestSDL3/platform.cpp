@@ -109,7 +109,6 @@ namespace glimmer
                 return false;
             }
 
-            float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
             SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_MAXIMIZED;
 
             window = SDL_CreateWindow(params.title.data(), (int)params.size.x, (int)params.size.y, window_flags);

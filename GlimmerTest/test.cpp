@@ -180,7 +180,6 @@ void TestWindow(glimmer::UIConfig& config)
         Label(widgets[UPPER], ExpandH);
         Move(FD_Vertical);
 
-        glimmer::PushStyle("border: 1px solid black");
         StartTabBar(widgets[TAB]);
         AddTab("Tab 1", "", TI_Closeable);
         AddTab("Tab 2", "", TI_Closeable);
@@ -193,7 +192,6 @@ void TestWindow(glimmer::UIConfig& config)
             SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
 
         {
-            PushStyle("background-color: rgb(175, 175, 175)");
             StartSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
                 SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
             {
@@ -214,7 +212,6 @@ void TestWindow(glimmer::UIConfig& config)
                 PopStyle(3, WS_Default);
             }
             EndSplitRegion();
-            PopStyle(1, WS_Default);
 
             NextSplitRegion();
 
@@ -227,34 +224,34 @@ void TestWindow(glimmer::UIConfig& config)
 
             if (StartAccordionContent())
             {
-                //Move(FD_Horizontal);
                 BeginFlexLayout(DIR_Horizontal, AlignHCenter | ExpandAll, false, { 5.f, 5.f });
                 {
-                    Label(widgets[BOTTOM]);
+                    PushStyle(WS_Hovered, "background-color: crimson; color: white;");
+                    Button("bottom", "Bottom");
+					PopStyle(1, WS_Hovered);
                     Move(FD_Horizontal);
 
                     ToggleButton(widgets[TOGGLE], ToRight);
 
                     Move(FD_Horizontal);
-                    //RadioButton(widgets[RADIO], ToRight);
+                    RadioButton(widgets[RADIO], ToRight);
                     Spinner(widgets[SPINNER], ToRight);
 
                     Move(FD_Horizontal);
                     PushStyle("border: 1px solid gray; width: 200px; background-color: white", "border: 2px solid black;");
                     PushStyle(WS_Focused, "border: 2px solid black;");
                     TextInput(widgets[INPUT], ToRight);
-                    PopStyle(1, WS_Default | WS_Focused | WS_Hovered);
+                    PopStyle(1, WS_Default | WS_Focused);
 
                     Move(FD_Horizontal);
                     DropDown(widgets[DROPDOWN], ToRight);
 
-                    //PushStyle(WS_Default, "margin: 3px; padding: 5px; border: 1px solid gray; border-radius: 4px;");
-                    PushStyle(WS_Checked, "background-color: blue; color: white;");
+                    PushStyle(WS_Default, "width: 200px; border-radius: 3px;");
+                    PushStyle(WS_Hovered, "background-color: blue; color: white;");
                     Move(FD_Horizontal);
-                    //Checkbox(widgets[CHECKBOX], ToRight);
                     Slider(widgets[SLIDER], ToRight);
-                    //PopStyle(1, WS_Default);
-                    PopStyle(1, WS_Checked);
+                    PopStyle(1, WS_Default);
+                    PopStyle(1, WS_Hovered);
                 }
 
                 EndLayout();
@@ -265,7 +262,6 @@ void TestWindow(glimmer::UIConfig& config)
 
             Move(widgets[LEFT], widgets[TAB], true, true);
             PushStyle("background-color: white; padding: 5px; border: none;");
-            //ItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[BOTTOM] });
 
             StartItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
             StartItemGridHeader(2);
@@ -301,6 +297,8 @@ int main(int argc, char** argv)
 #endif
 {
     auto& config = glimmer::GetUIConfig(true);
+    config.renderer = glimmer::CreateImGuiRenderer();
+    config.defaultFontSz = 24.f;
     config.platform = glimmer::GetPlatform();
     
     if (config.platform->CreateWindow({ .title = "Glimmer Demo" }))
@@ -312,14 +310,11 @@ int main(int argc, char** argv)
         glimmer::FontDescriptor desc;
         desc.flags = glimmer::FLT_Proportional | glimmer::FLT_Antialias | glimmer::FLT_Hinting;
         //desc.names = names;
-        desc.sizes.push_back(12.f);
         desc.sizes.push_back(16.f);
         desc.sizes.push_back(24.f);
         desc.sizes.push_back(32.f);
+        desc.sizes.push_back(48.f);
         glimmer::LoadDefaultFonts(&desc, 1, true);
-
-        config.renderer = glimmer::CreateImGuiRenderer();
-        config.defaultFontSz = 24.f;
 
         TestWindow(config);
     }
