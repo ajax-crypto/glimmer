@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <charconv>
+#include <limits>
 
 #ifndef GLIMMER_DISABLE_GIF
 #include <chrono>
@@ -28,6 +29,8 @@
 #undef max
 #undef DrawText
 #endif
+
+#define GLIMMER_MAX_STATIC_MEDIA_SZ 4096
 
 // TODO: Test out pluto svg
 /*auto doc = plutosvg_document_load_from_data(buffer, csz, size.x, size.y, nullptr, nullptr);
@@ -68,7 +71,64 @@ namespace glimmer
         return txtsz;
     }
 
+    struct FileContents
+    {
+        const char* data = nullptr;
+        int size = 0;
+        bool isStatic = true;
+    };
+
+    static void FreeResource(FileContents& contents)
+    {
+        if (!contents.isStatic) std::free((char*)contents.data);
+        contents.data = nullptr;
+        contents.size = 0;
+    }
+
+    static FileContents GetResourceContents(int32_t resflags, std::string_view resource)
+    {
+        static thread_local char sbuffer[GLIMMER_MAX_STATIC_MEDIA_SZ];
+
+        if (resflags & RT_PATH)
+        {
+#ifdef _WIN32
+            FILE* fptr = nullptr;
+            fopen_s(&fptr, resource.data(), "r");
+#else
+            auto fptr = std::fopen(resource.data(), "r");
+#endif
+
+            if (fptr != nullptr)
+            {
+                std::fseek(fptr, 0, SEEK_END);
+                auto bufsz = (int)std::ftell(fptr);
+                std::fseek(fptr, 0, SEEK_SET);
+
+                if (bufsz >= GLIMMER_MAX_STATIC_MEDIA_SZ)
+                {
+                    auto buffer = (char*)malloc(bufsz + 1);
+                    memset(buffer, 0, bufsz + 1);
+                    assert(buffer != nullptr);
+                    auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
+                    std::fclose(fptr);
+                    return FileContents{ buffer, bufsz, false };
+                }
+                else
+                {
+                    memset(sbuffer, 0, GLIMMER_MAX_STATIC_MEDIA_SZ);
+                    auto csz = (int)std::fread(sbuffer, 1, bufsz, fptr);
+                    std::fclose(fptr);
+                    return FileContents{ sbuffer, bufsz, true };
+                }
+            }
+        }
+        else return FileContents{ resource.data(), (int)resource.size(), true };
+        return FileContents{};
+    }
+
 #pragma region ImGui Renderer
+
+    constexpr auto InvalidTextureId = std::numeric_limits<ImTextureID>::max();
 
     struct ImGuiRenderer final : public IRenderer
     {
@@ -102,30 +162,31 @@ namespace glimmer
         bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override;
         void EndOverlay() override;
 
-        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override;
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override;
+        int64_t PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz) override;
 
     private:
 
         void ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr);
 
-        void RecordImage(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz);
-        void RecordGif(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz);
+        int64_t RecordImage(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
+        int64_t RecordGif(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
+        int64_t RecordSVG(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, const char* data, int bufsz, bool draw);
 
         struct ImageLookupKey
         {
-            ImVec2 size;
-            uint32_t color;
+            int32_t id = -1;
             std::string data;
         };
 
         struct GifLookupKey
         {
+            int32_t id = -1;
             int32_t currframe = 0;
             int32_t totalframe = 0;
             long long lastTime = 0;
             ImVec2 size;
             int* delays = nullptr;
-            stbi_uc* frames = nullptr;
             std::string data;
         };
 
@@ -505,7 +566,7 @@ namespace glimmer
         prevlist = nullptr;
     }
 
-    bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content)
+    bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id)
     {
         auto fromFile = (resflags & RT_PATH) != 0;
 
@@ -519,16 +580,12 @@ namespace glimmer
         {
 #ifndef GLIMMER_DISABLE_SVG
             Round(pos); Round(size);
-
-            constexpr int bufsz = 1 << 13;
-            static char buffer[bufsz] = { 0 };
-
             auto& dl = *((ImDrawList*)UserData);
             bool found = false;
 
             for (const auto& [key, texid] : bitmaps)
             {
-                if (key.data == content)
+                if ((key.id == id || (key.id == -1 && key.data == content)) && (texid != InvalidTextureId))
                 {
                     found = true;
                     dl.AddImage(texid, pos, pos + size);
@@ -538,38 +595,9 @@ namespace glimmer
 
             if (!found)
             {
-                int csz = fromFile ? 0 : (int)content.size();
-
-                if (fromFile)
-                {
-#ifdef _WIN32
-                    FILE* fptr = nullptr;
-                    fopen_s(&fptr, content.data(), "r");
-#else
-                    auto fptr = std::fopen(content.data(), "r");
-#endif
-
-                    if (fptr != nullptr)
-                    {
-                        csz = (int)std::fread(buffer, 1, bufsz - 1, fptr);
-                        std::fclose(fptr);
-                    }
-                }
-                else
-                    memcpy(buffer, content.data(), std::min(csz, bufsz - 1));
-
-                if (csz > 0)
-                {
-                    auto& entry = bitmaps.emplace_back();
-                    entry.first = ImageLookupKey{ size, color, std::string{ content.data(), content.size() } };
-                    auto document = lunasvg::Document::loadFromData(buffer);
-                    auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
-                    bitmap.convertToRGBA();
-                    auto pixels = bitmap.data();
-                    auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
-                    entry.second = texid;
-                    dl.AddImage(texid, pos, pos + size);
-                }
+                auto contents = GetResourceContents(resflags, content);
+                if (contents.size > 0) RecordSVG(id, pos, size, color, contents.data, contents.size, true);
+                FreeResource(contents);
             }
 #else
             assert(false); // Unsupported
@@ -586,7 +614,7 @@ namespace glimmer
 
             for (const auto& [key, texid] : bitmaps)
             {
-                if (key.data == content)
+                if ((key.id == id || (key.id == -1 && key.data == content)) && (texid != InvalidTextureId))
                 {
                     found = true;
                     dl.AddImage(texid, pos, pos + size);
@@ -596,34 +624,9 @@ namespace glimmer
 
             if (!found)
             {
-                if (resflags & RT_PATH)
-                {
-#ifdef _WIN32
-                    FILE* fptr = nullptr;
-                    fopen_s(&fptr, content.data(), "r");
-#else
-                    auto fptr = std::fopen(file.data(), "r");
-#endif
-
-                    if (fptr != nullptr)
-                    {
-                        std::fseek(fptr, 0, SEEK_END);
-                        auto bufsz = (int)std::ftell(fptr);
-                        std::fseek(fptr, 0, SEEK_SET);
-
-                        if (bufsz > 0)
-                        {
-                            auto buffer = (char*)malloc(bufsz + 1);
-                            assert(buffer != nullptr);
-                            auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
-                            std::fclose(fptr);
-                            RecordImage(pos, size, (stbi_uc*)buffer, bufsz);
-                            std::free(buffer);
-                        }
-                    }
-                }
-                else if (resflags & RT_BIN)
-                    RecordImage(pos, size, (stbi_uc*)content.data(), (int)content.size());
+                auto contents = GetResourceContents(resflags, content);
+                if (contents.size > 0) RecordImage(id, pos, size, (stbi_uc*)contents.data, (int)contents.size, true);
+                FreeResource(contents);
             }
 #else
             assert(false); // Unsupported
@@ -638,9 +641,9 @@ namespace glimmer
             auto& dl = *((ImDrawList*)UserData);
             bool found = false;
 
-            for (auto& [key, texid] : gifframes)
+            for (auto& [key, texids] : gifframes)
             {
-                if (key.data == content)
+                if ((key.id == id || (key.id == -1 && key.data == content)) && (!texids.empty()))
                 {
                     found = true;
                     auto currts = system_clock::now().time_since_epoch();
@@ -651,41 +654,16 @@ namespace glimmer
                         key.lastTime = ms;
                     }
 
-                    dl.AddImage(texid[key.currframe], pos, pos + size);
+                    dl.AddImage(texids[key.currframe], pos, pos + size);
                     break;
                 }
             }
 
             if (!found)
             {
-                if (resflags & RT_PATH)
-                {
-#ifdef _WIN32
-                    FILE* fptr = nullptr;
-                    fopen_s(&fptr, content.data(), "r");
-#else
-                    auto fptr = std::fopen(file.data(), "r");
-#endif
-
-                    if (fptr != nullptr)
-                    {
-                        std::fseek(fptr, 0, SEEK_END);
-                        auto bufsz = (int)std::ftell(fptr);
-                        std::fseek(fptr, 0, SEEK_SET);
-
-                        if (bufsz > 0)
-                        {
-                            auto buffer = (char*)malloc(bufsz + 1);
-                            assert(buffer != nullptr);
-                            auto csz = (int)std::fread(buffer, 1, bufsz, fptr);
-                            std::fclose(fptr);
-                            RecordGif(pos, size, (stbi_uc*)buffer, bufsz);
-                            std::free(buffer);
-                        }
-                    }
-                }
-                else if (resflags & RT_BIN)
-                    RecordGif(pos, size, (stbi_uc*)content.data(), (int)content.size());
+                auto contents = GetResourceContents(resflags, content);
+                if (contents.size > 0) RecordGif(id, pos, size, (stbi_uc*)contents.data, (int)contents.size, true);
+                FreeResource(contents);
             }
 #else
             assert(false); // Unsupported
@@ -694,6 +672,55 @@ namespace glimmer
 
         // TODO: return correct status
         return true;
+    }
+
+    int64_t ImGuiRenderer::PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz)
+    {
+        int64_t totalBytes = 0;
+
+        for (auto idx = 0; idx < totalsz; ++idx)
+        {
+            auto [resflags, content] = resources[idx];
+
+            if (resflags & RT_PATH)
+            {
+                auto contents = GetResourceContents(resflags, content);
+                if (contents.size > 0)
+                {
+                    if (resflags & RT_GIF)
+                    {
+                        if (loadflags & LF_CreateTexture)
+                            totalBytes += RecordGif(-1, {}, {}, (stbi_uc*)contents.data, contents.size, false);
+                        else
+                        {
+                            auto& entry = gifframes.emplace_back();
+                            entry.first.data.assign(contents.data, contents.size);
+                        }
+                    }
+                    else
+                    {
+                        if (loadflags & LF_CreateTexture)
+                        {
+                            // TODO: Create texture atlas of all frames and use UV coordinates
+                            if (resflags & RT_SVG)
+                                totalBytes += RecordSVG(-1, {}, {}, 0, contents.data, contents.size, false);
+                            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                                (resflags & RT_GENERIC_IMG))
+                                totalBytes += RecordImage(-1, {}, {}, (stbi_uc*)contents.data, contents.size, false);
+                        }
+                        else
+                        {
+                            auto& entry = bitmaps.emplace_back();
+                            entry.first.data.assign(contents.data, contents.size);
+                        }
+                    }
+                }
+
+                FreeResource(contents);
+            }
+        }
+
+        return totalBytes;
     }
 
     void ImGuiRenderer::ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr)
@@ -717,48 +744,56 @@ namespace glimmer
         if (bottomleftr > 0.f) dl.PathArcToFast(ImVec2{ startpos.x + bottomleftr, endpos.y - bottomleftr }, bottomleftr, 3, 6);
     }
 
-    void ImGuiRenderer::RecordImage(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz)
+    int64_t ImGuiRenderer::RecordImage(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
     {
-        auto& dl = *((ImDrawList*)UserData);
         int width = 0, height = 0;
         auto pixels = stbi_load_from_memory(data, bufsz, &width, &height, NULL, 4);
+        int64_t bytes = 0;
 
         if (pixels != nullptr && width > 0 && height > 0)
         {
             auto& entry = bitmaps.emplace_back();
             entry.first.data.assign((char*)data, bufsz);
-            entry.first.size = ImVec2{ (float)width, (float)height };
 
-            auto texid = Config.platform->UploadTexturesToGPU(entry.first.size, pixels);
+            auto texid = Config.platform->UploadTexturesToGPU(ImVec2{ (float)width, (float)height }, pixels);
             entry.second = texid;
-            dl.AddImage(texid, pos, pos + size);
+
+            if (draw)
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                dl.AddImage(texid, pos, pos + size);
+            }
+
+            bytes = width * height * 4;
         }
         else
             fprintf(stderr, "Image provided is not valid...\n");
 
         stbi_image_free(pixels);
+        return bytes;
     }
 
-    void ImGuiRenderer::RecordGif(ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz)
+    int64_t ImGuiRenderer::RecordGif(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
     {
         using namespace std::chrono;
 
-        auto& dl = *((ImDrawList*)UserData);
         int width, height, frames, channels;
         int* delays = nullptr;
         auto pixels = stbi_load_gif_from_memory(data, bufsz, &delays, &width, &height, &frames, &channels, 4);
+        int64_t bytes = 0;
 
         if (pixels != nullptr && width > 0 && height > 0)
         {
             auto& entry = gifframes.emplace_back();
+            entry.first.id = id;
             entry.first.data.assign((char*)data, bufsz);
             entry.first.totalframe = frames;
-            entry.first.frames = pixels;
             entry.first.delays = delays;
             entry.first.lastTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             entry.first.size = ImVec2{ (float)width, (float)height };
             entry.second.reserve(frames);
 
+            // TODO: Create texture atlas of all frames and use UV coordinates
             for (auto fidx = 0; fidx < frames; ++fidx)
             {
                 auto texid = Config.platform->UploadTexturesToGPU(entry.first.size, pixels);
@@ -766,8 +801,48 @@ namespace glimmer
                 pixels += (width * height * 4);
             }
 
-            dl.AddImage(entry.second.front(), pos, pos + size);
+            if (draw)
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                dl.AddImage(entry.second.front(), pos, pos + size);
+            }
+
+            bytes = frames * width * height * 4;
         }
+
+        stbi_image_free(pixels);
+        return bytes;
+    }
+
+    int64_t ImGuiRenderer::RecordSVG(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, const char* data, int bufsz, bool draw)
+    {
+        auto& entry = bitmaps.emplace_back();
+        entry.first.id = id;
+        entry.first.data.assign(data, bufsz);
+        auto document = lunasvg::Document::loadFromData(data);
+        int64_t bytes = 0;
+
+        if (document)
+        {
+            auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
+            bitmap.convertToRGBA();
+
+            auto pixels = bitmap.data();
+            auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
+            entry.second = texid;
+
+            if (draw)
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                dl.AddImage(texid, pos, pos + size);
+            }
+
+            bytes = (int64_t)size.x * (int64_t)size.y * 4;
+        }
+        else
+            fprintf(stderr, "SVG provided is not valid...\n");
+
+        return bytes;
     }
 
     float IRenderer::EllipsisWidth(void* fontptr, float sz)
@@ -873,6 +948,7 @@ namespace glimmer
           
         struct {
             int32_t resflags;
+            int32_t id;
             ImVec2 pos, size;
             uint32_t color;
             std::string_view content;
@@ -958,7 +1034,8 @@ namespace glimmer
 
                 case DrawingOps::Resource:
                     renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos, 
-                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content);
+                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content,
+                        entry.second.resource.id);
                     break;
 
                 case DrawingOps::PushClippingRect:
@@ -1108,10 +1185,10 @@ namespace glimmer
             ::new (&val.second.tooltip.text) std::string_view{ text };
         }
 
-        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override
         {
             auto& val = queue.emplace_back(); val.first = DrawingOps::Resource;
-            val.second.resource = { resflags, pos, size, color, content };
+            val.second.resource = { resflags, id, pos, size, color, content };
             return true;
         }
     };
@@ -1973,7 +2050,7 @@ namespace glimmer
         bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override { return true; }
         void EndOverlay() override {}
 
-        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) override
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override
         {
             auto fromFile = (resflags & RT_PATH) != 0;
 
@@ -1983,9 +2060,9 @@ namespace glimmer
                 {
                     int written = snprintf(scratchBuffer, scratchBufferSize, "  \n", (int)content.length(), content.data());
                     if (written > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
-                    return;
+                    return false;
                 }
-                if (content.empty()) return;
+                if (content.empty()) return false;
 
                 int writtenOpen = snprintf(scratchBuffer, scratchBufferSize,
                     "  <svg x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\">\n",
@@ -1998,7 +2075,7 @@ namespace glimmer
             else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
                 (resflags & RT_GENERIC_IMG))
             {
-                if (size.x <= 0.001f || size.y <= 0.001f || content.empty()) return;
+                if (size.x <= 0.001f || size.y <= 0.001f || content.empty()) return false;
                 size.x = std::max(0.0f, size.x); size.y = std::max(0.0f, size.y);
 
                 int written = snprintf(scratchBuffer, scratchBufferSize,

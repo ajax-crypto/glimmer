@@ -197,6 +197,8 @@ namespace glimmer
     ImRect EndScrollableImpl(int32_t id, IRenderer& renderer);
     WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
         IRenderer& renderer);
+    WidgetDrawResult MediaResourceImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     void RecordItemGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
@@ -1765,6 +1767,21 @@ namespace glimmer
                     RecordItemGeometry(item, style);
             }
             
+            break;
+        }
+        case WT_MediaResource: {
+            auto& state = context.GetState(item.id).state.media;
+            const auto style = context.GetStyle(WS_Default, item.id);
+            UpdateGeometry(item, bbox, style);
+
+            if (render)
+            {
+                context.AddItemGeometry(item.id, bbox);
+                result = MediaResourceImpl(item.id, style, item.margin, item.border, item.padding, item.content, renderer, io);
+                if (!context.nestedContextStack.empty())
+                    RecordItemGeometry(item, style);
+            }
+
             break;
         }
         default:

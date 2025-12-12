@@ -134,6 +134,7 @@ namespace glimmer
         case WT_Scrollable: new (&state.scroll) ScrollableRegion{}; break;
         case WT_TabBar: new (&state.tab) TabBarState{}; break;
         case WT_ItemGrid: ::new (&state.grid) ItemGridConfig{}; break;
+        case WT_MediaResource: ::new (&state.media) MediaState{}; break;
         default: break;
         }
     }
@@ -158,6 +159,7 @@ namespace glimmer
         case WT_Scrollable: state.scroll = src.state.scroll; break;
         case WT_TabBar: state.tab = src.state.tab; break;
         case WT_ItemGrid: state.grid = src.state.grid; break;
+        case WT_MediaResource: state.media = src.state.media; break;
         default: break;
         }
     }
@@ -182,6 +184,7 @@ namespace glimmer
         case WT_Scrollable: state.scroll = src.state.scroll; break;
         case WT_TabBar: state.tab = src.state.tab; break;
         case WT_ItemGrid: state.grid = src.state.grid; break;
+        case WT_MediaResource: state.media = src.state.media; break;
         default: break;
         }
         return *this;
@@ -205,6 +208,7 @@ namespace glimmer
         case WT_Scrollable: state.scroll.~ScrollableRegion(); break;
         case WT_TabBar: state.tab.~TabBarState(); break;
         case WT_ItemGrid: state.grid.~ItemGridConfig(); break;
+        case WT_MediaResource: state.media.~MediaState(); break;
         default: break;
         }
     }
@@ -6315,6 +6319,89 @@ namespace glimmer
 #pragma endregion
 #endif
 
+#pragma region Media Resource (Image/SVG/etc.)
+
+    static ImVec2 GetIconSize(IconSizingType sztype)
+    {
+        ImVec2 size;
+        auto& context = GetContext();
+        auto style = context.GetStyle(WS_Default);
+
+        switch (sztype)
+        {
+        case IconSizingType::Fixed:
+            size = style.dimension;
+            break;
+        case IconSizingType::CurrentFontSz:
+            size = ImVec2{ style.font.size, style.font.size };
+            break;
+        case IconSizingType::DefaultFontSz:
+            size = ImVec2{ Config.defaultFontSz, Config.defaultFontSz };
+            break;
+        }
+
+        return size;
+    }
+
+    static void DetermineIconBounds(ImVec2 pos, const MediaState& state, const StyleDescriptor& style, LayoutItemDescriptor& layoutItem)
+    {
+        ImVec2 size = GetIconSize(state.sztype);
+        layoutItem.content = ImRect{ pos, pos + size };
+        layoutItem.padding = ImRect{ layoutItem.content.Min - ImVec2{ style.padding.left, style.padding.top },
+            layoutItem.content.Max + ImVec2{ style.padding.right, style.padding.bottom } };
+        layoutItem.border = ImRect{ layoutItem.padding.Min - ImVec2{ style.border.left.thickness, style.border.top.thickness },
+            layoutItem.padding.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness } };
+        layoutItem.margin = ImRect{ layoutItem.border.Min - ImVec2{ style.margin.left, style.margin.top },
+            layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom } };
+    }
+
+    void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        auto& context = GetContext();
+        const auto& state = context.GetState(id).state.media;
+        const auto style = context.GetStyle(state.state, id);
+
+        if (!context.deferEvents)
+        {
+            auto& state = context.GetState(id).state.button;
+            auto ismouseover = padding.Contains(io.mousepos);
+            state.state = !ismouseover ? WS_Default :
+                io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+            if (ismouseover && io.clicked())
+                result.event = WidgetEvent::Clicked;
+            if (ismouseover)
+            {
+                Config.platform->SetMouseCursor(MouseCursor::Grab);
+                WidgetContextData::CurrentWidgetId = id;
+            }
+            ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
+            HandleContextMenu(id, content, io);
+        }
+        else context.deferedEvents.emplace_back(EventDeferInfo::ForMediaResource(id, padding, content));
+    }
+
+    WidgetDrawResult MediaResourceImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        const auto& state = context.GetState(id).state.media;
+
+        DrawBoxShadow(border.Min, border.Max, style, renderer);
+        DrawBackground(border.Min, border.Max, style, renderer);
+        DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        if (state.symbol != SymbolIcon::None)
+            DrawSymbol(content.Min, content.GetSize(), { 0.f, 0.f }, state.symbol, style.fgcolor, style.fgcolor, 1.f, context.GetRenderer());
+        else
+            context.GetRenderer().DrawResource(state.resflags, content.Min, content.GetSize(), style.fgcolor, state.content);
+
+        HandleMediaResourceEvent(id, padding, content, io, result);
+        result.geometry = margin;
+        return result;
+    }
+
+#pragma endregion
+
 #pragma region Public APIs
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
@@ -6781,6 +6868,32 @@ namespace glimmer
             
             break;
         }
+        case WT_MediaResource: {
+            auto& state = context.GetState(id).state.media;
+            auto style = context.GetStyle(state.state, wid);
+            UpdateTooltip(state.tooltip);
+
+            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+            {
+                auto& layout = context.layouts[context.layoutStack.top()];
+                auto pos = layout.geometry.Min;
+
+                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                DetermineIconBounds(pos, state, style, layoutItem);
+                AddItemToLayout(layout, layoutItem, style);
+            }
+            else
+            {
+                auto pos = context.NextAdHocPos();
+                DetermineIconBounds(pos, state, style, layoutItem);
+                context.AddItemGeometry(wid, layoutItem.margin);
+                result = MediaResourceImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                    layoutItem.content, renderer, io);
+                RecordItemGeometry(layoutItem, style);
+            }
+            break;
+        }
         default: break;
         }
 
@@ -6790,71 +6903,69 @@ namespace glimmer
         return result;
     }
 
-    static ImVec2 GetIconSize(IconSizingType sztype)
-    {
-        ImVec2 size;
-        auto& context = GetContext();
-        auto style = context.GetStyle(WS_Default);
-
-        switch (sztype)
-        {
-        case IconSizingType::Fixed:
-            size = style.dimension;
-            break;
-        case IconSizingType::CurrentFontSz:
-            size = ImVec2{ style.font.size, style.font.size };
-            break;
-        case IconSizingType::DefaultFontSz:
-            size = ImVec2{ Config.defaultFontSz, Config.defaultFontSz };
-            break;
-        }
-
-        return size;
-    }
-
-    static void IconImpl()
-    {
-
-    }
-
 #if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_ICONS)
 
-    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry)
+    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        ImVec2 size = GetIconSize(sztype);
+        assert((rtype & RT_PATH) != 0);
+        auto id = GetIdFromString(resource, WT_MediaResource);
         auto& context = GetContext();
-		auto pos = !context.layoutStack.empty() ? 
-            context.layouts[context.layoutStack.top()].nextpos : context.NextAdHocPos();
-        auto style = context.GetStyle(WS_Default);
-        WidgetDrawResult res;
+        auto& media = context.GetState(id.first).state.media;
 
-        if (geometry & ToTop) pos.y = pos.y - size.y;
-		if (geometry & ToLeft) pos.x = pos.x - size.x;
-
-        context.GetRenderer().DrawResource(rtype, pos, size, style.fgcolor, resource);
-        res.geometry.Min = pos;
-        res.geometry.Max = pos + size;
-        return res;
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(id.first, WT_MediaResource, geometry, neighbors);
     }
     
+    WidgetDrawResult Icon(int32_t id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((rtype & RT_PATH) != 0);
+        auto& context = GetContext();
+        auto& media = context.GetState(id).state.media;
+
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(id, WT_MediaResource, geometry, neighbors);
+    }
+
+    WidgetDrawResult Icon(std::string_view id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((rtype & RT_PATH) != 0);
+        auto wid = GetIdFromString(id, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
+    }
+
 #endif
 
-    WidgetDrawResult Icon(SymbolIcon icon, IconSizingType sztype, int32_t geometry)
+    WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        ImVec2 size = GetIconSize(sztype);
         auto& context = GetContext();
-        auto pos = !context.layoutStack.empty() ?
-            context.layouts[context.layoutStack.top()].nextpos : context.NextAdHocPos();
-        auto style = context.GetStyle(WS_Default);
-        WidgetDrawResult res;
+        auto& media = context.GetState(id).state.media;
 
-        if (geometry & ToTop) pos.y = pos.y - size.y;
-        if (geometry & ToLeft) pos.x = pos.x - size.x;
+        media.resflags = RT_SYMBOL;
+        media.symbol = icon;
+        media.sztype = sztype;
+        return Widget(id, WT_MediaResource, geometry, neighbors);
+    }
 
-        DrawSymbol(pos, size, { 0.f, 0.f }, icon, style.fgcolor, style.fgcolor, 1.f, context.GetRenderer());
-        res.geometry.Min = pos;
-        res.geometry.Max = pos + size;
-        return res;
+    WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = RT_SYMBOL;
+        media.symbol = icon;
+        media.sztype = sztype;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
     }
 
     ImRect BeginFlexLayoutRegion(Direction dir, int32_t geometry, bool wrap,

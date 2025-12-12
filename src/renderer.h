@@ -6,6 +6,15 @@
 
 namespace glimmer
 {
+    enum LoadFlags 
+    {
+        LF_ReadFromFile = 1,
+        LF_CreateTexture = 2,
+        LF_AsyncLoad = 4,
+        LF_ParallelLoad = 8,
+        LF_TextureAtlas = 16
+    };
+
     // Implement this to draw primitives in your favorite graphics API
     // TODO: Separate gradient creation vs. drawing
     struct IRenderer
@@ -42,7 +51,8 @@ namespace glimmer
         virtual bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) { return true; }
         virtual void EndOverlay() {}
 
-        virtual bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content) {}
+        virtual bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) { return false; }
+        virtual int64_t PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz) { return 0; }
 
         virtual void Render(IRenderer& renderer, ImVec2 offset, int from = 0, int to = -1) {}
         virtual int TotalEnqueued() const { return 0; }

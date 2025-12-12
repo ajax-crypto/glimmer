@@ -660,6 +660,10 @@ namespace glimmer
                 int ridx = 0;
             } accordion;
 
+            struct {
+                ImRect padding, content;
+            } media;
+
             ParamsT() {}
         } params;
 
@@ -683,6 +687,7 @@ namespace glimmer
         static EventDeferInfo ForTabBar(int32_t id, const ImRect& content);
         static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
         static EventDeferInfo ForScrollRegion(int32_t id);
+        static EventDeferInfo ForMediaResource(int32_t id, const ImRect& padding, const ImRect& content);
     };
 
     enum class NestedContextSourceType

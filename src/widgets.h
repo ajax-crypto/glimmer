@@ -14,9 +14,12 @@ namespace glimmer
     void SetNextTooltip(std::string_view tooltip);
 
 #if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_IMAGES)
-	WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight);
+    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Icon(int32_t id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Icon(std::string_view id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 #endif
-    WidgetDrawResult Icon(SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight);
+    WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
     void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets & neighbors = NeighborWidgets{});
     void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});

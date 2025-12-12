@@ -125,7 +125,7 @@ namespace glimmer
         WT_TabBar,
         WT_ItemGrid,
         WT_Charts,
-        WT_Icon,
+        WT_MediaResource,
         WT_TotalTypes,
 
         WT_ContextMenu = WT_TotalTypes,
@@ -221,7 +221,7 @@ namespace glimmer
         float _hoverDuration = 0; // for tooltip, in seconds
     };
 
-    enum ResourceType
+    enum ResourceType : int32_t
     {
         RT_INVALID = 0, 
         RT_SYMBOL = 1, RT_PNG = 2, RT_SVG = 4, RT_JPG = 8, RT_GIF = 16,
@@ -247,6 +247,30 @@ namespace glimmer
     };
 
     using LabelState = ButtonState;
+
+    enum class IconSizingType
+    {
+        Fixed, DefaultFontSz, CurrentFontSz
+    };
+
+    enum class SymbolIcon
+    {
+        None = -1,
+
+        // These icons are drawn directly
+        DownArrow, UpArrow, DownTriangle, UpTriangle, LeftTriangle, RightTriangle, Plus, Minus, Cross,
+
+        // Below icons are by default SVGs
+        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
+    };
+
+    struct MediaState : public CommonWidgetData
+    {
+        std::string_view content;
+        IconSizingType sztype = IconSizingType::CurrentFontSz;
+        int32_t resflags = ResourceType::RT_INVALID;
+        SymbolIcon symbol = SymbolIcon::None;
+    };
 
     struct ToggleButtonState : public CommonWidgetData
     {
@@ -598,6 +622,7 @@ namespace glimmer
             TabBarState tab;
             ItemGridConfig grid;
             ScrollableRegion scroll;
+            MediaState media;
             // Add others...
 
             SharedWidgetState() {}
@@ -708,20 +733,4 @@ namespace glimmer
         int row = -1, col = -1;
         bool isHeader = false;
     };
-
-    enum class SymbolIcon
-    {
-        None = -1,
-
-        // These icons are drawn directly
-        DownArrow, UpArrow, DownTriangle, UpTriangle, LeftTriangle, RightTriangle, Plus, Minus, Cross,
-
-        // Below icons are by default SVGs
-        Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
-    };
-
-    enum class IconSizingType
-    {
-		Fixed, DefaultFontSz, CurrentFontSz
-	};
 }

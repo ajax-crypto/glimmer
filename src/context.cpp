@@ -50,6 +50,7 @@ namespace glimmer
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
 
     void AnimationData::moveByPixel(float amount, float max, float reset)
     {
@@ -697,6 +698,16 @@ namespace glimmer
         return info;
     }
 
+    EventDeferInfo EventDeferInfo::ForMediaResource(int32_t id, const ImRect& padding, const ImRect& content)
+    {
+        EventDeferInfo info;
+        info.type = WT_MediaResource;
+        info.id = id;
+        info.params.media.content = content;
+        info.params.media.padding = padding;
+        return info;
+    }
+
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
         auto io = Config.platform->CurrentIO();
@@ -794,6 +805,10 @@ namespace glimmer
             case WT_Scrollable:
 				// TODO: Handle scrollable events if any in future
                 break;
+            case WT_MediaResource:
+                ev.params.media.content.Translate(origin);
+                ev.params.media.padding.Translate(origin);
+                HandleMediaResourceEvent(ev.id, ev.params.media.padding, ev.params.media.content, io, result);
             default:
                 break;
             }
