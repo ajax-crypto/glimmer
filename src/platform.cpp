@@ -162,80 +162,66 @@ namespace glimmer
 
     bool IPlatform::EnterFrame(float width, float height)
     {
-        ImGui::NewFrame();
-        ImGui::GetIO().MouseDrawCursor = softwareCursor;
-
-        ImVec2 winsz{ (float)width, (float)height };
-        ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
-        ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
-
-        auto& io = ImGui::GetIO();
-        auto rollover = 0;
-        auto escape = false, clicked = false;
-
-        desc.deltaTime = io.DeltaTime;
-        desc.mousepos = io.MousePos;
-        desc.mouseWheel = io.MouseWheel;
-        desc.modifiers = io.KeyMods;
-        totalTime += io.DeltaTime;
-
-        for (auto idx = 0; idx < ImGuiMouseButton_COUNT; ++idx)
+        auto color = ToRGBA(bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3]);
+        if (Config.renderer->InitFrame(width, height, color, softwareCursor))
         {
-            desc.mouseButtonStatus[idx] =
-                ImGui::IsMouseDown(idx) ? ButtonStatus::Pressed :
-                ImGui::IsMouseReleased(idx) ? ButtonStatus::Released :
-                ImGui::IsMouseDoubleClicked(idx) ? ButtonStatus::DoubleClicked :
-                ButtonStatus::Default;
-            clicked = clicked || ImGui::IsMouseDown(idx);
-        }
+            auto& io = ImGui::GetIO();
+            auto rollover = 0;
+            auto escape = false, clicked = false;
 
-        for (int key = Key_Tab; key != Key_Total; ++key)
-        {
-            auto imkey = ImGuiKey_NamedKey_BEGIN + key;
-            if (ImGui::IsKeyPressed((ImGuiKey)imkey))
+            desc.deltaTime = io.DeltaTime;
+            desc.mousepos = io.MousePos;
+            desc.mouseWheel = io.MouseWheel;
+            desc.modifiers = io.KeyMods;
+            totalTime += io.DeltaTime;
+
+            for (auto idx = 0; idx < ImGuiMouseButton_COUNT; ++idx)
             {
-                if ((ImGuiKey)imkey == ImGuiKey_CapsLock) desc.capslock = !desc.capslock;
-                else if ((ImGuiKey)imkey == ImGuiKey_Insert) desc.insert = !desc.insert;
-                else
-                {
-                    if (rollover < GLIMMER_NKEY_ROLLOVER_MAX)
-                        desc.key[rollover++] = (Key)key;
-                    desc.keyStatus[key] = ButtonStatus::Pressed;
-                    escape = imkey == ImGuiKey_Escape;
-                }
+                desc.mouseButtonStatus[idx] =
+                    ImGui::IsMouseDown(idx) ? ButtonStatus::Pressed :
+                    ImGui::IsMouseReleased(idx) ? ButtonStatus::Released :
+                    ImGui::IsMouseDoubleClicked(idx) ? ButtonStatus::DoubleClicked :
+                    ButtonStatus::Default;
+                clicked = clicked || ImGui::IsMouseDown(idx);
             }
-            else if (ImGui::IsKeyReleased((ImGuiKey)imkey))
-                desc.keyStatus[key] = ButtonStatus::Released;
-            else
-                desc.keyStatus[key] = ButtonStatus::Default;
-        }
 
-        while (rollover <= GLIMMER_NKEY_ROLLOVER_MAX)
-            desc.key[rollover++] = Key_Invalid;
+            for (int key = Key_Tab; key != Key_Total; ++key)
+            {
+                auto imkey = ImGuiKey_NamedKey_BEGIN + key;
+                if (ImGui::IsKeyPressed((ImGuiKey)imkey))
+                {
+                    if ((ImGuiKey)imkey == ImGuiKey_CapsLock) desc.capslock = !desc.capslock;
+                    else if ((ImGuiKey)imkey == ImGuiKey_Insert) desc.insert = !desc.insert;
+                    else
+                    {
+                        if (rollover < GLIMMER_NKEY_ROLLOVER_MAX)
+                            desc.key[rollover++] = (Key)key;
+                        desc.keyStatus[key] = ButtonStatus::Pressed;
+                        escape = imkey == ImGuiKey_Escape;
+                    }
+                }
+                else if (ImGui::IsKeyReleased((ImGuiKey)imkey))
+                    desc.keyStatus[key] = ButtonStatus::Released;
+                else
+                    desc.keyStatus[key] = ButtonStatus::Default;
+            }
 
-        InitFrameData();
-        cursor = MouseCursor::Arrow;
+            while (rollover <= GLIMMER_NKEY_ROLLOVER_MAX)
+                desc.key[rollover++] = Key_Invalid;
 
-        if (ImGui::Begin(GLIMMER_IMGUI_MAINWINDOW_NAME, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
-        {
-            auto dl = ImGui::GetWindowDrawList();
-            Config.renderer->UserData = dl;
-            dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] });
+            InitFrameData();
+            cursor = MouseCursor::Arrow;
             return true;
         }
-
+        
         return false;
     }
 
     void IPlatform::ExitFrame()
     {
-        ImGui::End();
-
         ++frameCount; ++deltaFrames;
         totalDeltaTime += desc.deltaTime;
         maxFrameTime = std::max(maxFrameTime, desc.deltaTime);
-        ImGui::SetMouseCursor((ImGuiMouseCursor)cursor);
 
         for (auto idx = 0; idx < GLIMMER_NKEY_ROLLOVER_MAX; ++idx)
             desc.key[idx] = Key_Invalid;
@@ -261,8 +247,7 @@ namespace glimmer
             deltaFrames = 0;
         }
 
-        // Rendering
-        ImGui::Render();
+        Config.renderer->FinalizeFrame((int32_t)cursor);
     }
 
     float IPlatform::fps() const

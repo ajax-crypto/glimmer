@@ -22,6 +22,9 @@ namespace glimmer
         void* UserData = nullptr;
         ImVec2 size{ 0.f, 0.f };
 
+        virtual bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) { return true; }
+        virtual void FinalizeFrame(int32_t cursor) {}
+
         virtual void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect = true) = 0;
         virtual void ResetClipRect() = 0;
 

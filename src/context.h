@@ -560,8 +560,8 @@ namespace glimmer
         ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
         ImVec2 cumulative{ 0.f, 0.f }, size{};
         ImRect extent{}; // max coords of widgets inside layout
-        Vector<ImVec2, int16_t> rows;
-        Vector<ImVec2, int16_t> cols;
+        Vector<ImVec2, int16_t> rows{ false };
+        Vector<ImVec2, int16_t> cols{ false };
         Vector<int16_t, int16_t> griditems{ false };
         std::pair<int, int> gridsz;
         std::pair<int16_t, int16_t> currspan{ 1, 1 };

@@ -134,6 +134,9 @@ namespace glimmer
     {
         ImGuiRenderer();
 
+        bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) override;
+        void FinalizeFrame(int32_t cursor) override;
+
         void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect);
         void ResetClipRect();
 
@@ -198,6 +201,34 @@ namespace glimmer
 
     ImGuiRenderer::ImGuiRenderer()
     {}
+
+    bool ImGuiRenderer::InitFrame(float width, float height, uint32_t bgcolor, bool softCursor)
+    {
+        ImGui::NewFrame();
+        ImGui::GetIO().MouseDrawCursor = softCursor;
+
+        ImVec2 winsz{ (float)width, (float)height };
+        ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
+
+        if (ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+        {
+            auto dl = ImGui::GetWindowDrawList();
+            Config.renderer->UserData = dl;
+            dl->AddRectFilled(ImVec2{ 0, 0 }, winsz, ImColor{ bgcolor });
+            return true;
+        }
+
+        return false;
+    }
+
+    void ImGuiRenderer::FinalizeFrame(int32_t cursor)
+    {
+        ImGui::End();
+        ImGui::SetMouseCursor((ImGuiMouseCursor)cursor);
+        ImGui::Render();
+    }
 
     void ImGuiRenderer::SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
     {
