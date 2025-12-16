@@ -84,7 +84,7 @@ namespace glimmer
         hofmode = OverflowMode::Scroll;
         vofmode = OverflowMode::Scroll;
         scroll = ScrollableRegion{};
-		tabbar = TabBarBuilder{};
+        tabbar.reset();
         popSizingOnEnd = false;
         currspan.first = currspan.second = 1;
 
@@ -246,8 +246,11 @@ namespace glimmer
             context.maxids[WT_Layout] = 0;
             context.maxids[WT_Charts] = 0;
             context.regions.clear(true);
-            context.layouts.clear(true);
             context.lastLayoutIdx = -1;
+
+            for (auto& layout : context.layouts)
+                layout.reset();
+            context.layouts.clear(false);
 
             assert(context.layoutStack.empty());
         }

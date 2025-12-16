@@ -418,7 +418,7 @@ namespace glimmer
         int32_t geometry;
         TabBarItemSizing sizing = TabBarItemSizing::ResizeToFit;
         NeighborWidgets neighbors;
-        Vector<TabItemDescriptor, int16_t, 16> items;
+        Vector<TabItemDescriptor, int16_t, 16> items{ false };
         std::string_view expand = "Expand";
         TextType expandType = TextType::PlainText;
         bool newTabButton = false;
@@ -573,7 +573,7 @@ namespace glimmer
 		void* implData = nullptr;
         bool popSizingOnEnd = false;
 
-        Vector<std::pair<int32_t, LayoutOps>, int16_t> itemIndexes;
+        Vector<std::pair<int32_t, LayoutOps>, int16_t> itemIndexes{ false };
         FixedSizeStack<int32_t, 16> containerStack;
         TabBarBuilder tabbar;
 

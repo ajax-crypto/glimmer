@@ -65,8 +65,8 @@ namespace glimmer
             AllocatedBytes += amount;
             TotalMallocs++;
         }
-        else { 
-            AllocatedBytes += amount - it->second; 
+        else {
+            AllocatedBytes += amount - it->second;
             TotalReallocs++;
             Allocations.erase(ptr);
         }
@@ -74,8 +74,8 @@ namespace glimmer
         return result;
     }
 
-    inline void DeallocateImpl(void* ptr) 
-    { 
+    inline void DeallocateImpl(void* ptr)
+    {
         if (ptr != nullptr)
         {
             --TotalMallocs;
@@ -85,7 +85,7 @@ namespace glimmer
         }
         else LOGERROR("Unchecked de-allocation of nullptr...\n");
     }
-    
+
     inline void* (*AllocateFunc)(size_t amount) = &AllocateImpl;
     inline void* (*ReallocateFunc)(void* ptr, size_t amount) = &ReallocateImpl;
     inline void (*DeallocateFunc)(void* ptr) = &DeallocateImpl;
@@ -143,7 +143,7 @@ namespace glimmer
 
         ~Vector()
         {
-            if constexpr (std::is_destructible_v<T> && std::is_scalar_v<T>) 
+            if constexpr (std::is_destructible_v<T> && std::is_scalar_v<T>)
                 for (auto idx = 0; idx < _size; ++idx) _data[idx].~T();
             DeallocateFunc(_data);
         }
@@ -158,7 +158,7 @@ namespace glimmer
             }
         }
 
-        template <typename IntegralT, 
+        template <typename IntegralT,
             typename = std::enable_if<!std::is_same_v<IntegralT, bool>, void>::type>
         explicit Vector(IntegralT initialsz)
             : _capacity{ (Sz)initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * (Sz)initialsz) }
@@ -261,7 +261,7 @@ namespace glimmer
                 _data = ptr;
                 _capacity = targetsz;
             }
-            
+
             _size = targetsz;
             if (initialize) _default_init(_size, targetsz);
         }
@@ -271,6 +271,13 @@ namespace glimmer
         {
             _reallocate(true);
             ::new(_data + _size) T{ std::forward<ArgsT>(args)... };
+            _size++;
+            return _data[_size - 1];
+        }
+
+        T& next(bool init)
+        {
+            _reallocate(init);
             _size++;
             return _data[_size - 1];
         }
@@ -317,7 +324,8 @@ namespace glimmer
         void _reallocate(bool initialize)
         {
             T* ptr = nullptr;
-            if (_size == _capacity) ptr = (T*)ReallocateFunc(_data, (_capacity + blocksz) * sizeof(T));
+            if (_size == _capacity) 
+                ptr = (T*)ReallocateFunc(_data, (_capacity + blocksz) * sizeof(T));
 
             if (ptr != nullptr)
             {
@@ -333,9 +341,28 @@ namespace glimmer
     };
 
     template <typename T, int16_t capacity>
-    struct FixedSizeStack
+    struct StackStorage
+    {
+        T storage[capacity];
+        T* _data = nullptr;
+
+        StackStorage() { _data = storage; }
+    };
+
+    template <typename T, int16_t capacity>
+    struct HeapStorage
     {
         T* _data = nullptr;
+
+        HeapStorage() { _data = (T*)AllocateFunc(sizeof(T) * capacity); }
+        ~HeapStorage() { DeallocateFunc(_data); }
+    };
+
+    template <typename T, int16_t capacity>
+    struct FixedSizeStack
+    {
+        std::conditional_t<(sizeof(T)* capacity) <= (1 << 19),
+            StackStorage<T, capacity>, HeapStorage<T, capacity>> _storage;
         int16_t _size = 0;
         int16_t _max = 0;
 
@@ -344,20 +371,17 @@ namespace glimmer
 
         FixedSizeStack(bool init = true)
         {
-            _data = (T*)AllocateFunc(sizeof(T) * capacity);
-
             if (init)
             {
                 if constexpr (std::is_default_constructible_v<T>)
-                    Fill<T>(_data, _data + capacity);
+                    Fill<T>(_storage._data, _storage._data + capacity);
             }
         }
 
         ~FixedSizeStack()
         {
             if constexpr (std::is_destructible_v<T>) 
-                for (int16_t idx = 0; idx < _size; ++idx) _data[idx].~T();
-            DeallocateFunc(_data);
+                for (int16_t idx = 0; idx < _size; ++idx) _storage._data[idx].~T();
         }
 
         T& push()
@@ -365,7 +389,7 @@ namespace glimmer
             assert(_size < capacity);
             ++_size;
             _max = std::max(_max, _size);
-            return _data[_size - 1];
+            return _storage._data[_size - 1];
         }
 
         void pop(int16_t depth, bool definit)
@@ -375,7 +399,7 @@ namespace glimmer
                 --_size;
                 if constexpr (std::is_default_constructible_v<T>)
                     if (definit)
-                        ::new(_data + _size) T{};
+                        ::new(_storage._data + _size) T{};
                 --depth;
             }
         }
@@ -384,17 +408,17 @@ namespace glimmer
 
         int size() const { return _size; }
         bool empty() const { return _size == 0; }
-        T* begin() const { return _data; }
-        T* end() const { return _data + _size; }
+        T* begin() const { return _storage._data; }
+        T* end() const { return _storage._data + _size; }
 
-        T& operator[](int16_t idx) { return _data[idx]; }
-        T const& operator[](int16_t idx) const { return _data[idx]; }
+        T& operator[](int16_t idx) { return _storage._data[idx]; }
+        T const& operator[](int16_t idx) const { return _storage._data[idx]; }
 
-        T& top(int16_t depth = 0) { return _data[_size - (int16_t)1 - depth]; }
-        T const& top(int16_t depth = 0) const { return _data[_size - (int16_t)1 - depth]; }
+        T& top(int16_t depth = 0) { return _storage._data[_size - (int16_t)1 - depth]; }
+        T const& top(int16_t depth = 0) const { return _storage._data[_size - (int16_t)1 - depth]; }
 
-        T& next(int16_t amount) { return _data[_size - (int16_t)1 - amount]; }
-        T const& next(int16_t amount) const { return _data[_size - (int16_t)1 - amount]; }
+        T& next(int16_t amount) { return _storage._data[_size - (int16_t)1 - amount]; }
+        T const& next(int16_t amount) const { return _storage._data[_size - (int16_t)1 - amount]; }
     };
 
     template <typename T, typename Sz, Sz blocksz = 128>

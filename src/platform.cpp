@@ -6,10 +6,6 @@
 #include "nfd-ext/src/include/nfd.h"
 #endif
 
-#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
-#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
-#endif
-
 namespace glimmer
 {
     int64_t FramesRendered()
@@ -165,6 +161,8 @@ namespace glimmer
         auto color = ToRGBA(bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3]);
         if (Config.renderer->InitFrame(width, height, color, softwareCursor))
         {
+#ifndef GLIMMER_CUSTOM_EVENT_BUFFER
+
             auto& io = ImGui::GetIO();
             auto rollover = 0;
             auto escape = false, clicked = false;
@@ -205,6 +203,8 @@ namespace glimmer
                 else
                     desc.keyStatus[key] = ButtonStatus::Default;
             }
+
+#endif
 
             while (rollover <= GLIMMER_NKEY_ROLLOVER_MAX)
                 desc.key[rollover++] = Key_Invalid;

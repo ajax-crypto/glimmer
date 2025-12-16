@@ -25,7 +25,7 @@ namespace glimmer
         return idx;
     }
 
-#ifndef GLIMMER_ENABLE_RICH_TEXT
+#ifdef GLIMMER_DISABLE_RICHTEXT
     [[nodiscard]] int SkipSpace(const std::string_view text, int from = 0)
 #else
     int SkipSpace(const std::string_view text, int from)
@@ -36,7 +36,7 @@ namespace glimmer
         return from;
     }
 
-#ifndef GLIMMER_ENABLE_RICH_TEXT
+#ifdef GLIMMER_DISABLE_RICHTEXT
     [[nodiscard]] int WholeWord(const std::string_view text, int from = 0)
 #else
     int WholeWord(const std::string_view text, int from)
@@ -47,7 +47,7 @@ namespace glimmer
         return from;
     }
 
-#ifndef GLIMMER_ENABLE_RICH_TEXT
+#ifdef GLIMMER_DISABLE_RICHTEXT
     [[nodiscard]] int SkipDigits(const std::string_view text, int from = 0)
 #else
     int SkipDigits(const std::string_view text, int from)
@@ -58,7 +58,7 @@ namespace glimmer
         return from;
     }
 
-#ifndef GLIMMER_ENABLE_RICH_TEXT
+#ifdef GLIMMER_DISABLE_RICHTEXT
     [[nodiscard]] int SkipFDigits(const std::string_view text, int from = 0)
 #else
     int SkipFDigits(const std::string_view text, int from)
@@ -228,35 +228,6 @@ namespace glimmer
 
         return result;
     }
-
-#ifndef IM_RICHTEXT_TARGET_IMGUI
-    static void ColorConvertHSVtoRGB(float h, float s, float v, float& out_r, float& out_g, float& out_b)
-    {
-        if (s == 0.0f)
-        {
-            // gray
-            out_r = out_g = out_b = v;
-            return;
-        }
-
-        h = std::fmodf(h, 1.0f) / (60.0f / 360.0f);
-        int   i = (int)h;
-        float f = h - (float)i;
-        float p = v * (1.0f - s);
-        float q = v * (1.0f - s * f);
-        float t = v * (1.0f - s * (1.0f - f));
-
-        switch (i)
-        {
-        case 0: out_r = v; out_g = t; out_b = p; break;
-        case 1: out_r = q; out_g = v; out_b = p; break;
-        case 2: out_r = p; out_g = v; out_b = t; break;
-        case 3: out_r = p; out_g = q; out_b = v; break;
-        case 4: out_r = t; out_g = p; out_b = v; break;
-        case 5: default: out_r = v; out_g = p; out_b = q; break;
-        }
-    }
-#endif
 
     [[nodiscard]] std::tuple<IntOrFloat, IntOrFloat, IntOrFloat, IntOrFloat> GetCommaSeparatedNumbers(std::string_view stylePropVal, int& curr)
     {

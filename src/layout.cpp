@@ -150,14 +150,20 @@ void ResetYogaLayoutSystem()
 
             for (auto node : root.levelOrderNodes[depth])
                 YGNodeReset(node);
+
+            root.levelOrderNodes[depth].clear();
         }
 
         YGNodeReset(root.root);
+        root.root = nullptr;
+        root.widgets.clear();
+        root.layouts.clear();
+        root.depth = 0;
     }
 
     NextFreeNodeIdx = 0;
-    FlexLayoutRootStack.clear(false);
-    FlexLayoutRoots.clear(true);
+    FlexLayoutRootStack.clear(false);   
+    FlexLayoutRoots.clear(false);
 }
 
 static ImRect GetBoundingBox(YGNodeConstRef node)
@@ -1047,7 +1053,7 @@ namespace glimmer
         assert(context.layoutStack.empty()); // No nested layout is supported
 #endif
 
-        auto& layout = context.layouts.emplace_back();
+        auto& layout = context.layouts.next(true);
         context.layoutStack.push() = context.layouts.size() - 1;
         auto isParentFlexLayout = IsParentFlexLayout(context);
 
@@ -1132,12 +1138,28 @@ namespace glimmer
         if ((layout.fill & FD_Horizontal) && (available.Max.x != FLT_MAX) && (available.Max.x > 0.f))
         {
             auto width = available.GetWidth() - (2.f * layout.spacing.x);
+            if (regionIdx != -1)
+            {
+                auto rid = context.regions[regionIdx].id;
+                auto& state = context.GetState(rid).state.region;
+                auto style = context.GetStyle(state.state, rid);
+                width -= (style.margin.left + style.margin.right);
+            }
+
             YGNodeStyleSetWidth(root, width);
         }
 
         if ((layout.fill & FD_Vertical) && (available.Max.y != FLT_MAX) && (available.Max.y > 0.f))
         {
             auto height = available.GetHeight() - (2.f * layout.spacing.y);
+            if (regionIdx != -1)
+            {
+                auto rid = context.regions[regionIdx].id;
+                auto& state = context.GetState(rid).state.region;
+                auto style = context.GetStyle(state.state, rid);
+                height -= (style.margin.top + style.margin.bottom);
+            }
+
             YGNodeStyleSetHeight(root, height);
         }
 
@@ -1275,15 +1297,14 @@ namespace glimmer
         layout.geometry = ImRect{};
         layout.regionIdx = regionIdx;
 
-        /*if (!isParentFlexLayout && regionIdx != -1)
+        if (!isParentFlexLayout && regionIdx != -1)
         {
             auto regionId = context.regions[regionIdx].id;
             auto& state = context.GetState(regionId).state.region;
             auto style = context.GetStyle(state.state, regionId);
 
-            layout.startpos += ImVec2{ style.margin.left + style.border.left.thickness + style.padding.left,
-				style.margin.top + style.border.top.thickness + style.padding.top };
-        }*/
+            layout.startpos += ImVec2{ style.margin.left, style.margin.top };
+        }
 
         layout.nextpos = layout.startpos;
         return layout.geometry;
@@ -1405,8 +1426,7 @@ namespace glimmer
             auto& state = context.GetState(regionId).state.region;
             auto style = context.GetStyle(state.state, regionId);
 
-            layout.startpos += ImVec2{ style.margin.left + style.border.left.thickness + style.padding.left,
-                style.margin.top + style.border.top.thickness + style.padding.top };
+            layout.startpos += ImVec2{ style.margin.left, style.margin.top };
         }
 
         layout.nextpos = layout.startpos;
@@ -2481,6 +2501,17 @@ namespace glimmer
             case LayoutOps::PopTextType:
                 PopTextType();
                 break;
+            case LayoutOps::PushRegion:
+            {
+                auto& region = context.regions[(int32_t)data];
+                context.GetRenderer().SetClipRect(region.origin, region.origin + region.size);
+                break;
+            }
+            case LayoutOps::PopRegion:
+            {
+                context.GetRenderer().ResetClipRect();
+                break;
+            }
             default:
                 break;
             }
