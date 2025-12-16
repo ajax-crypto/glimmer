@@ -176,8 +176,9 @@ namespace glimmer
         std::string_view widgetNames[WT_TotalTypes] = {
             "region", "label", "button", "radio", "toggle", "checkbox", "layout",
             "scroll", "splitter", "invalid", "accordion", "slider", "rangeslider", "spinner",
-            "text", "dropdown", "tab", "itemgrid", "chart"
+            "text", "dropdown", "tab", "itemgrid", "chart", "icon"
         };
+        void* iconFont = nullptr;
         void* userData = nullptr;
     };
 
@@ -226,6 +227,8 @@ namespace glimmer
         RT_INVALID = 0, 
         RT_SYMBOL = 1, RT_PNG = 2, RT_SVG = 4, RT_JPG = 8, RT_GIF = 16,
         RT_BMP = 32, RT_PSD = 64,
+
+        RT_ICON_FONT = 128,
 
         RT_GENERIC_IMG = 1 << 16,
 		RT_PATH = 1 << 17, // treat resource as file path

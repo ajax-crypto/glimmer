@@ -49,6 +49,9 @@
     <Filter Include="Source Files\richtext">
       <UniqueIdentifier>{e0f5343a-d6ce-4988-9e44-92750b71c633}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\iconfonts">
+      <UniqueIdentifier>{40827885-006f-4bde-88c9-0e8fa91907d0}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -167,6 +170,39 @@
     </ClInclude>
     <ClInclude Include="..\..\src\libs\inc\randrew.layout\layout.h">
       <Filter>Header Files\layout</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsCodicons.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontaudio.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome4.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome5.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome6.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome7.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsForkAwesome.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsLucide.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesign.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesignIcons.h">
+      <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialSymbols.h">
+      <Filter>Header Files\iconfonts</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

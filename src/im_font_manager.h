@@ -11,6 +11,8 @@
 #define GLIMMER_MONOSPACE_FONTFAMILY "monospace-family"
 #endif
 
+using ImWchar = unsigned int;
+
 namespace glimmer
 {
     enum FontType
@@ -25,7 +27,8 @@ namespace glimmer
         ASCII,        // Standard ASCII characters (0-127)
         ASCIISymbols, // Extended ASCII + certain common characters i.e. math symbols, arrows, ™, etc.
         UTF8Simple,   // Simple UTF8 encoded text without support for GPOS/kerning/ligatures (libgrapheme)
-        UnicodeBidir  // Standard compliant Unicode BiDir algorithm implementation (Harfbuzz)
+        UnicodeBidir, // Standard compliant Unicode BiDir algorithm implementation (Harfbuzz)
+        Custom        // Custom range for icon fonts
     };
 
     struct FontCollectionFile
@@ -69,15 +72,23 @@ namespace glimmer
         FLT_Hinting = 4096,
         FLT_Antialias = 8192,
 
+#ifdef GLIMMER_ENABLE_ICON_FONT
+        FLT_IsIconFont = 1 << 14,
+        FLT_AttachIconFont = 1 << 15,
+        FLT_IconFontExclusive = 1 << 16
+#endif
+
         // TODO: Handle absolute size font-size fonts (Look at imrichtext.cpp: PopulateSegmentStyle function)
     };
 
     struct FontDescriptor
     {
+        std::string_view path;
         std::optional<FontFileNames> names = std::nullopt;
         std::vector<float> sizes;
         TextContentCharset charset = TextContentCharset::ASCII;
         uint64_t flags = FLT_Proportional;
+        std::pair<ImWchar, ImWchar> customCharRange;
     };
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
@@ -90,6 +101,9 @@ namespace glimmer
     // specified through FontDescriptor::names member. If not specified, a OS specific
     // default path is selected i.e. C:\Windows\Fonts for Windows and 
     // /usr/share/fonts/ for Linux.
+    // Load icon fonts based on provided descriptor. Path to said font should be in FontDescriptor::path
+    // Any fonts with FLT_AttachIconFont attribute will have the icon fonts attached to them, so inline icons work
+    // Use FLT_IconFontExclusive to create icon font exclusive textures, i.e. not merged with other fonts
     bool LoadDefaultFonts(const FontDescriptor* descriptors, int totalNames = 1, bool needRichText = true);
 
     // Find out path to .ttf file for specified font family and font type
@@ -111,7 +125,7 @@ namespace glimmer
     //    FontType ft, TextContentCharset charset, std::string_view* lookupPaths = nullptr, 
     //    int lookupSz = 0);
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
     // Get the closest matching font based on provided parameters. The return type is
     // ImFont* cast to void* to better fit overall library.
     // NOTE: size matching happens with lower_bound calls, this is done because all fonts
@@ -130,7 +144,7 @@ namespace glimmer
     [[nodiscard]] bool IsFontLoaded();
 
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
     using FontFamilyToFileMapper = std::string_view(*)(std::string_view);
     struct FontExtraInfo { FontFamilyToFileMapper mapper = nullptr; std::string_view filepath; };
 

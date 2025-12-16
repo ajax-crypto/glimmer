@@ -15,6 +15,18 @@ namespace glimmer
         LF_TextureAtlas = 16
     };
 
+    struct ImageDim { int x, y; };
+
+    struct ResourceData
+    {
+        int32_t id = -1;
+        int32_t resflags = RT_INVALID;
+        uint32_t bgcolor = ToRGBA(0, 0, 0, 0);
+        std::string_view content;
+        ImageDim* sizes = nullptr;
+        int sizesCount = 0;
+    };
+
     // Implement this to draw primitives in your favorite graphics API
     // TODO: Separate gradient creation vs. drawing
     struct IRenderer
@@ -55,7 +67,7 @@ namespace glimmer
         virtual void EndOverlay() {}
 
         virtual bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) { return false; }
-        virtual int64_t PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz) { return 0; }
+        virtual int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) { return 0; }
 
         virtual void Render(IRenderer& renderer, ImVec2 offset, int from = 0, int to = -1) {}
         virtual int TotalEnqueued() const { return 0; }

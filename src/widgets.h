@@ -18,6 +18,9 @@ namespace glimmer
     WidgetDrawResult Icon(int32_t id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Icon(std::string_view id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 #endif
+#ifdef GLIMMER_ENABLE_ICON_FONT
+    WidgetDrawResult Icon(std::string_view resource, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+#endif
     WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 

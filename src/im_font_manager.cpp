@@ -1,12 +1,12 @@
 #include "im_font_manager.h"
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
 #include "libs/inc/imgui/imgui.h"
 #ifdef IMGUI_ENABLE_FREETYPE
 #include "libs/inc/imgui/misc/freetype/imgui_freetype.h"
 #endif
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
 #include "libs/inc/blend2d/blend2d.h"
 #endif
 
@@ -96,10 +96,10 @@ namespace glimmer
 {
     struct FontFamily
     {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
         std::map<float, ImFont*> FontPtrs[FT_Total];
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
         std::map<float, BLFont> Fonts[FT_Total];
         BLFontFace FontFace[FT_Total];
 #endif
@@ -137,7 +137,53 @@ namespace glimmer
     static std::unordered_map<std::string_view, FontFamily> FontStore;
     static FontLookupInfo FontLookup;
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifdef GLIMMER_ENABLE_ICON_FONT
+    struct GlyphRangeMap
+    {
+        ImWchar start, end;
+        std::string_view path;
+        uint64_t flags = 0;
+    };
+
+    static std::map<float, std::vector<GlyphRangeMap>> IconFontAttachRange;
+
+    static void AddIconFont(const std::vector<GlyphRangeMap>& ranges, float size, bool mergeWithPrevious)
+    {
+        auto isFirst = true;
+
+        for (const auto& range : ranges)
+        {
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
+            ImWchar glyphs[3] = { range.start, range.end, 0 };
+
+            ImFontConfig fconfig;
+            fconfig.OversampleH = 2;
+            fconfig.OversampleV = 1;
+            fconfig.GlyphRanges = glyphs;
+            fconfig.MergeMode = mergeWithPrevious || !isFirst;
+            fconfig.RasterizerMultiply = size <= 16.f ? 2.f : 1.f;
+            auto hinting = range.flags & FLT_Hinting;
+            auto antialias = range.flags & FLT_Antialias;
+
+#ifdef IMGUI_ENABLE_FREETYPE
+            int32_t flags = !hinting ? ImGuiFreeTypeBuilderFlags_NoHinting :
+                !antialias ? ImGuiFreeTypeBuilderFlags_MonoHinting : ImGuiFreeTypeBuilderFlags_LightHinting;
+            flags = flags | (!antialias ? ImGuiFreeTypeBuilderFlags_Monochrome : 0);
+#endif
+
+            ImGuiIO& io = ImGui::GetIO();
+            fconfig.FontBuilderFlags = fconfig.FontBuilderFlags | flags;
+            auto path = range.path.data();
+            auto fontptr = io.Fonts->AddFontFromFileTTF(path, size, &fconfig, glyphs);
+            if (!mergeWithPrevious) Config.iconFont = fontptr;
+#endif
+
+            isFirst = false;
+        }
+    }
+#endif
+
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
     static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag, bool isMonospace)
     {
         config.FontBuilderFlags = config.FontBuilderFlags | flag;
@@ -155,10 +201,8 @@ namespace glimmer
             auto fallback = family.FontPtrs[FT_Normal][size];
 
 #ifdef IMGUI_ENABLE_FREETYPE
-            //auto configFlags = config.FontBuilderFlags;
 
             if (family.Files.Files[ft].empty()) {
-                //config.FontBuilderFlags = configFlags | flag;
                 family.FontPtrs[ft][size] = io.Fonts->AddFontFromFileTTF(
                     family.Files.Files[FT_Normal].data(), size, &config);
             }
@@ -170,6 +214,11 @@ namespace glimmer
             fonts[ft][size] = files.Files[ft].empty() ? fallback :
                 io.Fonts->AddFontFromFileTTF(files.Files[ft].data(), size, &config);
             if (isMonospace) FontLookup.MonospaceFonts.insert(fonts[ft][size]);
+#endif
+
+#ifdef GLIMMER_ENABLE_ICON_FONT
+            if (IconFontAttachRange.count(size) != 0)
+                AddIconFont(IconFontAttachRange.at(size), size, true);
 #endif
         }
     }
@@ -203,7 +252,7 @@ namespace glimmer
     }
 
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
     static void CreateFont(FontFamily& family, FontType ft, float size)
     {
         auto& face = family.FontFace[ft];
@@ -244,7 +293,7 @@ namespace glimmer
     }
 #endif
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
     static void LoadDefaultProportionalFont(float sz, const ImFontConfig& fconfig, bool autoScale, bool hinting, bool antialias)
     {
 #ifdef _WIN32
@@ -278,7 +327,7 @@ namespace glimmer
     }
 #endif
 
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
     static void LoadDefaultProportionalFont(float sz)
     {
 #ifdef _WIN32
@@ -319,7 +368,7 @@ namespace glimmer
     static bool LoadDefaultFonts(float sz, const FontFileNames* names, bool skipProportional, bool skipMonospace,
         bool autoScale, bool hinting, bool antialias, const ImWchar* glyphs)
     {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
         ImFontConfig fconfig;
         fconfig.OversampleH = 2;
         fconfig.OversampleV = 1;
@@ -347,11 +396,11 @@ namespace glimmer
 
         if (names == nullptr)
         {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
             if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale, hinting, antialias);
             if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
             if (!skipProportional) LoadDefaultProportionalFont(sz);
             if (!skipMonospace) LoadDefaultMonospaceFont(sz);
 #endif
@@ -393,19 +442,19 @@ namespace glimmer
                 files.Files[FT_Bold] = copyFileName(names->Proportional.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
                 files.Files[FT_Italics] = copyFileName(names->Proportional.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Proportional.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
                 LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, files, sz, fconfig, autoScale, false, hinting, antialias);
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
                 LoadFonts(GLIMMER_DEFAULT_FONTFAMILY, files, sz);
 #endif
             }
             else
             {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
                 if (!skipProportional) LoadDefaultProportionalFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
                 if (!skipProportional) LoadDefaultProportionalFont(sz);
 #endif
             }
@@ -416,19 +465,19 @@ namespace glimmer
                 files.Files[FT_Bold] = copyFileName(names->Monospace.Files[FT_Bold], BaseFontPaths[FT_Bold], startidx);
                 files.Files[FT_Italics] = copyFileName(names->Monospace.Files[FT_Italics], BaseFontPaths[FT_Italics], startidx);
                 files.Files[FT_BoldItalics] = copyFileName(names->Monospace.Files[FT_BoldItalics], BaseFontPaths[FT_BoldItalics], startidx);
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
                 LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, files, sz, fconfig, autoScale, true, hinting, antialias);
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
                 LoadFonts(GLIMMER_MONOSPACE_FONTFAMILY, files, sz);
 #endif
             }
             else
             {
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
                 if (!skipMonospace) LoadDefaultMonospaceFont(sz, fconfig, autoScale, hinting, antialias);
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
                 if (!skipMonospace) LoadDefaultMonospaceFont(sz);
 #endif
             }
@@ -470,7 +519,7 @@ namespace glimmer
                 flt & FLT_AutoScale, flt & FLT_Hinting, flt & FLT_Antialias, glyphrange);
         }
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
         ImGui::GetIO().Fonts->Build();
 #endif
         return true;
@@ -502,20 +551,68 @@ namespace glimmer
     {
         assert(descriptors != nullptr);
 
+        std::vector<bool> iconFontIndices;
+
+#ifdef GLIMMER_ENABLE_ICON_FONT
+        std::map<float, std::vector<GlyphRangeMap>> exclusiveRange;
+
         for (auto idx = 0; idx < total; ++idx)
         {
-            auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
+            auto isIconFont = descriptors[idx].flags & FLT_IsIconFont;
+            auto isExclusive = descriptors[idx].flags & FLT_IconFontExclusive;
+
+            if (isExclusive)
+            {
+                for (auto sz : descriptors[idx].sizes)
+                {
+                    auto& range = exclusiveRange[sz];
+                    range.emplace_back(
+                        descriptors[idx].customCharRange.first,
+                        descriptors[idx].customCharRange.second,
+                        descriptors[idx].path, descriptors[idx].flags
+                    );
+                }
+            }
+            else if (isIconFont)
+            {
+                for (auto sz : descriptors[idx].sizes)
+                {
+                    auto& range = IconFontAttachRange[sz];
+                    range.emplace_back(
+                        descriptors[idx].customCharRange.first,
+                        descriptors[idx].customCharRange.second,
+                        descriptors[idx].path, descriptors[idx].flags
+                    );
+                }
+            }
+
+            iconFontIndices.emplace_back(isIconFont);
+        }
+
+        for (const auto& [size, range] : exclusiveRange)
+            AddIconFont(range, size, false);
+
+#else
+        iconFontIndices.resize(total, false);
+#endif
+
+        for (auto idx = 0; idx < total; ++idx)
+        {
+            if (!iconFontIndices[idx])
+            {
+                auto names = descriptors[idx].names.has_value() ? &(descriptors[idx].names.value()) : nullptr;
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
-            if (needRichText)
-            {
-                auto sizes = GetFontSizes(*Config.richTextConfig, descriptors[idx].flags);
-				sizes.insert(sizes.begin(), descriptors[idx].sizes.begin(), descriptors[idx].sizes.end());
-                LoadDefaultFonts(sizes, descriptors[idx].flags, descriptors[idx].charset, names);
-            }
-            else
+                if (needRichText)
+                {
+                    auto sizes = GetFontSizes(*Config.richTextConfig, descriptors[idx].flags);
+                    sizes.insert(sizes.begin(), descriptors[idx].sizes.begin(), descriptors[idx].sizes.end());
+                    LoadDefaultFonts(sizes, descriptors[idx].flags, descriptors[idx].charset, names);
+                }
+                else
 #endif
-                LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
+                    LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
+            }
         }
 
         return true;
@@ -995,7 +1092,7 @@ namespace glimmer
         return FontLookup.info[it->second].files[ft];
     }
 
-#ifdef IM_RICHTEXT_TARGET_IMGUI
+#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
     static auto LookupFontFamily(std::string_view family)
     {
         auto famit = FontStore.find(family);
@@ -1029,6 +1126,12 @@ namespace glimmer
 
         if (szit == fonts.end() && !fonts.empty())
         {
+#ifdef GLIMMER_ENABLE_ICON_FONT
+            if (AreSame(family, "icon") || AreSame(family, "icons") ||
+                AreSame(family, "icon-font") || AreSame(family, "Icon Font"))
+                return Config.iconFont;
+            else 
+#endif    
             if (famit->second.AutoScale)
             {
                 return fonts.begin()->second;
@@ -1054,7 +1157,7 @@ namespace glimmer
     }
 
 #endif
-#ifdef IM_RICHTEXT_TARGET_BLEND2D
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
     void PreloadFontLookupInfo(int timeoutMs)
     {
         PreloadFontLookupInfoImpl(timeoutMs, nullptr, 0);

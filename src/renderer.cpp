@@ -32,6 +32,10 @@
 
 #define GLIMMER_MAX_STATIC_MEDIA_SZ 4096
 
+#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
+#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
+#endif
+
 // TODO: Test out pluto svg
 /*auto doc = plutosvg_document_load_from_data(buffer, csz, size.x, size.y, nullptr, nullptr);
 assert(doc != nullptr);
@@ -78,6 +82,15 @@ namespace glimmer
         bool isStatic = true;
     };
 
+    struct ImageData
+    {
+        int index = 0;
+        stbi_uc* pixels = nullptr;
+        int width = 0;
+        int height = 0;
+        std::unique_ptr<lunasvg::Document> svgmarkup;
+    };
+
     static void FreeResource(FileContents& contents)
     {
         if (!contents.isStatic) std::free((char*)contents.data);
@@ -121,9 +134,38 @@ namespace glimmer
                     return FileContents{ sbuffer, bufsz, true };
                 }
             }
+            else
+                std::fprintf(stderr, "Unable to open %s file\n", resource.data());
         }
         else return FileContents{ resource.data(), (int)resource.size(), true };
         return FileContents{};
+    }
+
+    static std::pair<int, int> ExtractFileContents(std::string_view path, Vector<char, int32_t, 4096>& buffer)
+    {
+#ifdef _WIN32
+        FILE* fptr = nullptr;
+        fopen_s(&fptr, path.data(), "r");
+#else
+        auto fptr = std::fopen(path.data(), "r");
+#endif
+
+        if (fptr != nullptr)
+        {
+            std::fseek(fptr, 0, SEEK_END);
+            auto bufsz = (int)std::ftell(fptr);
+            std::fseek(fptr, 0, SEEK_SET);
+
+            auto sz = buffer.size();
+            buffer.expand(bufsz);
+            std::fread(buffer.data() + sz, 1, bufsz, fptr);
+            std::fclose(fptr);
+            return { sz, sz + bufsz };
+        }
+        else
+            std::fprintf(stderr, "Unable to open %s file\n", path.data());
+
+        return { 0, 0 };
     }
 
 #pragma region ImGui Renderer
@@ -166,20 +208,20 @@ namespace glimmer
         void EndOverlay() override;
 
         bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override;
-        int64_t PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz) override;
+        int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override;
 
     private:
 
         void ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr);
 
-        int64_t RecordImage(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
-        int64_t RecordGif(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
-        int64_t RecordSVG(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, const char* data, int bufsz, bool draw);
-
         struct ImageLookupKey
         {
             int32_t id = -1;
+            std::pair<int, int> prefetched;
             std::string data;
+            ImVec2 size{};
+            ImRect uvrect{ {0.f, 0.f}, {1.f, 1.f} };
+            bool hasCommonPrefetch = false;
         };
 
         struct GifLookupKey
@@ -190,12 +232,22 @@ namespace glimmer
             long long lastTime = 0;
             ImVec2 size;
             int* delays = nullptr;
+            std::pair<int, int> prefetched;
+            std::vector<ImRect> uvmaps;
             std::string data;
+            bool hasCommonPrefetch = false;
         };
+
+        void ExtractResourceData(const ResourceData& data, std::pair<int, int> range, const char* source,
+            bool hasCommonPrefetch, bool createTextAtlas, std::vector<ImageData>& indexes, int& totalwidth, int& maxheight);
+        int64_t RecordImage(std::pair<ImageLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
+        int64_t RecordGif(std::pair<GifLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
+        int64_t RecordSVG(std::pair<ImageLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, lunasvg::Document& document, bool draw);
 
         float _currentFontSz = 0.f;
         std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
-        std::vector<std::pair<GifLookupKey, std::vector<ImTextureID>>> gifframes;
+        std::vector<std::pair<GifLookupKey, ImTextureID>> gifframes;
+        Vector<char, int32_t, 4096> prefetched; // All resource prefetched data is read into this
         ImDrawList* prevlist = nullptr;
     };
 
@@ -211,7 +263,7 @@ namespace glimmer
         ImGui::SetNextWindowSize(winsz, ImGuiCond_Always);
         ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
 
-        if (ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        if (ImGui::Begin(GLIMMER_IMGUI_MAINWINDOW_NAME, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
         {
             auto dl = ImGui::GetWindowDrawList();
@@ -607,6 +659,17 @@ namespace glimmer
             auto icon = GetSymbolIcon(content);
             DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
         }
+        else if (resflags & RT_ICON_FONT)
+        {
+#ifdef GLIMMER_ENABLE_ICON_FONT
+            Round(pos); Round(size);
+            SetCurrentFont(Config.iconFont, _currentFontSz);
+            DrawText(content, pos, color);
+            ResetFont();
+#else
+            assert(false);
+#endif
+        }
         else if (resflags & RT_SVG)
         {
 #ifndef GLIMMER_DISABLE_SVG
@@ -614,12 +677,29 @@ namespace glimmer
             auto& dl = *((ImDrawList*)UserData);
             bool found = false;
 
-            for (const auto& [key, texid] : bitmaps)
+            for (auto& entry : bitmaps)
             {
-                if ((key.id == id || (key.id == -1 && key.data == content)) && (texid != InvalidTextureId))
+                auto& [key, texid] = entry;
+                if ((key.id == id || (key.id == -1 && key.data == content)) && 
+                    (key.size == size))
                 {
+                    if (key.prefetched.second > key.prefetched.first)
+                    {
+                        auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first, 
+                            key.prefetched.second - key.prefetched.first);
+                        if (document)
+                            RecordSVG(entry, id, pos, size, color, *document, false);
+                        else
+                            std::fprintf(stderr, "Failed to load SVG [%.*s]\n", 
+                                key.prefetched.second - key.prefetched.first,
+                                prefetched.data() + key.prefetched.first);
+                        key.prefetched.second = key.prefetched.first = 0;
+                    }
+
+                    if (texid != InvalidTextureId)
+                        dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
+                    
                     found = true;
-                    dl.AddImage(texid, pos, pos + size);
                     break;
                 }
             }
@@ -627,7 +707,14 @@ namespace glimmer
             if (!found)
             {
                 auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0) RecordSVG(id, pos, size, color, contents.data, contents.size, true);
+                if (contents.size > 0)
+                {
+                    auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
+                    if (document)
+                        RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
+                    else
+                        std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
+                }
                 FreeResource(contents);
             }
 #else
@@ -643,12 +730,23 @@ namespace glimmer
             auto& dl = *((ImDrawList*)UserData);
             bool found = false;
 
-            for (const auto& [key, texid] : bitmaps)
+            for (auto& entry : bitmaps)
             {
-                if ((key.id == id || (key.id == -1 && key.data == content)) && (texid != InvalidTextureId))
+                auto& [key, texid] = entry;
+                if ((key.id == id || (key.id == -1 && key.data == content)))
                 {
+                    if (key.prefetched.second > key.prefetched.first)
+                    {
+                        auto data = prefetched.data() + key.prefetched.first;
+                        auto sz = key.prefetched.second - key.prefetched.first;
+                        RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                        key.prefetched.second = key.prefetched.first = 0;
+                    }
+
+                    if (texid != InvalidTextureId)
+                        dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
+
                     found = true;
-                    dl.AddImage(texid, pos, pos + size);
                     break;
                 }
             }
@@ -656,7 +754,9 @@ namespace glimmer
             if (!found)
             {
                 auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0) RecordImage(id, pos, size, (stbi_uc*)contents.data, (int)contents.size, true);
+                if (contents.size > 0) 
+                    RecordImage(bitmaps.emplace_back(), id, pos, size, 
+                        (stbi_uc*)contents.data, (int)contents.size, true);
                 FreeResource(contents);
             }
 #else
@@ -672,20 +772,34 @@ namespace glimmer
             auto& dl = *((ImDrawList*)UserData);
             bool found = false;
 
-            for (auto& [key, texids] : gifframes)
+            for (auto& entry : gifframes)
             {
-                if ((key.id == id || (key.id == -1 && key.data == content)) && (!texids.empty()))
+                auto& [key, texid] = entry;
+                if ((key.id == id || (key.id == -1 && key.data == content)))
                 {
-                    found = true;
-                    auto currts = system_clock::now().time_since_epoch();
-                    auto ms = duration_cast<milliseconds>(currts).count();
-                    if (key.delays[key.currframe] <= (ms - key.lastTime))
+                    if (key.prefetched.second > key.prefetched.first)
                     {
-                        key.currframe = (key.currframe + 1) % key.totalframe;
-                        key.lastTime = ms;
+                        auto data = prefetched.data() + key.prefetched.first;
+                        auto sz = key.prefetched.second - key.prefetched.first;
+                        RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                        key.prefetched.second = key.prefetched.first = 0;
                     }
 
-                    dl.AddImage(texids[key.currframe], pos, pos + size);
+                    if (texid != InvalidTextureId)
+                    {
+                        auto currts = system_clock::now().time_since_epoch();
+                        auto ms = duration_cast<milliseconds>(currts).count();
+                        if (key.delays[key.currframe] <= (ms - key.lastTime))
+                        {
+                            key.currframe = (key.currframe + 1) % key.totalframe;
+                            key.lastTime = ms;
+                        }
+
+                        auto uvrect = key.uvmaps[key.currframe];
+                        dl.AddImage(texid, pos, pos + size, uvrect.Min, uvrect.Max);
+                    }
+
+                    found = true;
                     break;
                 }
             }
@@ -693,7 +807,9 @@ namespace glimmer
             if (!found)
             {
                 auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0) RecordGif(id, pos, size, (stbi_uc*)contents.data, (int)contents.size, true);
+                if (contents.size > 0) 
+                    RecordGif(gifframes.emplace_back(), id, pos, size, 
+                        (stbi_uc*)contents.data, (int)contents.size, true);
                 FreeResource(contents);
             }
 #else
@@ -705,50 +821,192 @@ namespace glimmer
         return true;
     }
 
-    int64_t ImGuiRenderer::PreloadResources(int32_t loadflags, std::pair<int32_t, std::string_view>* resources, int totalsz)
+    void ImGuiRenderer::ExtractResourceData(const ResourceData& data, std::pair<int, int> range,
+        const char* source, bool hasCommonPrefetch, bool createTexAtlas, std::vector<ImageData>& indexes, int& totalwidth, int& maxheight)
     {
-        int64_t totalBytes = 0;
+        auto [id, resflags, bgcolor, content, sizes, count] = data;
 
+        if (range.second > range.first)
+        {
+            if (resflags & RT_GIF)
+            {
+                auto& data = gifframes.emplace_back();
+                data.first.prefetched = range;
+                data.first.data = content;
+                data.first.hasCommonPrefetch = hasCommonPrefetch;
+                indexes.emplace_back((int)gifframes.size() - 1);
+            }
+            else
+            {
+                assert(count > 0 || (resflags & RT_SVG == 0));
+
+                if (!(resflags & RT_SVG))
+                {
+                    auto& data = bitmaps.emplace_back().first;
+                    data.data = content;
+                    data.prefetched = range;
+                    data.id = id;
+                    data.hasCommonPrefetch = hasCommonPrefetch;
+
+                    auto& imgdata = indexes.emplace_back((int)bitmaps.size() - 1);
+
+                    if (createTexAtlas)
+                    {
+                        imgdata.pixels = stbi_load_from_memory((stbi_uc*)source + range.first,
+                            range.second - range.first,
+                            &imgdata.width, &imgdata.height, NULL, 4);
+                        maxheight = std::max(maxheight, imgdata.height);
+                        totalwidth += imgdata.width;
+                    }
+                }
+                else
+                {
+                    auto& svgdata = indexes.emplace_back((int)bitmaps.size());
+                    svgdata.svgmarkup = lunasvg::Document::loadFromData(source + range.first,
+                        range.second - range.first);
+
+                    for (auto sz = 0; sz < count; ++sz)
+                    {
+                        auto& data = bitmaps.emplace_back().first;
+                        data.data = content;
+                        data.prefetched = range;
+                        data.id = id;
+                        data.size = ImVec2{ (float)sizes[sz].x, (float)sizes[sz].y };
+                        data.hasCommonPrefetch = hasCommonPrefetch;
+
+                        if (createTexAtlas)
+                        {
+                            maxheight = std::max(maxheight, sizes[sz].y);
+                            totalwidth += sizes[sz].x;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    int64_t ImGuiRenderer::PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz)
+    {
+        // NOTE: The atlas generation code can be improved by better rect-bin packing algorithm
+        // Current implementation works, but is suboptimal in terms to pixel data consumed.
+
+        int64_t totalBytes = 0;
+        auto createTexAtlas = (loadflags & LF_TextureAtlas) && (loadflags & LF_CreateTexture);
+        auto pixelbufsz = 0, maxheight = 0, totalwidth = 0;
+        auto bmstart = (int)bitmaps.size();
+        std::vector<ImageData> indexes;
+        indexes.reserve(totalsz);
+
+        // Load file contents in memory and determine texture atlas size
         for (auto idx = 0; idx < totalsz; ++idx)
         {
-            auto [resflags, content] = resources[idx];
-
-            if (resflags & RT_PATH)
+            if (resources[idx].resflags & RT_PATH)
             {
-                auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0)
+                auto range = ExtractFileContents(resources[idx].content, prefetched);
+                ExtractResourceData(resources[idx], range, prefetched.data(), 
+                    true, createTexAtlas, indexes, totalwidth, maxheight);
+                totalBytes += (range.second - range.first);
+            }
+            else
+            {
+                auto range = std::make_pair(0, (int)resources[idx].content.size());
+                ExtractResourceData(resources[idx], range, resources[idx].content.data(), 
+                    false, createTexAtlas, indexes, totalwidth, maxheight);
+                totalBytes += (int)resources[idx].content.size();
+            }
+        }
+
+        pixelbufsz = totalwidth * maxheight * 4;
+        auto pixelbuf = createTexAtlas ? (stbi_uc*)malloc(pixelbufsz) : nullptr;
+        auto relw = 1.f / (float)totalwidth, currx = 0.f;
+        
+        // Load pixelbuf with pixel data for images/SVG, create textures for GIF
+        for (auto idx = 0; idx < totalsz; ++idx)
+        {
+            auto [id, resflags, bgcolor, content, sizes, count] = resources[idx];
+
+            if (resflags & RT_GIF)
+            {
+                if (loadflags & LF_CreateTexture)
                 {
-                    if (resflags & RT_GIF)
+                    auto& entry = gifframes[indexes[idx].index];
+                    auto range = entry.first.prefetched;
+                    auto source = entry.first.hasCommonPrefetch ? (stbi_uc*)prefetched.data() : 
+                        (stbi_uc*)entry.first.data.data();
+                    RecordGif(entry, id, {}, {}, source + range.first, range.second - range.first, false);
+                }
+            }
+            else
+            {
+                if (loadflags & LF_CreateTexture)
+                {
+                    if (loadflags & LF_TextureAtlas)
                     {
-                        if (loadflags & LF_CreateTexture)
-                            totalBytes += RecordGif(-1, {}, {}, (stbi_uc*)contents.data, contents.size, false);
-                        else
+                        if ((resflags & RT_SVG) && indexes[idx].svgmarkup)
                         {
-                            auto& entry = gifframes.emplace_back();
-                            entry.first.data.assign(contents.data, contents.size);
+                            auto midx = indexes[idx].index;
+                            for (auto szidx = 0; szidx < count; ++szidx, ++midx)
+                            {
+                                auto& entry = bitmaps[midx];
+                                auto pixels = indexes[idx].svgmarkup->renderToBitmap(
+                                    sizes[szidx].x, sizes[szidx].y, bgcolor);
+                                pixels.convertToRGBA();
+
+                                auto totalsz = sizes[szidx].x * sizes[szidx].y * 4;
+                                memcpy(pixelbuf, pixels.data(), totalsz);
+                                entry.first.uvrect = ImRect{ { currx, 0.f }, { currx + relw, 
+                                    (float)sizes[szidx].y / (float)maxheight } };
+                                pixelbuf += totalsz;
+                                currx += relw;
+                            }
+                        }
+                        else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                            (resflags & RT_GENERIC_IMG))
+                        {
+                            auto& entry = bitmaps[indexes[idx].index];
+                            auto& imgdata = indexes[idx];
+                            auto totalsz = imgdata.width * imgdata.height * 4;
+                            memcpy(pixelbuf, imgdata.pixels, totalsz);
+                            entry.first.uvrect = ImRect{ { currx, 0.f }, { currx + relw,
+                                    (float)imgdata.height / (float)maxheight } };
+                            pixelbuf += totalsz;
+                            currx += relw;
                         }
                     }
                     else
                     {
-                        if (loadflags & LF_CreateTexture)
+                        if ((resflags & RT_SVG) && indexes[idx].svgmarkup)
                         {
-                            // TODO: Create texture atlas of all frames and use UV coordinates
-                            if (resflags & RT_SVG)
-                                totalBytes += RecordSVG(-1, {}, {}, 0, contents.data, contents.size, false);
-                            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
-                                (resflags & RT_GENERIC_IMG))
-                                totalBytes += RecordImage(-1, {}, {}, (stbi_uc*)contents.data, contents.size, false);
+                            auto midx = indexes[idx].index;
+                            for (auto szidx = 0; szidx < count; ++szidx, ++midx)
+                            {
+                                auto& entry = bitmaps[midx];
+                                RecordSVG(entry, -1, {}, {}, bgcolor, *(indexes[idx].svgmarkup), false);
+                            }
                         }
-                        else
+                        else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                            (resflags & RT_GENERIC_IMG))
                         {
-                            auto& entry = bitmaps.emplace_back();
-                            entry.first.data.assign(contents.data, contents.size);
+                            auto& entry = bitmaps[indexes[idx].index];
+                            auto source = entry.first.hasCommonPrefetch ? (stbi_uc*)prefetched.data() :
+                                (stbi_uc*)entry.first.data.data();
+                            auto data = source + entry.first.prefetched.first;
+                            auto sz = entry.first.prefetched.second - entry.first.prefetched.first;
+                            RecordImage(entry, -1, {}, {}, (stbi_uc*)data, sz, false);
                         }
                     }
                 }
-
-                FreeResource(contents);
             }
+        }
+
+        if (createTexAtlas)
+        {
+            auto texid = Config.platform->UploadTexturesToGPU(ImVec2{ (float)totalwidth, 
+                (float)maxheight }, pixelbuf);
+            std::free(pixelbuf);
+
+            for (auto idx = bmstart; idx < (int)bitmaps.size(); ++idx)
+                bitmaps[idx].second = texid;
         }
 
         return totalBytes;
@@ -775,7 +1033,7 @@ namespace glimmer
         if (bottomleftr > 0.f) dl.PathArcToFast(ImVec2{ startpos.x + bottomleftr, endpos.y - bottomleftr }, bottomleftr, 3, 6);
     }
 
-    int64_t ImGuiRenderer::RecordImage(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
+    int64_t ImGuiRenderer::RecordImage(std::pair<ImageLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
     {
         int width = 0, height = 0;
         auto pixels = stbi_load_from_memory(data, bufsz, &width, &height, NULL, 4);
@@ -783,7 +1041,6 @@ namespace glimmer
 
         if (pixels != nullptr && width > 0 && height > 0)
         {
-            auto& entry = bitmaps.emplace_back();
             entry.first.data.assign((char*)data, bufsz);
 
             auto texid = Config.platform->UploadTexturesToGPU(ImVec2{ (float)width, (float)height }, pixels);
@@ -792,7 +1049,7 @@ namespace glimmer
             if (draw)
             {
                 auto& dl = *((ImDrawList*)UserData);
-                dl.AddImage(texid, pos, pos + size);
+                dl.AddImage(texid, pos, pos + size, entry.first.uvrect.Min, entry.first.uvrect.Max);
             }
 
             bytes = width * height * 4;
@@ -804,7 +1061,7 @@ namespace glimmer
         return bytes;
     }
 
-    int64_t ImGuiRenderer::RecordGif(int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
+    int64_t ImGuiRenderer::RecordGif(std::pair<GifLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
     {
         using namespace std::chrono;
 
@@ -813,29 +1070,35 @@ namespace glimmer
         auto pixels = stbi_load_gif_from_memory(data, bufsz, &delays, &width, &height, &frames, &channels, 4);
         int64_t bytes = 0;
 
-        if (pixels != nullptr && width > 0 && height > 0)
+        if (pixels != nullptr && width > 0 && height > 0 && frames > 0)
         {
-            auto& entry = gifframes.emplace_back();
             entry.first.id = id;
             entry.first.data.assign((char*)data, bufsz);
             entry.first.totalframe = frames;
             entry.first.delays = delays;
             entry.first.lastTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             entry.first.size = ImVec2{ (float)width, (float)height };
-            entry.second.reserve(frames);
+            entry.first.uvmaps.reserve(frames);
 
-            // TODO: Create texture atlas of all frames and use UV coordinates
+            auto relw = 1.f / (float)frames;
+            auto currx = 0.f;
+
             for (auto fidx = 0; fidx < frames; ++fidx)
             {
-                auto texid = Config.platform->UploadTexturesToGPU(entry.first.size, pixels);
-                entry.second.emplace_back(texid);
-                pixels += (width * height * 4);
+                auto min = currx, max = currx + relw;
+                entry.first.uvmaps.emplace_back(ImVec2{ min, 0.f }, ImVec2{ max, 1.f });
+                currx += relw;
             }
+
+            auto sz = entry.first.size;
+            sz.x *= (float)frames;
+            entry.second = Config.platform->UploadTexturesToGPU(sz, pixels);
 
             if (draw)
             {
                 auto& dl = *((ImDrawList*)UserData);
-                dl.AddImage(entry.second.front(), pos, pos + size);
+                auto uvrect = entry.first.uvmaps[entry.first.currframe];
+                dl.AddImage(entry.second, pos, pos + size, uvrect.Min, uvrect.Max);
             }
 
             bytes = frames * width * height * 4;
@@ -845,34 +1108,26 @@ namespace glimmer
         return bytes;
     }
 
-    int64_t ImGuiRenderer::RecordSVG(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, const char* data, int bufsz, bool draw)
+    int64_t ImGuiRenderer::RecordSVG(std::pair<ImageLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, lunasvg::Document& document, bool draw)
     {
-        auto& entry = bitmaps.emplace_back();
         entry.first.id = id;
-        entry.first.data.assign(data, bufsz);
-        auto document = lunasvg::Document::loadFromData(data);
+        entry.first.size = size;
         int64_t bytes = 0;
 
-        if (document)
+        auto bitmap = document.renderToBitmap((int)size.x, (int)size.y, color);
+        bitmap.convertToRGBA();
+
+        auto pixels = bitmap.data();
+        auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
+        entry.second = texid;
+
+        if (draw)
         {
-            auto bitmap = document->renderToBitmap((int)size.x, (int)size.y, color);
-            bitmap.convertToRGBA();
-
-            auto pixels = bitmap.data();
-            auto texid = Config.platform->UploadTexturesToGPU(size, pixels);
-            entry.second = texid;
-
-            if (draw)
-            {
-                auto& dl = *((ImDrawList*)UserData);
-                dl.AddImage(texid, pos, pos + size);
-            }
-
-            bytes = (int64_t)size.x * (int64_t)size.y * 4;
+            auto& dl = *((ImDrawList*)UserData);
+            dl.AddImage(texid, pos, pos + size, entry.first.uvrect.Min, entry.first.uvrect.Max);
         }
-        else
-            fprintf(stderr, "SVG provided is not valid...\n");
 
+        bytes = (int64_t)size.x * (int64_t)size.y * 4;
         return bytes;
     }
 

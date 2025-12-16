@@ -25,6 +25,17 @@
     <ClInclude Include="..\..\src\im_font_manager.h" />
     <ClInclude Include="..\..\src\layout.h" />
     <ClInclude Include="..\..\src\libs\inc\clay\clay.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsCodicons.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontaudio.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome4.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome5.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome6.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsFontAwesome7.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsForkAwesome.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsLucide.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesign.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesignIcons.h" />
+    <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialSymbols.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imconfig.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_glfw.h" />
@@ -186,7 +197,7 @@
     <ClCompile>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_RICH_TEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;GLIMMER_DISABLE_BLEND2D_RENDERER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
@@ -211,7 +222,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_RICH_TEXT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;GLIMMER_DISABLE_BLEND2D_RENDERER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>

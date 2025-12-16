@@ -5922,10 +5922,11 @@ namespace glimmer
 
         builder.reset();
         context.itemGrids.pop(1, false);
-        context.nestedContextStack.pop(1, true);
         if (context.itemGrids.empty()) WidgetContextData::CurrentItemGridContext = nullptr;
 
-        for (const auto& nested : context.nestedContextStack)
+        auto& ctx = GetContext();
+        ctx.nestedContextStack.pop(1, true);
+        for (const auto& nested : ctx.nestedContextStack)
             if (nested.source == NestedContextSourceType::ItemGrid)
             {
                 context.CurrentItemGridContext = nested.base;
@@ -6940,6 +6941,22 @@ namespace glimmer
         media.resflags = rtype;
         media.content = resource;
         media.sztype = sztype;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
+    }
+
+#endif
+
+#ifdef GLIMMER_ENABLE_ICON_FONT
+
+    WidgetDrawResult Icon(std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(resource, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = RT_ICON_FONT;
+        media.content = resource;
+        media.sztype = IconSizingType::CurrentFontSz;
         return Widget(wid, WT_MediaResource, geometry, neighbors);
     }
 
