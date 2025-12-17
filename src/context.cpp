@@ -110,6 +110,13 @@ namespace glimmer
         newTabButton = false;
     }
 
+    void NavDrawerBuilder::reset()
+    {
+        geometry = 0;
+        neighbors = NeighborWidgets{};
+        items.clear(true);
+    }
+
     void ItemGridBuilder::reset()
     {
         id = -1;
@@ -345,6 +352,12 @@ namespace glimmer
                     accordionStates.emplace_back();
                 break;
 			}
+            case WT_NavDrawer: {
+                navDrawerStates.reserve(navDrawerStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    navDrawerStates.emplace_back();
+                break;
+            }
 			case WT_TabBar: {
 				tabBarStates.reserve(tabBarStates.size() + sz);
 				for (auto idx = 0; idx < sz; ++idx)
@@ -986,6 +999,7 @@ namespace glimmer
                 {
                 case WT_ItemGrid: gridStates.resize(count); break;
                 case WT_TabBar: tabBarStates.resize(count); break;
+                case WT_NavDrawer: navDrawerStates.resize(count); break;
                 case WT_ToggleButton: toggleStates.resize(count); break;
                 case WT_RadioButton: radioStates.resize(count); break;
                 case WT_Checkbox: checkboxStates.resize(count); break;
@@ -1038,6 +1052,7 @@ namespace glimmer
                 WidgetContextData::spinnerStyles[idx].push() = theme.spinner;
                 WidgetContextData::toggleButtonStyles[idx].push() = theme.toggle;
                 WidgetContextData::tabBarStyles[idx].push() = theme.tabbar;
+                WidgetContextData::navDrawerStyles[idx].push() = theme.navdrawer;
             }
         }
         else
@@ -1052,7 +1067,11 @@ namespace glimmer
                 auto& spinner = WidgetContextData::spinnerStyles[idx].push();
                 auto& toggle = WidgetContextData::toggleButtonStyles[idx].push();
                 auto& tab = WidgetContextData::tabBarStyles[idx].push();
+                auto& navdrawer = WidgetContextData::navDrawerStyles[idx].push();
                 toggle.fontsz *= Config.fontScaling;
+
+                navdrawer.iconSpacing = 5.f * Config.scaling;
+                navdrawer.itemGap = 5.f * Config.scaling;
 
                 switch (idx)
                 {
@@ -1083,8 +1102,6 @@ namespace glimmer
                 }
             }
         }
-
-
     }
 
     WidgetContextData& PushContext(int32_t id)
@@ -1184,4 +1201,5 @@ namespace glimmer
     DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::rangeSliderStyles[WSI_Total];
     DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::spinnerStyles[WSI_Total];
     DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::tabBarStyles[WSI_Total];
+    DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::navDrawerStyles[WSI_Total];
 }

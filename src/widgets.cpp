@@ -4120,6 +4120,305 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Navigation Drawer
+
+    ImRect NavDrawerBounds(int32_t id, const ImRect& available, IRenderer& renderer)
+    {
+        auto& context = GetContext();
+        auto& nav = context.currentNavDrawer;
+        auto& navstate = context.NavDrawerState(id);
+        auto state = navstate.current != -1 ? WS_Hovered : WS_Default;
+        auto navDrawerStyle = context.navDrawerStyles[state].top();
+        auto style = context.GetStyle(state, id);
+        ImRect content;
+
+        if (nav.direction == DIR_Vertical)
+        {
+            auto idx = 0;
+            float maxwidth = 0.f, occupied = 0.f, 
+                curry = (navstate.isOpen ? 0.f : available.Min.y) + style.border.top.thickness + style.padding.top,
+                startx = (navstate.isOpen ? 0.f : available.Min.x) + style.border.left.thickness + style.padding.left;
+
+            for (const auto& item : nav.items)
+            {
+                auto width = item.style.font.size * item.iconFontSzRatio;
+                auto& itemgeom = navstate.items[idx];
+                curry += item.style.border.top.thickness;
+
+                itemgeom.border.Min = ImVec2{ startx, curry };
+                curry += item.style.padding.top;
+
+                itemgeom.icon.Min = ImVec2{ 
+                    startx + item.style.border.left.thickness + item.style.padding.left, 
+                    curry };
+                itemgeom.icon.Max = ImVec2{ 
+                    startx + width + item.style.border.right.thickness + item.style.padding.right,
+                    curry + width };
+
+                if (nav.showText || navstate.isOpen)
+                {
+                    auto textsz = renderer.GetTextSize(item.text, item.style.font.font, item.style.font.size);
+                    itemgeom.text.Min = nav.showText ? ImVec2{ itemgeom.icon.Min.x, itemgeom.icon.Max.y + navDrawerStyle.iconSpacing } :
+                        ImVec2{ itemgeom.icon.Max.x + navDrawerStyle.iconSpacing, itemgeom.icon.Min.y };
+                    itemgeom.text.Max = itemgeom.text.Min + textsz;
+                    //textsz.x += (item.style.padding.right + item.style.border.right.thickness);
+                    maxwidth = nav.showText ? std::max({ maxwidth, width, textsz.x }) :
+                        std::max(maxwidth, width + textsz.x + navDrawerStyle.iconSpacing);
+                    curry += nav.showText ? width + navDrawerStyle.iconSpacing + textsz.y : std::max(width, textsz.y);
+                    itemgeom.border.Max = itemgeom.text.Max + ImVec2{
+                        0.f, item.style.padding.bottom + item.style.border.bottom.thickness,
+                    };
+                }
+                else
+                {
+                    curry += width;
+                    //width += (item.style.padding.right + item.style.border.right.thickness);
+                    maxwidth = std::max(maxwidth, width);
+                    itemgeom.border.Max = itemgeom.icon.Max + ImVec2{ 
+                        item.style.padding.right + item.style.border.right.thickness,
+                        item.style.padding.bottom + item.style.border.bottom.thickness,
+                    };
+                }
+                
+                occupied = nav.showText ? maxwidth : std::max(occupied, itemgeom.icon.Max.x);
+                curry += navDrawerStyle.itemGap + item.style.border.bottom.thickness + item.style.padding.bottom;
+                ++idx;
+            }
+
+            if (nav.showText)
+            {
+                for (auto& item : navstate.items)
+                {
+                    auto hdiff = (maxwidth - item.icon.GetWidth()) * 0.5f;
+                    item.icon.TranslateX(hdiff);
+
+                    hdiff = (maxwidth - item.text.GetWidth()) * 0.5f;
+                    item.text.TranslateX(hdiff);
+                }
+            }
+
+            idx = 0;
+            for (auto& item : navstate.items)
+            {
+                item.border.Max.x = item.border.Min.x + maxwidth + nav.items[idx].style.padding.h();
+                ++idx;
+            }
+
+            content.Min = available.Min;
+            content.Max = ImVec2{ 
+                content.Min.x + occupied + style.padding.h() + style.border.h(),
+                available.Max.y
+            };
+            navstate.extent = content;
+            navstate.extent.Max.x = content.Min.x + maxwidth + style.padding.h() + style.border.h();
+        }
+
+        return content;
+    }
+
+    WidgetDrawResult NavDrawerImpl(int32_t wid, const ImRect& border, const StyleDescriptor& style,
+        const IODescriptor& io, IRenderer& renderer)
+    {
+        WidgetDrawResult result;
+        auto& context = GetContext();
+        auto& navstate = context.NavDrawerState(wid);
+        auto navDrawerStyle = context.navDrawerStyles[navstate.current != -1 ? WS_Hovered : WS_Default].top();
+        auto idx = 0;
+        auto isHovered = navstate.extent.Contains(io.mousepos), hasPopup = false;
+        auto extent = navstate.extent;
+
+        if (!navstate.isOpen)
+        {
+            renderer.SetClipRect(extent.Min, extent.Max);
+            //DrawBoxShadow(border.Min, border.Max, style, renderer);
+            DrawBackground(border.Min, border.Max, style, renderer);
+            DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
+            for (auto& item : navstate.items)
+            {
+                auto state = idx == navstate.current ? WS_Hovered : WS_Default;
+                const auto& desc = context.currentNavDrawer.items[idx];
+
+                ImRect entry{ item.icon.Min, navstate.isOpen || context.currentNavDrawer.showText ?
+                    item.text.Max : item.icon.Max };
+                auto isItemHovered = entry.Contains(io.mousepos);
+
+                renderer.SetClipRect(entry.Min, entry.Max);
+                DrawBoxShadow(border.Min, border.Max, desc.style, renderer);
+                DrawBackground(border.Min, border.Max, desc.style, renderer);
+                DrawBorderRect(border.Min, border.Max, desc.style.border, desc.style.bgcolor, renderer);
+                renderer.DrawResource(desc.resflags, item.icon.Min, item.icon.GetSize(), desc.style.bgcolor, desc.icon);
+
+                if (entry.Contains(io.mousepos))
+                {
+                    navstate.current = idx;
+                    navstate.isOpen = true;
+                    item.state = io.isLeftMouseDown() ? WS_Hovered | WS_Pressed : WS_Hovered;
+                }
+                else
+                    item.state = WS_Default;
+
+                renderer.ResetClipRect();
+                ++idx;
+            }
+
+            if (io.mousepos.x > 0 && io.mousepos.y > 0.f)
+            fprintf(stdout, "Sidebar extent: (%f, %f) -> (%f, %f) | mouse at: (%f, %f)\n",
+                extent.Min.x, extent.Min.y, extent.Max.x, extent.Max.y, io.mousepos.x, io.mousepos.y);
+            navstate.state = extent.Contains(io.mousepos) ? WS_Hovered : WS_Default;
+
+            if (navstate.state != WS_Hovered)
+            {
+                navstate.isOpen = false;
+                navstate.currw = 0.018f;
+            }
+
+            renderer.ResetClipRect();
+        }
+        else
+        {
+            struct Data
+            {
+                NavDrawerBuilder& builder;
+                NavDrawerPersistentState& state;
+                const StyleDescriptor& style;
+                ImRect border;
+            };
+
+            Data data{ context.currentNavDrawer, navstate, style, border };
+
+            /*if (navDrawerStyle.openAnimationTime > 0 && navstate.currw < 1.0)
+            {
+                auto t = navstate.currw;
+                float sqr = t * t;
+                auto ratio = sqr / (2.0f * (sqr - t) + 1.0f);
+                extent.Max.x = extent.Min.x + (extent.GetWidth() * ratio);
+                navstate.currw += (io.deltaTime / navDrawerStyle.openAnimationTime);
+            }*/
+
+            StartPopUp(wid, extent.Min, extent.GetSize());
+
+            SetPopUpCallback(PRP_GeneratePrimitives, [](void* ptr, IRenderer& renderer, ImVec2, const ImRect&) {
+                auto data = (Data*)ptr;
+                auto& nav = data->builder;
+                auto& navstate = data->state;
+                const auto& border = navstate.extent;
+                const auto& style = data->style;
+                auto idx = 0;
+
+                renderer.SetClipRect(navstate.extent.Min, navstate.extent.Max);
+                //DrawBoxShadow(border.Min, border.Max, style, renderer);
+                DrawBackground(border.Min, border.Max, style, renderer);
+                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+
+                for (const auto& item : navstate.items)
+                {
+                    auto state = idx == navstate.current ? WS_Hovered : WS_Default;
+                    const auto& desc = nav.items[idx];
+                    ImRect entry = item.border;
+
+                    renderer.SetClipRect(entry.Min, entry.Max);
+                    DrawBoxShadow(item.border.Min, item.border.Max, desc.style, renderer);
+                    DrawBackground(item.border.Min, item.border.Max, desc.style, renderer);
+                    DrawBorderRect(item.border.Min, item.border.Max, desc.style.border, desc.style.bgcolor, renderer);
+                    renderer.DrawResource(desc.resflags, item.icon.Min, item.icon.GetSize(), desc.style.bgcolor, desc.icon);
+
+                    auto txtflags = desc.style.font.flags;
+                    txtflags |= ToTextFlags(desc.textType);
+                    DrawText(item.text.Min, item.text.Max, item.text, desc.text, false, desc.style, renderer, txtflags);
+                    renderer.ResetClipRect();
+
+                    ++idx;
+                }
+
+                renderer.ResetClipRect();
+            }, (void*)&data);
+
+            SetPopUpCallback(PRP_AfterEvents, [](void* ptr, IRenderer&, ImVec2, const ImRect& region) {
+                auto data = (Data*)ptr;
+                auto& nav = data->builder;
+                auto& navstate = data->state;
+                const auto& io = Config.platform->desc;
+                auto idx = 0;
+                navstate.current = -1;
+
+                for (auto& item : navstate.items)
+                {
+                    ImRect entry{ item.icon.Min, navstate.isOpen || nav.showText ?
+                        item.text.Max : item.icon.Max };
+                    if (entry.Contains(io.mousepos))
+                    {
+                        navstate.current = idx;
+                        item.state = io.isLeftMouseDown() ? WS_Hovered | WS_Pressed : WS_Hovered;
+                    }
+                    else
+                        item.state = WS_Default;
+                    ++idx;
+                }
+
+                navstate.state = region.Contains(io.mousepos) ? WS_Hovered : WS_Default;
+
+                if (navstate.state != WS_Hovered)
+                {
+                    navstate.isOpen = false;
+                    navstate.currw = 0.018f;
+                    WidgetContextData::RemovePopup();
+                }
+            }, (void*)&data);
+
+            result = EndPopUp(false);
+        }
+
+        return result;
+    }
+
+    bool BeginNavDrawer(int32_t id, bool expandable, Direction dir, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& nav = context.currentNavDrawer;
+        nav.geometry = geometry;
+        nav.neighbors = neighbors;
+        nav.showText = !expandable;
+        nav.direction = dir;
+        nav.id = id;
+        nav.items.clear(true);
+        return true;
+    }
+
+    void AddNavDrawerEntry(int32_t resflags, std::string_view icon, TextType extype, 
+        std::string_view text, bool atStart, float iconFontSzRatio)
+    {
+        auto& context = GetContext();
+        auto& nav = context.currentNavDrawer;
+        auto& navstate = context.NavDrawerState(nav.id);
+        auto style = context.GetStyle(navstate.current == -1 ? WS_Default :
+            navstate.items[navstate.current].state);
+        nav.items.emplace_back(text, icon, resflags, extype, iconFontSzRatio, style, atStart);
+    }
+
+    void AddNavDrawerEntry(int32_t resflags, std::string_view icon, std::string_view text, bool atStart, float iconFontSzRatio)
+    {
+        auto& context = GetContext();
+        auto& nav = context.currentNavDrawer;
+        auto& navstate = context.NavDrawerState(nav.id);
+        auto style = context.GetStyle(navstate.current == -1 ? WS_Default :
+            navstate.items[navstate.current].state);
+        nav.items.emplace_back(text, icon, resflags, TextType::PlainText, iconFontSzRatio, style, atStart);
+    }
+
+    WidgetDrawResult EndNavDrawer()
+    {
+        auto& context = GetContext();
+        auto& nav = context.currentNavDrawer;
+        auto& navstate = context.NavDrawerState(nav.id);
+
+        navstate.items.resize(nav.items.size(), true);
+        navstate.currw = 0.018f;
+        return Widget(nav.id, WT_NavDrawer, nav.geometry, nav.neighbors);
+    }
+
+#pragma endregion
+
 #pragma region Accordion
 
     bool StartAccordion(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
@@ -6197,30 +6496,40 @@ namespace glimmer
         context.popupCallbackData[phase] = data;
     }
 
-    WidgetDrawResult EndPopUp()
+    WidgetDrawResult EndPopUp(bool alwaysVisible)
     {
         auto& overlayctx = GetContext();
         WidgetDrawResult result;
+
+        if (overlayctx.popupCallbacks[PRP_GeneratePrimitives])
+            overlayctx.popupCallbacks[PRP_GeneratePrimitives](overlayctx.popupCallbackData[PRP_GeneratePrimitives], 
+                *overlayctx.deferedRenderer, overlayctx.popupOrigin, {});
+
         overlayctx.RecordDeferRange(overlayctx.popupRange, false);
 
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
             ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
-            auto available = overlayctx.parentContext->WindowSize();
-            if (overlayctx.popupSize.x != FLT_MAX) size.x = overlayctx.popupSize.x;
-            if (overlayctx.popupSize.y != FLT_MAX) size.x = overlayctx.popupSize.y;
 
-            if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
-                origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
+            if (alwaysVisible)
+            {
+                auto available = overlayctx.parentContext->WindowSize();
+                if (overlayctx.popupSize.x != FLT_MAX) size.x = overlayctx.popupSize.x;
+                if (overlayctx.popupSize.y != FLT_MAX) size.x = overlayctx.popupSize.y;
 
-            if ((origin.x + size.x) > available.x)
-                origin.x = origin.x - size.x;
+                if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
+                    origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
 
-            if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, ToRGBA(255, 255, 255)))
+                if ((origin.x + size.x) > available.x)
+                    origin.x = origin.x - size.x;
+            }
+
+            auto style = overlayctx.GetStyle(WS_Default);
+            if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, style.bgcolor))
             {
                 WidgetContextData::ActivePopUpRegion = ImRect{ origin, origin + size };
-                renderer.DrawRect(origin, origin + size, ToRGBA(50, 50, 50), false, 1.f);
+                DrawBorderRect(origin, origin + size, style.border, style.bgcolor, renderer);
                 
                 if (overlayctx.popupCallbacks[PRP_BeforePrimitives])
                     overlayctx.popupCallbacks[PRP_BeforePrimitives](overlayctx.popupCallbackData[PRP_BeforePrimitives], renderer, origin,
@@ -6836,6 +7145,21 @@ namespace glimmer
                 context.AddItemGeometry(wid, bounds);
                 RecordItemGeometry(layoutItem, style);
             }
+
+            break;
+        }
+        case WT_NavDrawer: {
+            auto& navstate = context.NavDrawerState(wid);
+            const auto style = context.GetStyle(navstate.state, wid);
+            assert(context.layoutStack.empty());
+
+            layoutItem.sizing = context.currentNavDrawer.direction == DIR_Vertical ?
+                AlignLeft | ExpandV : AlignTop | ExpandH;
+            AddExtent(layoutItem, style, context.currentNavDrawer.neighbors, { 0.f, 0.f }, maxxy);
+            auto bounds = NavDrawerBounds(context.currentNavDrawer.id, layoutItem.padding, renderer);
+            result = NavDrawerImpl(wid, bounds, style, io, renderer);
+            context.AddItemGeometry(wid, bounds);
+            RecordItemGeometry(layoutItem, style);
 
             break;
         }

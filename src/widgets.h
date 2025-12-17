@@ -108,7 +108,7 @@ namespace glimmer
 
     bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     void SetPopUpCallback(PopUpRenderPhase phase, PopUpCallbackT callback, void* data = nullptr);
-    WidgetDrawResult EndPopUp();
+    WidgetDrawResult EndPopUp(bool alwaysVisible = true);
 
     void StartScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
@@ -126,6 +126,11 @@ namespace glimmer
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
+
+    bool BeginNavDrawer(int32_t id, bool expandable, Direction dir = DIR_Vertical, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void AddNavDrawerEntry(int32_t resflags, std::string_view icon, TextType textype, std::string_view text, bool atStart = true, float iconFontSzRatio = 1.f);
+    void AddNavDrawerEntry(int32_t resflags, std::string_view icon, std::string_view text, bool atStart = true, float iconFontSzRatio = 1.f);
+    WidgetDrawResult EndNavDrawer();
 
     bool StartAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool StartAccordionHeader();

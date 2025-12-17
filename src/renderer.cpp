@@ -649,6 +649,12 @@ namespace glimmer
         prevlist = nullptr;
     }
 
+    template <typename KeyT>
+    static bool MatchKey(KeyT key, int32_t id, std::string_view content)
+    {
+        return key.id == -1 || id == -1 ? key.data == content : key.id == id;
+    }
+
     bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id)
     {
         auto fromFile = (resflags & RT_PATH) != 0;
@@ -680,8 +686,7 @@ namespace glimmer
             for (auto& entry : bitmaps)
             {
                 auto& [key, texid] = entry;
-                if ((key.id == id || (key.id == -1 && key.data == content)) && 
-                    (key.size == size))
+                if (MatchKey(key, id, content) && (key.size == size))
                 {
                     if (key.prefetched.second > key.prefetched.first)
                     {
@@ -733,7 +738,7 @@ namespace glimmer
             for (auto& entry : bitmaps)
             {
                 auto& [key, texid] = entry;
-                if ((key.id == id || (key.id == -1 && key.data == content)))
+                if (MatchKey(key, id, content))
                 {
                     if (key.prefetched.second > key.prefetched.first)
                     {
@@ -775,7 +780,7 @@ namespace glimmer
             for (auto& entry : gifframes)
             {
                 auto& [key, texid] = entry;
-                if ((key.id == id || (key.id == -1 && key.data == content)))
+                if (MatchKey(key, id, content))
                 {
                     if (key.prefetched.second > key.prefetched.first)
                     {

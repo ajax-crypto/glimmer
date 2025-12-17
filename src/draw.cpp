@@ -4,6 +4,8 @@
 #include "imrichtext.h"
 
 #include <unordered_map>
+#include <cctype>
+#include <cstring>
 
 auto HomeIconSVG = R"(
 <svg class="w-6 h-6 text-gray-800 dark:text-white" aria-hidden="true" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
@@ -116,7 +118,7 @@ auto WarningIconSVG = R"(
 )";
 
 auto ErrorIconSVG = R"(
-<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none"">
+<svg width="800px" height="800px" viewBox="0 0 24 24" fill="none">
     <path d="M3.23 7.913 7.91 3.23c.15-.15.35-.23.57-.23h7.05c.21 0 .42.08.57.23l4.67 4.673c.15.15.23.35.23.57v7.054c0 .21-.08.42-.23.57L16.1 20.77c-.15.15-.35.23-.57.23H8.47a.81.81 0 0 1-.57-.23l-4.67-4.673a.793.793 0 0 1-.23-.57V8.473c0-.21.08-.42.23-.57v.01Z" fill="#000000" fill-opacity=".16" stroke="#000000" stroke-width="1.5" stroke-miterlimit="10" stroke-linejoin="round"/>
     <path d="M12 16h.008M12 8v5" stroke="#000000" stroke-width="1.5" stroke-miterlimit="10" stroke-linecap="round"/>
 </svg>
@@ -422,6 +424,29 @@ namespace glimmer
     void DrawSymbol(ImVec2 startpos, ImVec2 size, ImVec2 padding, SymbolIcon symbol, uint32_t outlineColor, 
         uint32_t fillColor, float thickness, IRenderer& renderer)
     {
+        static const std::unordered_map<SymbolIcon, int32_t> SymbolIconIdMap{
+            { SymbolIcon::DownArrow,    1 << 16 },
+            { SymbolIcon::UpArrow,      (1 << 16) + 1 },
+            { SymbolIcon::DownTriangle, (1 << 16) + 2 },
+            { SymbolIcon::UpTriangle,   (1 << 16) + 3 },
+            { SymbolIcon::LeftTriangle, (1 << 16) + 4 },
+            { SymbolIcon::RightTriangle,(1 << 16) + 5 },
+            { SymbolIcon::Plus,         (1 << 16) + 6 },
+            { SymbolIcon::Minus,        (1 << 16) + 7 },
+            { SymbolIcon::Cross,        (1 << 16) + 8 },
+            { SymbolIcon::Home,         (1 << 16) + 9 },
+            { SymbolIcon::Browse,       (1 << 16) + 10 },
+            { SymbolIcon::Search,       (1 << 16) + 11 },
+            { SymbolIcon::Gears,        (1 << 16) + 12 },
+            { SymbolIcon::Spanner,      (1 << 16) + 13 },
+            { SymbolIcon::Copy,         (1 << 16) + 14 },
+            { SymbolIcon::Pin,          (1 << 16) + 15 },
+            { SymbolIcon::Warning,      (1 << 16) + 16 },
+            { SymbolIcon::Error,        (1 << 16) + 17 },
+            { SymbolIcon::Info,         (1 << 16) + 18 },
+            { SymbolIcon::None,         (1 << 16) + 19 }
+        };
+
         startpos += padding;
         size -= (padding + padding);
 
@@ -503,52 +528,52 @@ namespace glimmer
         }
         case SymbolIcon::Home:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, HomeIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, HomeIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Browse:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, BrowseIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, BrowseIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Search:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SearchIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SearchIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Gears:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, GearsIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, GearsIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Spanner:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SpannerIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, SpannerIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Copy:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, FileCopyIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, FileCopyIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Pin:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, PinIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, PinIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Warning:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, WarningIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, WarningIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Error:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, ErrorIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, ErrorIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         case SymbolIcon::Info:
         {
-            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, InfoIconSVG);
+            renderer.DrawResource(RT_SVG | RT_BIN, startpos, size, outlineColor, InfoIconSVG, SymbolIconIdMap.at(symbol));
             break;
         }
         default:
@@ -559,28 +584,34 @@ namespace glimmer
     SymbolIcon GetSymbolIcon(std::string_view name)
     {
         static const std::unordered_map<std::string_view, SymbolIcon> IconLookup{
-            { "arrow-down", SymbolIcon::DownArrow },
-            { "arrow-up", SymbolIcon::UpArrow },
-            { "triangle-down", SymbolIcon::DownTriangle },
-            { "triangle-up", SymbolIcon::UpTriangle },
-            { "triangle-left", SymbolIcon::LeftTriangle },
-            { "triangle-right", SymbolIcon::RightTriangle },
-            { "plus", SymbolIcon::Plus },
-            { "minus", SymbolIcon::Minus },
-            { "cross", SymbolIcon::Cross },
-            { "home", SymbolIcon::Home },
-            { "browse", SymbolIcon::Browse },
-            { "search", SymbolIcon::Search },
-            { "gears", SymbolIcon::Gears },
-            { "spanner", SymbolIcon::Spanner },
-            { "copy", SymbolIcon::Copy },
-            { "pin", SymbolIcon::Pin },
-            { "warning", SymbolIcon::Warning },
-            { "error", SymbolIcon::Error },
-            { "info", SymbolIcon::Info }
+            { "arrow-down",      SymbolIcon::DownArrow },
+            { "arrow-up",        SymbolIcon::UpArrow },
+            { "triangle-down",   SymbolIcon::DownTriangle },
+            { "triangle-up",     SymbolIcon::UpTriangle },
+            { "triangle-left",   SymbolIcon::LeftTriangle },
+            { "triangle-right",  SymbolIcon::RightTriangle },
+            { "plus",            SymbolIcon::Plus },
+            { "minus",           SymbolIcon::Minus },
+            { "cross",           SymbolIcon::Cross },
+            { "home",            SymbolIcon::Home },
+            { "browse",          SymbolIcon::Browse },
+            { "search",          SymbolIcon::Search },
+            { "gears",           SymbolIcon::Gears },
+            { "spanner",         SymbolIcon::Spanner },
+            { "copy",            SymbolIcon::Copy },
+            { "pin",             SymbolIcon::Pin },
+            { "warning",         SymbolIcon::Warning },
+            { "error",           SymbolIcon::Error },
+            { "info",            SymbolIcon::Info }
         };
 
-        auto it = IconLookup.find(name);
+        static char buffer[32];
+
+        memset(buffer, 0, 32);
+        auto sz = std::min((int)name.size(), 31);
+        for (auto idx = 0; idx < sz; ++idx)
+            buffer[idx] = std::tolower(name[idx]);
+        auto it = IconLookup.find(buffer);
         return it == IconLookup.end() ? SymbolIcon::None : it->second;
     }
 }

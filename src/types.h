@@ -126,6 +126,7 @@ namespace glimmer
         WT_ItemGrid,
         WT_Charts,
         WT_MediaResource,
+        WT_NavDrawer,
         WT_TotalTypes,
 
         WT_ContextMenu = WT_TotalTypes,
@@ -721,7 +722,11 @@ namespace glimmer
 
     enum PopUpRenderPhase
     {
-        PRP_BeforePrimitives, PRP_AfterPrimitives, PRP_AfterEvents, PRP_Total
+        PRP_GeneratePrimitives, 
+        PRP_BeforePrimitives, 
+        PRP_AfterPrimitives, 
+        PRP_AfterEvents, 
+        PRP_Total
     };
 
     using PopUpCallbackT = void (*)(void*, IRenderer&, ImVec2, const ImRect&);

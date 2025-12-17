@@ -284,6 +284,14 @@ namespace glimmer
         static TabBarStyleDescriptor ParseFrom(std::string_view css);
     };
 
+    struct NavDrawerStyleDescriptor
+    {
+        float iconSpacing = 0.f;
+        float itemGap = 0.f;
+        float openAnimationTime = 0.5f;
+        float closeAnimationTime = 0.f;
+    };
+
     struct GlobalWidgetTheme
     {
         ToggleButtonStyleDescriptor toggle;
@@ -292,6 +300,7 @@ namespace glimmer
         SpinnerStyleDescriptor spinner;
         RadioButtonStyleDescriptor radio;
         TabBarStyleDescriptor tabbar;
+        NavDrawerStyleDescriptor navdrawer;
     };
 
 	// TODO: Add other widget style descriptors here and populate in style.cpp

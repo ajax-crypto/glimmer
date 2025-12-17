@@ -188,6 +188,16 @@ void TestWindow(glimmer::UIConfig& config)
         PopStyle(1, WS_Default);
         Move(FD_Vertical);
 
+        glimmer::PushStyle("background-color: rgb(225, 225, 225); padding: 5px;",
+            "background-color: rgb(175, 175, 175);");
+        BeginNavDrawer(0, true);
+        AddNavDrawerEntry(RT_SYMBOL, "warning", "Warning!!!");
+        AddNavDrawerEntry(RT_SYMBOL, "error", "Error!!!");
+        AddNavDrawerEntry(RT_SYMBOL, "home", "Home!!!");
+        EndNavDrawer();
+        PopStyle(1, WS_Default | WS_Hovered);
+        Move(FD_Horizontal);
+
         StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
             SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
 

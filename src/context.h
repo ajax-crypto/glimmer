@@ -73,7 +73,7 @@ namespace glimmer
         int32_t types = 0;
         ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
         float offset = 0.f;
-        float timestamp = 0;
+        float timestamp = 0; // TODO: Make stepping common
 
         void moveByPixel(float amount, float max, float reset);
     };
@@ -465,6 +465,47 @@ namespace glimmer
         bool expanded = false;
     };
 
+    struct NavDrawerBuilder
+    {
+        struct NavDrawerItem
+        {
+            std::string_view text;
+            std::string_view icon;
+            int32_t resflags = 0;
+            TextType textType = TextType::PlainText;
+            float iconFontSzRatio = 1.f;
+            StyleDescriptor style;
+            bool atStart = true;
+        };
+
+        Vector<NavDrawerItem, int16_t, 16> items{ false };
+        int32_t id = -1;
+        int32_t geometry = 0;
+        NeighborWidgets neighbors;
+        Direction direction = Direction::DIR_Vertical;
+        bool showText = false;
+
+        void reset();
+    };
+
+    struct NavDrawerPersistentState
+    {
+        struct NavDrawerItem
+        {
+            ImRect border;
+            ImRect text;
+            ImRect icon;
+            int32_t state = WS_Default;
+        };
+
+        Vector<NavDrawerItem, int16_t, 16> items{ false };
+        ImRect extent;
+        int32_t current = -1;
+        int32_t state = WS_Default;
+        float currw = 0.f;
+        bool isOpen = false;
+    };
+
     struct AccordionBuilder
     {
         struct RegionDescriptor
@@ -741,6 +782,7 @@ namespace glimmer
         std::vector<SplitterPersistentState> splitterStates;
         std::vector<SpinnerPersistentState> spinnerStates;
         std::vector<TabBarPersistentState> tabBarStates;
+        std::vector<NavDrawerPersistentState> navDrawerStates;
         std::vector<AccordionPersistentState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
         std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
@@ -751,6 +793,9 @@ namespace glimmer
 
         // Tab bars are not nested
         TabBarBuilder currentTab;
+
+        // Navigation drawer cannot be nested
+        NavDrawerBuilder currentNavDrawer;
 
         // Stack of current item grids
         DynamicStack<ItemGridBuilder, int16_t, 4> itemGrids{ false };
@@ -770,6 +815,7 @@ namespace glimmer
         static DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> rangeSliderStyles[WSI_Total];
         static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
         static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
+        static DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> navDrawerStyles[WSI_Total];
 
         // Resolved styles, after applying widget, class(es) and id specific styles
         Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
@@ -799,6 +845,7 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },
+            Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true }
         };
         Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
@@ -812,6 +859,7 @@ namespace glimmer
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ false },
+            Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
             Vector<ImVec2, int16_t>{ true },
@@ -922,6 +970,12 @@ namespace glimmer
         {
             auto index = id & WidgetIndexMask;
             return tabBarStates[index];
+        }
+
+        NavDrawerPersistentState& NavDrawerState(int32_t id)
+        {
+            auto index = id & WidgetIndexMask;
+            return navDrawerStates[index];
         }
 
         AccordionPersistentState& AccordionState(int32_t id)
