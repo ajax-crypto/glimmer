@@ -54,6 +54,19 @@ Glimmer is a C++20 library for creating graphical user interfaces using an immed
 | ContextMenu      | Popup menu for context-specific actions (usually on right-click).                    |
 | Chart/Plot       | (If enabled) Displays data visualizations using ImPlot integration.                  |
 
+Custom widgets can be implemented using the following interface:
+
+```c++
+struct ICustomWidget
+{
+    virtual StyleDescriptor GetStyle(int32_t id, const StyleStackT& stack) = 0;
+    virtual ImRect ComputeGeometry(int32_t id, const ImVec2& pos, const LayoutItemDescriptor& layoutItem) = 0;
+    virtual WidgetDrawResult DrawWidget(int32_t id, const StyleDescriptor& style, 
+        const LayoutItemDescriptor& layoutItem, IRenderer& renderer, const IODescriptor& io) = 0;
+    virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
+};
+```
+
 <h2> Platform & Rendering </h2>
 
 Glimmer abstracts the rendering process through the `glimmer::IRenderer` interface. There are following renderers available:

@@ -30,6 +30,12 @@ namespace glimmer
         const ImRect& prefix, const ImRect& suffix, IRenderer& renderer, const IODescriptor& io);
     void AddExtent(LayoutItemDescriptor& layoutItem, const StyleDescriptor& style, const NeighborWidgets& neighbors,
         ImVec2 size, ImVec2 totalsz);
+    WidgetDrawResult Widget(int32_t id, WidgetType type, int32_t geometry, const NeighborWidgets& neighbors);
+    ImRect BeginFlexLayoutRegion(Direction dir, int32_t geometry, bool wrap,
+        ImVec2 spacing, ImVec2 size, const NeighborWidgets& neighbors, int regionIdx);
+    ImRect BeginGridLayoutRegion(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents,
+        const std::initializer_list<float>& colExtents, ImVec2 spacing, ImVec2 size,
+        const NeighborWidgets& neighbors, int regionIdx);
 
 #pragma region Widget ID Handling
 
@@ -108,6 +114,19 @@ namespace glimmer
             return { OutPtrIds[type].emplace(ptr, id).first->second, true };
         }
         return { it->second, false };
+    }
+
+    int32_t GetNextId(WidgetType type)
+    {
+        int32_t id = GetNextCount(type);
+        id = id | (type << WidgetTypeBits);
+        return id;
+    }
+
+    int16_t GetNextCount(WidgetType type)
+    {
+        auto& context = GetContext();
+        return context.GetNextCount(type);
     }
 
 #pragma endregion
@@ -211,6 +230,41 @@ namespace glimmer
         case WT_MediaResource: state.media.~MediaState(); break;
         default: break;
         }
+    }
+
+    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id)
+    {
+        auto& context = GetContext();
+        int32_t wid = id;
+        wid = wid | (type << WidgetTypeBits);
+
+        if (context.InsideFrame)
+            context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
+
+        auto& state = context.GetState(wid);
+        switch (type)
+        {
+        case WT_Region: state.state.region.id = wid; break;
+        case WT_Label: state.state.label.id = wid; break;
+        case WT_Button: state.state.button.id = wid; break;
+        case WT_RadioButton: state.state.radio.id = wid; break;
+        case WT_ToggleButton: state.state.toggle.id = wid; break;
+        case WT_Checkbox: state.state.checkbox.id = wid; break;
+        case WT_Spinner: state.state.spinner.id = wid; break;
+        case WT_Slider: state.state.slider.id = wid; break;
+        case WT_RangeSlider: state.state.rangeSlider.id = wid; break;
+        case WT_TextInput: state.state.input.id = wid; break;
+        case WT_DropDown: state.state.dropdown.id = wid; break;
+        case WT_ItemGrid: state.state.grid.id = wid; break;
+        default: break;
+        }
+        return state;
+    }
+
+    WidgetConfigData& GetWidgetConfig(int32_t id)
+    {
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        return GetWidgetConfig(wtype, (int16_t)(id & WidgetIndexMask));
     }
 
 #pragma endregion
@@ -373,6 +427,59 @@ namespace glimmer
             }
         }
         else hoverDuration = 0;
+    }
+
+    void SetTooltip(int32_t id, std::string_view tooltip)
+    {
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        auto& state = GetWidgetConfig(id).state;
+
+        switch (wtype)
+        {
+        case glimmer::WT_Label:
+            state.label.tooltip = tooltip;
+            break;
+        case glimmer::WT_Button:
+            state.button.tooltip = tooltip;
+            break;
+        case glimmer::WT_RadioButton:
+            state.radio.tooltip = tooltip;
+            break;
+        case glimmer::WT_ToggleButton:
+            state.toggle.tooltip = tooltip;
+            break;
+        case glimmer::WT_Checkbox:
+            state.checkbox.tooltip = tooltip;
+            break;
+        case glimmer::WT_Slider:
+            state.slider.tooltip = tooltip;
+            break;
+        case glimmer::WT_RangeSlider:
+            state.rangeSlider.tooltip = tooltip;
+            break;
+        case glimmer::WT_Spinner:
+            state.spinner.tooltip = tooltip;
+            break;
+        case glimmer::WT_TextInput:
+            state.input.tooltip = tooltip;
+            break;
+        case glimmer::WT_DropDown:
+            state.dropdown.tooltip = tooltip;
+            break;
+        default:
+            break;
+        }
+    }
+
+    void SetPrevTooltip(std::string_view tooltip)
+    {
+        if (PreviousWidget != -1)
+            SetTooltip(PreviousWidget, tooltip);
+    }
+
+    void SetNextTooltip(std::string_view tooltip)
+    {
+        NextTootip = tooltip;
     }
 
 #pragma endregion
@@ -1424,6 +1531,109 @@ namespace glimmer
         return result;
     }
 
+    WidgetDrawResult Label(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Label, geometry, neighbors);
+    }
+
+    WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Label).first;
+        GetWidgetConfig(wid).state.label.text = content;
+        return Widget(wid, WT_Label, geometry, neighbors);
+    }
+
+    WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Label).first;
+        auto& config = GetWidgetConfig(wid).state.label;
+        config.text = content; config.tooltip = tooltip;
+        return Widget(wid, WT_Label, geometry, neighbors);
+    }
+
+    WidgetDrawResult Button(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Button, geometry, neighbors);
+    }
+
+    WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Button).first;
+        GetWidgetConfig(wid).state.button.text = content;
+        return Widget(wid, WT_Button, geometry, neighbors);
+    }
+
+    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = dir == DIR_Horizontal ? Layout::Horizontal : Layout::Vertical;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginFlexLayoutRegion(dir, geometry, wrap, spacing, style.dimension, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginFlexRegion(wid, dir, spacing, wrap, events, geometry, neighbors);
+    }
+
+    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = Layout::Grid;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginGridLayoutRegion(rows, cols, GridLayoutDirection::ByRows, geometry, {}, {}, spacing,
+            style.dimension, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginGridRegion(wid, rows, cols, spacing, events, geometry, neighbors);
+    }
+
+    WidgetDrawResult EndRegion()
+    {
+        auto& context = GetContext();
+        auto idx = context.regionBuilders.top();
+        context.RecordForReplay(idx, LayoutOps::PopRegion);
+
+        auto pos = EndLayout();
+        context.regionBuilders.pop(1, true);
+        return pos;
+    }
+
+    void BeginButton(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Button).first;
+        BeginFlexRegion(wid, DIR_Horizontal, { 0.f, 0.f }, true, ETP_Hovered | ETP_Clicked, geometry, neighbors);
+    }
+
+    WidgetDrawResult EndButton()
+    {
+        return EndRegion();
+    }
+
 #pragma endregion
 
 #pragma region Context Menu
@@ -1774,6 +1984,27 @@ namespace glimmer
         return result;
     }
 
+    WidgetDrawResult ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_ToggleButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult ToggleButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(state, WT_ToggleButton).first;
+        auto& config = GetWidgetConfig(id).state.toggle;
+        config.checked = *state; config.out = state;
+        return Widget(id, WT_ToggleButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult ToggleButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_ToggleButton).first;
+        auto& config = GetWidgetConfig(wid).state.toggle;
+        config.checked = *state; config.out = state;
+        return Widget(wid, WT_ToggleButton, geometry, neighbors);
+    }
+
 #pragma endregion
 
 #pragma region Radio Button
@@ -1842,6 +2073,27 @@ namespace glimmer
         
         result.geometry = extent;
         return result;
+    }
+
+    WidgetDrawResult RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_RadioButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult RadioButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(state, WT_RadioButton).first;
+        auto& config = GetWidgetConfig(id).state.radio;
+        config.checked = *state; config.out = state;
+        return Widget(id, WT_RadioButton, geometry, neighbors);
+    }
+
+    WidgetDrawResult RadioButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RadioButton).first;
+        auto& config = GetWidgetConfig(wid).state.radio;
+        config.checked = *state; config.out = state;
+        return Widget(wid, WT_RadioButton, geometry, neighbors);
     }
 
 #pragma endregion
@@ -1927,6 +2179,27 @@ namespace glimmer
         
         result.geometry = extent;
         return result;
+    }
+
+    WidgetDrawResult Checkbox(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Checkbox, geometry, neighbors);
+    }
+
+    WidgetDrawResult Checkbox(CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(state, WT_Checkbox).first;
+        auto& config = GetWidgetConfig(id).state.checkbox;
+        config.check = *state; config.out = state;
+        return Widget(id, WT_Checkbox, geometry, neighbors);
+    }
+
+    WidgetDrawResult Checkbox(std::string_view id, CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Checkbox).first;
+        auto& config = GetWidgetConfig(wid).state.checkbox;
+        config.check = *state; config.out = state;
+        return Widget(wid, WT_Checkbox, geometry, neighbors);
     }
 
 #pragma endregion
@@ -2178,6 +2451,65 @@ namespace glimmer
         return result;
     }
 
+    WidgetDrawResult Spinner(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(std::string_view id, int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Spinner).first;
+        auto& config = GetWidgetConfig(wid).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
+        return Widget(wid, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(std::string_view id, float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Spinner).first;
+        auto& config = GetWidgetConfig(wid).state.spinner;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
+        return Widget(wid, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
+        auto& config = GetWidgetConfig(id).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Spinner, geometry, neighbors);
+    }
+
+    WidgetDrawResult Spinner(std::string_view id, double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Spinner).first;
+        auto& config = GetWidgetConfig(wid).state.spinner;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
+        return Widget(wid, WT_Spinner, geometry, neighbors);
+    }
+
 #pragma endregion
 
 #pragma region Slider
@@ -2292,6 +2624,65 @@ namespace glimmer
         HandleSliderEvent(id, extent, thumb,  io, result);
         result.geometry = extent;
         return result;
+    }
+
+    WidgetDrawResult Slider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider).first;
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(std::string_view id, int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Slider).first;
+        auto& config = GetWidgetConfig(wid).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
+        config.min = range.first; config.max = range.second;
+        return Widget(wid, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider).first;
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(std::string_view id, float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Slider).first;
+        auto& config = GetWidgetConfig(wid).state.slider;
+        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
+        config.min = range.first; config.max = range.second;
+        return Widget(wid, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(value, WT_Slider).first;
+        auto& config = GetWidgetConfig(id).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.min = range.first; config.max = range.second;
+        return Widget(id, WT_Slider, geometry, neighbors);
+    }
+
+    WidgetDrawResult Slider(std::string_view id, double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Slider).first;
+        auto& config = GetWidgetConfig(wid).state.slider;
+        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
+        config.min = range.first; config.max = range.second;
+        return Widget(wid, WT_Slider, geometry, neighbors);
     }
 
 #pragma endregion
@@ -2471,6 +2862,95 @@ namespace glimmer
         HandleRangeSliderEvent(id, extent, thumbMin, thumbMax, io, result);
         result.geometry = extent;
         return result;
+    }
+
+    WidgetDrawResult RangeSlider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::i32;
+        config.min_range = (float)range.first;
+        config.max_range = (float)range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::i32;
+        config.min_range = (float)range.first;
+        config.max_range = (float)range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = *min_val;
+        config.max_val = *max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f32;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = *min_val;
+        config.max_val = *max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f32;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f64;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(id, WT_RangeSlider, geometry, neighbors);
+    }
+
+    WidgetDrawResult RangeSlider(std::string_view id, double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_RangeSlider).first;
+        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        config.min_val = (float)*min_val;
+        config.max_val = (float)*max_val;
+        config.out_min = min_val;
+        config.out_max = max_val;
+        config.outType = OutPtrType::f64;
+        config.min_range = range.first;
+        config.max_range = range.second;
+        return Widget(wid, WT_RangeSlider, geometry, neighbors);
     }
 
 #pragma endregion
@@ -3113,6 +3593,45 @@ namespace glimmer
         return result;
     }
 
+    WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_TextInput, geometry, neighbors);
+    }
+
+    WidgetDrawResult TextInput(char* out, int size, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto length = strlen(out);
+        return TextInput(out, size, length, placeholder, geometry, neighbors);
+    }
+
+    WidgetDrawResult TextInput(std::string_view id, char* out, int size, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto length = strlen(out);
+        return TextInput(id, out, size, length, placeholder, geometry, neighbors);
+    }
+
+    WidgetDrawResult TextInput(char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [id, initial] = GetIdFromOutPtr(out, WT_TextInput);
+        auto& config = GetWidgetConfig(id).state.input;
+        config.placeholder = placeholder; config.out = Span<char>{ out, size };
+        config.text.reserve(size); config.clearButton = true;
+        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
+        memcpy(config.text.data(), out, sz);
+        return Widget(id, WT_TextInput, geometry, neighbors);
+    }
+
+    WidgetDrawResult TextInput(std::string_view id, char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [wid, initial] = GetIdFromString(id, WT_TextInput);
+        auto& config = GetWidgetConfig(wid).state.input;
+        config.placeholder = placeholder; config.out = Span<char>{ out, size };
+        config.text.reserve(size); config.clearButton = true;
+        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
+        memcpy(config.text.data(), out, sz);
+        return Widget(wid, WT_TextInput, geometry, neighbors);
+    }
+
 #pragma endregion
 
 #pragma region DropDown
@@ -3449,6 +3968,61 @@ namespace glimmer
 
         result.geometry = margin;
         return result;
+    }
+
+    WidgetDrawResult DropDown(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_DropDown, geometry, neighbors);
+    }
+
+    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
+
+        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
+        fptr[id] = options;
+        auto& config = GetWidgetConfig(id).state.dropdown;
+        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
+        config.text = text;
+        return Widget(id, WT_DropDown, geometry, neighbors);
+    }
+
+    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
+
+        auto wid = GetIdFromString(id, WT_DropDown).first;
+        fptr[wid] = options;
+        auto& config = GetWidgetConfig(wid).state.dropdown;
+        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
+        config.text = text;
+        return Widget(wid, WT_DropDown, geometry, neighbors);
+    }
+
+    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
+
+        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
+        auto& config = GetWidgetConfig(id).state.dropdown;
+
+        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back(WT_Invalid, option);
+        config.options = OptionsMap.at(id);
+        config.text = text;
+        return Widget(id, WT_DropDown, geometry, neighbors);
+    }
+
+    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
+
+        auto wid = GetIdFromString(id, WT_DropDown).first;
+        auto& config = GetWidgetConfig(wid).state.dropdown;
+
+        if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back(WT_Invalid, option);
+        config.options = OptionsMap.at(wid);
+        config.text = text;
+        return Widget(wid, WT_DropDown, geometry, neighbors);
     }
 
 #pragma endregion
@@ -6359,6 +6933,36 @@ namespace glimmer
         return EndItemGrid();
     }
 
+    WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        return Widget(id, WT_ItemGrid, geometry, neighbors);
+    }
+
+    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers,
+        std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), int32_t totalRows, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        static auto fptr = cell;
+
+        auto wid = GetIdFromString(id, WT_ItemGrid).first;
+        auto& grid = GetWidgetConfig(wid).state.grid;
+        grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
+
+        BeginItemGrid(wid, geometry, neighbors);
+        BeginItemGridHeader(1);
+
+        for (const auto hname : headers)
+        {
+            ItemGridConfig::ColumnConfig col;
+            col.name = hname;
+            col.props = COL_Resizable;
+            AddHeaderColumn(col);
+        }
+
+        EndItemGridHeader();
+        PopulateItemGrid(totalRows);
+        return EndItemGrid();
+    }
+
 #pragma endregion
 
 #pragma region Splitter
@@ -6777,9 +7381,90 @@ namespace glimmer
         return result;
     }
 
+#if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_ICONS)
+
+    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((rtype & RT_PATH) != 0);
+        auto id = GetIdFromString(resource, WT_MediaResource);
+        auto& context = GetContext();
+        auto& media = context.GetState(id.first).state.media;
+
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(id.first, WT_MediaResource, geometry, neighbors);
+    }
+
+    WidgetDrawResult Icon(int32_t id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((rtype & RT_PATH) != 0);
+        auto& context = GetContext();
+        auto& media = context.GetState(id).state.media;
+
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(id, WT_MediaResource, geometry, neighbors);
+    }
+
+    WidgetDrawResult Icon(std::string_view id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        assert((rtype & RT_PATH) != 0);
+        auto wid = GetIdFromString(id, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = rtype;
+        media.content = resource;
+        media.sztype = sztype;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
+    }
+
+#endif
+
+#ifdef GLIMMER_ENABLE_ICON_FONT
+
+    WidgetDrawResult Icon(std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(resource, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = RT_ICON_FONT;
+        media.content = resource;
+        media.sztype = IconSizingType::CurrentFontSz;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
+    }
+
+#endif
+
+    WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& media = context.GetState(id).state.media;
+
+        media.resflags = RT_SYMBOL;
+        media.symbol = icon;
+        media.sztype = sztype;
+        return Widget(id, WT_MediaResource, geometry, neighbors);
+    }
+
+    WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_MediaResource).first;
+        auto& context = GetContext();
+        auto& media = context.GetState(wid).state.media;
+
+        media.resflags = RT_SYMBOL;
+        media.symbol = icon;
+        media.sztype = sztype;
+        return Widget(wid, WT_MediaResource, geometry, neighbors);
+    }
+
 #pragma endregion
 
-#pragma region Public APIs
+#pragma region Implementation Details
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
 
@@ -6820,6 +7505,23 @@ namespace glimmer
         Config.implicitInheritedProps = ~(StyleBackground | StyleHeight | StyleWidth | StyleMaxWidth |
             StyleMaxHeight | StyleMinWidth | StyleMinHeight);
         return Config;
+    }
+
+    void HandleCustomWidgetEvent(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        if (!GetContext().deferEvents)
+			Config.customWidget->HandleEvents(id, offset, io, result);
+        else
+			GetContext().deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
+    }
+
+    WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+		Config.customWidget->DrawWidget(id, style, layoutItem, renderer, io);
+		HandleCustomWidgetEvent(id, layoutItem.margin.Min, io, result);
+        return result;
     }
 
     // Widget rendering are of three types:
@@ -7286,6 +7988,30 @@ namespace glimmer
             }
             break;
         }
+        case WT_Custom: {
+            if (Config.customWidget != nullptr)
+            {
+                const auto style = Config.customWidget->GetStyle(wid, WidgetContextData::StyleStack);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    Config.customWidget->ComputeGeometry(wid, pos, layoutItem);
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    Config.customWidget->ComputeGeometry(wid, pos, layoutItem);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    result = DrawCustomWidget(wid, style, layoutItem, renderer, io);
+                    RecordItemGeometry(layoutItem, style);
+                }
+            }
+
+            break;
+        }
         default: break;
         }
 
@@ -7293,690 +8019,6 @@ namespace glimmer
         result.id = wid;
         PreviousWidget = wid;
         return result;
-    }
-
-#if !defined(GLIMMER_DISABLE_SVG) || !defined(GLIMMER_DISABLE_ICONS)
-
-    WidgetDrawResult Icon(int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert((rtype & RT_PATH) != 0);
-        auto id = GetIdFromString(resource, WT_MediaResource);
-        auto& context = GetContext();
-        auto& media = context.GetState(id.first).state.media;
-
-        media.resflags = rtype;
-        media.content = resource;
-        media.sztype = sztype;
-        return Widget(id.first, WT_MediaResource, geometry, neighbors);
-    }
-    
-    WidgetDrawResult Icon(int32_t id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert((rtype & RT_PATH) != 0);
-        auto& context = GetContext();
-        auto& media = context.GetState(id).state.media;
-
-        media.resflags = rtype;
-        media.content = resource;
-        media.sztype = sztype;
-        return Widget(id, WT_MediaResource, geometry, neighbors);
-    }
-
-    WidgetDrawResult Icon(std::string_view id, int32_t rtype, IconSizingType sztype, std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        assert((rtype & RT_PATH) != 0);
-        auto wid = GetIdFromString(id, WT_MediaResource).first;
-        auto& context = GetContext();
-        auto& media = context.GetState(wid).state.media;
-
-        media.resflags = rtype;
-        media.content = resource;
-        media.sztype = sztype;
-        return Widget(wid, WT_MediaResource, geometry, neighbors);
-    }
-
-#endif
-
-#ifdef GLIMMER_ENABLE_ICON_FONT
-
-    WidgetDrawResult Icon(std::string_view resource, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(resource, WT_MediaResource).first;
-        auto& context = GetContext();
-        auto& media = context.GetState(wid).state.media;
-
-        media.resflags = RT_ICON_FONT;
-        media.content = resource;
-        media.sztype = IconSizingType::CurrentFontSz;
-        return Widget(wid, WT_MediaResource, geometry, neighbors);
-    }
-
-#endif
-
-    WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& media = context.GetState(id).state.media;
-
-        media.resflags = RT_SYMBOL;
-        media.symbol = icon;
-        media.sztype = sztype;
-        return Widget(id, WT_MediaResource, geometry, neighbors);
-    }
-
-    WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_MediaResource).first;
-        auto& context = GetContext();
-        auto& media = context.GetState(wid).state.media;
-
-        media.resflags = RT_SYMBOL;
-        media.symbol = icon;
-        media.sztype = sztype;
-        return Widget(wid, WT_MediaResource, geometry, neighbors);
-    }
-
-    ImRect BeginFlexLayoutRegion(Direction dir, int32_t geometry, bool wrap,
-        ImVec2 spacing, ImVec2 size, const NeighborWidgets& neighbors, int regionIdx);
-    ImRect BeginGridLayoutRegion(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents,
-        const std::initializer_list<float>& colExtents, ImVec2 spacing, ImVec2 size,
-        const NeighborWidgets& neighbors, int regionIdx);
-
-    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.region;
-        auto& region = context.regions.emplace_back();
-        context.regionBuilders.push() = context.regions.size() - 1;
-
-        auto style = context.GetStyle(state.state, id);
-        state.events = events;
-
-        region.id = id;
-        region.depth = context.regionBuilders.size() - 1;
-        region.layout = dir == DIR_Horizontal ? Layout::Horizontal : Layout::Vertical;
-
-        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
-        BeginFlexLayoutRegion(dir, geometry, wrap, spacing, style.dimension, neighbors, context.regionBuilders.top());
-    }
-
-    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Region).first;
-        BeginFlexRegion(wid, dir, spacing, wrap, events, geometry, neighbors);
-    }
-
-    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.region;
-        auto& region = context.regions.emplace_back();
-        context.regionBuilders.push() = context.regions.size() - 1;
-
-        auto style = context.GetStyle(state.state, id);
-        state.events = events;
-
-        region.id = id;
-        region.depth = context.regionBuilders.size() - 1;
-        region.layout = Layout::Grid;
-
-        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
-        BeginGridLayoutRegion(rows, cols, GridLayoutDirection::ByRows, geometry, {}, {}, spacing, 
-            style.dimension, neighbors, context.regionBuilders.top());
-    }
-
-    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Region).first;
-        BeginGridRegion(wid, rows, cols, spacing, events, geometry, neighbors);
-    }
-
-    WidgetDrawResult EndRegion()
-    {
-        auto& context = GetContext();
-        auto idx = context.regionBuilders.top();
-        context.RecordForReplay(idx, LayoutOps::PopRegion);
-
-        auto pos = EndLayout();
-        context.regionBuilders.pop(1, true);
-        return pos;
-    }
-
-    WidgetDrawResult Label(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_Label, geometry, neighbors);
-    }
-
-    WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Label).first;
-        GetWidgetConfig(wid).state.label.text = content;
-        return Widget(wid, WT_Label, geometry, neighbors);
-    }
-
-    WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Label).first;
-        auto& config = GetWidgetConfig(wid).state.label;
-        config.text = content; config.tooltip = tooltip;
-        return Widget(wid, WT_Label, geometry, neighbors);
-    }
-
-    WidgetDrawResult Button(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_Button, geometry, neighbors);
-    }
-
-    WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Button).first;
-        GetWidgetConfig(wid).state.button.text = content;
-        return Widget(wid, WT_Button, geometry, neighbors);
-    }
-
-    void BeginButton(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Button).first;
-        BeginFlexRegion(wid, DIR_Horizontal, { 0.f, 0.f }, true, ETP_Hovered | ETP_Clicked, geometry, neighbors);
-    }
-
-    WidgetDrawResult EndButton()
-    {
-        return EndRegion();
-    }
-
-    WidgetDrawResult ToggleButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_ToggleButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult ToggleButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(state, WT_ToggleButton).first;
-        auto& config = GetWidgetConfig(id).state.toggle;
-        config.checked = *state; config.out = state;
-        return Widget(id, WT_ToggleButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult ToggleButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_ToggleButton).first;
-        auto& config = GetWidgetConfig(wid).state.toggle;
-        config.checked = *state; config.out = state;
-        return Widget(wid, WT_ToggleButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult RadioButton(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_RadioButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult RadioButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(state, WT_RadioButton).first;
-        auto& config = GetWidgetConfig(id).state.radio;
-        config.checked = *state; config.out = state;
-        return Widget(id, WT_RadioButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult RadioButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_RadioButton).first;
-        auto& config = GetWidgetConfig(wid).state.radio;
-        config.checked = *state; config.out = state;
-        return Widget(wid, WT_RadioButton, geometry, neighbors);
-    }
-
-    WidgetDrawResult Checkbox(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_Checkbox, geometry, neighbors);
-    }
-
-    WidgetDrawResult Checkbox(CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(state, WT_Checkbox).first;
-        auto& config = GetWidgetConfig(id).state.checkbox;
-        config.check = *state; config.out = state;
-        return Widget(id, WT_Checkbox, geometry, neighbors);
-    }
-
-    WidgetDrawResult Checkbox(std::string_view id, CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Checkbox).first;
-        auto& config = GetWidgetConfig(wid).state.checkbox;
-        config.check = *state; config.out = state;
-        return Widget(wid, WT_Checkbox, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
-        config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
-        return Widget(id, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(std::string_view id, int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
-        config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
-        return Widget(wid, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
-        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
-        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
-        return Widget(id, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(std::string_view id, float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
-        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
-        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
-        return Widget(wid, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
-        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
-        return Widget(id, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Spinner(std::string_view id, double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
-        config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
-        return Widget(wid, WT_Spinner, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
-        config.min = range.first; config.max = range.second;
-        return Widget(id, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(std::string_view id, int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
-        config.min = range.first; config.max = range.second;
-        return Widget(wid, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
-        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
-        config.min = range.first; config.max = range.second;
-        return Widget(id, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(std::string_view id, float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
-        config.data = *value; config.out = value; config.outType = OutPtrType::f32;
-        config.min = range.first; config.max = range.second;
-        return Widget(wid, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
-        config.min = range.first; config.max = range.second;
-        return Widget(id, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult Slider(std::string_view id, double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
-        config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
-        config.min = range.first; config.max = range.second;
-        return Widget(wid, WT_Slider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
-        config.min_val = (float)*min_val;
-        config.max_val = (float)*max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::i32;
-        config.min_range = (float)range.first;
-        config.max_range = (float)range.second;
-        return Widget(id, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(std::string_view id, int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
-        config.min_val = (float)*min_val;
-        config.max_val = (float)*max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::i32;
-        config.min_range = (float)range.first;
-        config.max_range = (float)range.second;
-        return Widget(wid, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
-        config.min_val = *min_val;
-        config.max_val = *max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::f32;
-        config.min_range = range.first;
-        config.max_range = range.second;
-        return Widget(id, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(std::string_view id, float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
-        config.min_val = *min_val;
-        config.max_val = *max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::f32;
-        config.min_range = range.first;
-        config.max_range = range.second;
-        return Widget(wid, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
-        config.min_val = (float)*min_val;
-        config.max_val = (float)*max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::f64;
-        config.min_range = range.first;
-        config.max_range = range.second;
-        return Widget(id, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult RangeSlider(std::string_view id, double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
-        config.min_val = (float)*min_val;
-        config.max_val = (float)*max_val;
-        config.out_min = min_val;
-        config.out_max = max_val;
-        config.outType = OutPtrType::f64;
-        config.min_range = range.first;
-        config.max_range = range.second;
-        return Widget(wid, WT_RangeSlider, geometry, neighbors);
-    }
-
-    WidgetDrawResult TextInput(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_TextInput, geometry, neighbors);
-    }
-
-    WidgetDrawResult TextInput(char* out, int size, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto length = strlen(out);
-        return TextInput(out, size, length, placeholder, geometry, neighbors);
-    }
-
-    WidgetDrawResult TextInput(std::string_view id, char* out, int size, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto length = strlen(out);
-        return TextInput(id, out, size, length, placeholder, geometry, neighbors);
-    }
-
-    WidgetDrawResult TextInput(char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto [id, initial] = GetIdFromOutPtr(out, WT_TextInput);
-        auto& config = GetWidgetConfig(id).state.input;
-        config.placeholder = placeholder; config.out = Span<char>{ out, size };
-        config.text.reserve(size); config.clearButton = true;
-        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
-        memcpy(config.text.data(), out, sz);
-        return Widget(id, WT_TextInput, geometry, neighbors);
-    }
-
-    WidgetDrawResult TextInput(std::string_view id, char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto [wid, initial] = GetIdFromString(id, WT_TextInput);
-        auto& config = GetWidgetConfig(wid).state.input;
-        config.placeholder = placeholder; config.out = Span<char>{ out, size };
-        config.text.reserve(size); config.clearButton = true;
-        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
-        memcpy(config.text.data(), out, sz);
-        return Widget(wid, WT_TextInput, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
-
-        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
-        fptr[id] = options;
-        auto& config = GetWidgetConfig(id).state.dropdown;
-        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
-        config.text = text;
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
-
-        auto wid = GetIdFromString(id, WT_DropDown).first;
-        fptr[wid] = options;
-        auto& config = GetWidgetConfig(wid).state.dropdown;
-        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
-        config.text = text;
-        return Widget(wid, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
-
-        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
-        auto& config = GetWidgetConfig(id).state.dropdown;
-
-        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back(WT_Invalid, option);
-        config.options = OptionsMap.at(id);
-        config.text = text;
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
-
-        auto wid = GetIdFromString(id, WT_DropDown).first;
-        auto& config = GetWidgetConfig(wid).state.dropdown;
-
-        if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back(WT_Invalid, option);
-        config.options = OptionsMap.at(wid);
-        config.text = text;
-        return Widget(wid, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        return Widget(id, WT_ItemGrid, geometry, neighbors);
-    }
-
-    WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, 
-        std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), int32_t totalRows, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static auto fptr = cell;
-
-        auto wid = GetIdFromString(id, WT_ItemGrid).first;
-        auto& grid = GetWidgetConfig(wid).state.grid;
-        grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
-
-        BeginItemGrid(wid, geometry, neighbors);
-        BeginItemGridHeader(1);
-
-        for (const auto hname : headers)
-        {
-            ItemGridConfig::ColumnConfig col;
-            col.name = hname;
-            col.props = COL_Resizable;
-            AddHeaderColumn(col);
-        }
-
-        EndItemGridHeader();
-        PopulateItemGrid(totalRows);
-        return EndItemGrid();
-    }
-
-    int32_t GetNextId(WidgetType type)
-    {
-        int32_t id = GetNextCount(type);
-        id = id | (type << WidgetTypeBits);
-        return id;
-    }
-
-    int16_t GetNextCount(WidgetType type)
-    {
-        auto& context = GetContext();
-        return context.GetNextCount(type);
-    }
-
-    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id)
-    {
-        auto& context = GetContext();
-        int32_t wid = id;
-        wid = wid | (type << WidgetTypeBits);
-
-        if (context.InsideFrame)
-            context.tempids[type] = std::min(context.tempids[type], context.maxids[type]);
-
-        auto& state = context.GetState(wid);
-        switch (type)
-        {
-            case WT_Label: state.state.label.id = wid; break; 
-            case WT_Button: state.state.button.id = wid; break;
-            case WT_RadioButton: state.state.radio.id = wid; break;
-            case WT_ToggleButton: state.state.toggle.id = wid; break;
-            case WT_Checkbox: state.state.checkbox.id = wid; break;
-            case WT_Spinner: state.state.spinner.id = wid; break;
-            case WT_Slider: state.state.slider.id = wid; break;
-            case WT_RangeSlider: state.state.rangeSlider.id = wid; break;
-            case WT_TextInput: state.state.input.id = wid; break;
-            case WT_DropDown: state.state.dropdown.id = wid; break;
-            case WT_ItemGrid: state.state.grid.id = wid; break;
-            default: break;
-        }
-        return state;
-    }
-
-    WidgetConfigData& GetWidgetConfig(int32_t id)
-    {
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        return GetWidgetConfig(wtype, (int16_t)(id & WidgetIndexMask));
-    }
-
-    void SetTooltip(int32_t id, std::string_view tooltip)
-    {
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        auto& state = GetWidgetConfig(id).state;
-
-        switch (wtype)
-        {
-        case glimmer::WT_Label:
-            state.label.tooltip = tooltip;
-            break;
-        case glimmer::WT_Button:
-            state.button.tooltip = tooltip;
-            break;
-        case glimmer::WT_RadioButton:
-            state.radio.tooltip = tooltip;
-            break;
-        case glimmer::WT_ToggleButton:
-            state.toggle.tooltip = tooltip;
-            break;
-        case glimmer::WT_Checkbox:
-            state.checkbox.tooltip = tooltip;
-            break;
-        case glimmer::WT_Slider:
-            state.slider.tooltip = tooltip;
-            break;
-        case glimmer::WT_RangeSlider:
-            state.rangeSlider.tooltip = tooltip;
-            break;
-        case glimmer::WT_Spinner:
-            state.spinner.tooltip = tooltip;
-            break;
-        case glimmer::WT_TextInput:
-            state.input.tooltip = tooltip;
-            break;
-        case glimmer::WT_DropDown:
-            state.dropdown.tooltip = tooltip;
-            break;
-        default:
-            break;
-        }
-    }
-
-    void SetPrevTooltip(std::string_view tooltip)
-    {
-        if (PreviousWidget != -1)
-            SetTooltip(PreviousWidget, tooltip);
-    }
-
-    void SetNextTooltip(std::string_view tooltip)
-    {
-        NextTootip = tooltip;
     }
 
 #pragma endregion

@@ -43,10 +43,6 @@
 #define GLIMMER_MAX_SPLITTER_REGIONS 4
 #endif
 
-#ifndef GLIMMER_MAX_STYLE_STACKSZ
-#define GLIMMER_MAX_STYLE_STACKSZ 16
-#endif
-
 #ifndef GLIMMER_MAX_WIDGET_SPECIFIC_STYLES
 #define GLIMMER_MAX_WIDGET_SPECIFIC_STYLES 4
 #endif
@@ -86,7 +82,6 @@ namespace glimmer
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
-    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLIMMER_MAX_STYLE_STACKSZ>;
 	using RegionStackT = DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING>;
 
     struct RendererEventIndexRange
@@ -562,22 +557,6 @@ namespace glimmer
         int16_t index = -1;
     };
 
-    struct LayoutItemDescriptor
-    {
-        WidgetType wtype = WidgetType::WT_Invalid;
-        int32_t id = -1;
-        int32_t scrollid = -1;
-        int16_t layoutIdx = -1;
-        ImRect margin, border, padding, content, text;
-        ImRect prefix, suffix;
-        ImVec2 relative;
-        ImVec2 extent;
-        int32_t sizing = 0;
-        int16_t row = 0, col = 0;
-        int16_t from = -1, to = -1;
-        void* implData = nullptr;
-    };
-
     enum class LayoutOps 
     { 
         PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
@@ -732,6 +711,7 @@ namespace glimmer
         static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
         static EventDeferInfo ForScrollRegion(int32_t id);
         static EventDeferInfo ForMediaResource(int32_t id, const ImRect& padding, const ImRect& content);
+        static EventDeferInfo ForCustom(int32_t id);
     };
 
     enum class NestedContextSourceType

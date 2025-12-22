@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "style.h"
 
 namespace glimmer
 {
@@ -155,4 +156,13 @@ namespace glimmer
     bool BeginPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
     WidgetDrawResult EndPlot();
 #endif
+
+    struct ICustomWidget
+    {
+        virtual StyleDescriptor GetStyle(int32_t id, const StyleStackT& stack) = 0;
+        virtual ImRect ComputeGeometry(int32_t id, const ImVec2& pos, const LayoutItemDescriptor& layoutItem) = 0;
+        virtual WidgetDrawResult DrawWidget(int32_t id, const StyleDescriptor& style, 
+            const LayoutItemDescriptor& layoutItem, IRenderer& renderer, const IODescriptor& io) = 0;
+        virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
+    };
 }

@@ -2,6 +2,7 @@
 #include "im_font_manager.h"
 #include "renderer.h"
 #include "style.h"
+#include "widgets.h"
 #include "libs/inc/implot/implot.h"
 #include <list>
 
@@ -353,25 +354,25 @@ namespace glimmer
                 for (auto idx = 0; idx < sz; ++idx)
                     accordionStates.emplace_back();
                 break;
-			}
+            }
             case WT_NavDrawer: {
                 navDrawerStates.reserve(navDrawerStates.size() + sz);
                 for (auto idx = 0; idx < sz; ++idx)
                     navDrawerStates.emplace_back();
                 break;
             }
-			case WT_TabBar: {
-				tabBarStates.reserve(tabBarStates.size() + sz);
-				for (auto idx = 0; idx < sz; ++idx)
-					tabBarStates.emplace_back();
-				break;
-			}
-			case WT_ItemGrid: {
-				gridStates.reserve(gridStates.size() + sz);
-				for (auto idx = 0; idx < sz; ++idx)
-					gridStates.emplace_back();
-				break;
-			}
+            case WT_TabBar: {
+                tabBarStates.reserve(tabBarStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    tabBarStates.emplace_back();
+                break;
+            }
+            case WT_ItemGrid: {
+                gridStates.reserve(gridStates.size() + sz);
+                for (auto idx = 0; idx < sz; ++idx)
+                    gridStates.emplace_back();
+                break;
+            }
             case WT_Splitter: {
                 splitterStates.reserve(splitterStates.size() + sz);
                 for (auto idx = 0; idx < sz; ++idx)
@@ -569,13 +570,13 @@ namespace glimmer
     EventDeferInfo EventDeferInfo::ForRegion(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content)
     {
         EventDeferInfo info;
-		info.type = WT_Region;
+        info.type = WT_Region;
         info.id = id;
         info.params.region.margin = margin;
         info.params.region.border = border;
         info.params.region.padding = padding;
         info.params.region.content = content;
-		return info;
+        return info;
     }
 
     EventDeferInfo EventDeferInfo::ForLabel(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
@@ -733,6 +734,14 @@ namespace glimmer
         return info;
     }
 
+    EventDeferInfo EventDeferInfo::ForCustom(int32_t id)
+    {
+        EventDeferInfo info;
+        info.type = WT_Custom;
+        info.id = id;
+        return info;
+    }
+
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
         auto io = Config.platform->CurrentIO();
@@ -753,7 +762,7 @@ namespace glimmer
                 ev.params.region.content.Translate(origin);
                 HandleRegionEvent(ev.id, ev.params.label.margin, ev.params.label.border,
                     ev.params.label.padding, ev.params.label.content, renderer, io, result);
-				break;
+                break;
             case WT_Label: 
                 ev.params.label.margin.Translate(origin);
                 ev.params.label.border.Translate(origin);
@@ -825,7 +834,7 @@ namespace glimmer
                 break;
             case WT_NavDrawer:
             {
-				auto& navstate = NavDrawerState(ev.id);
+                auto& navstate = NavDrawerState(ev.id);
                 HandleNavDrawerEvents(currentNavDrawer, navstate, result, io, origin);
                 break;
             }
@@ -834,12 +843,16 @@ namespace glimmer
                 HandleAccordionEvent(ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
                 break;
             case WT_Scrollable:
-				// TODO: Handle scrollable events if any in future
+                // TODO: Handle scrollable events if any in future
                 break;
             case WT_MediaResource:
                 ev.params.media.content.Translate(origin);
                 ev.params.media.padding.Translate(origin);
                 HandleMediaResourceEvent(ev.id, ev.params.media.padding, ev.params.media.content, io, result);
+                break;
+            case WT_Custom:
+                Config.customWidget->HandleEvents(ev.id, origin, io, result);
+                break;
             default:
                 break;
             }
@@ -1196,7 +1209,7 @@ namespace glimmer
         return res;
     }
 
-	// This is a global config which can only be set during initialization
+    // This is a global config which can only be set during initialization
     // Read-only access is provided once set for subsequent frames
     UIConfig Config{};
 
@@ -1210,7 +1223,7 @@ namespace glimmer
     StyleStackT WidgetContextData::StyleStack[WSI_Total]{ false, false, false, false,
         false, false, false, false, false };
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
-	int32_t WidgetContextData::CurrentWidgetId = -1;
+    int32_t WidgetContextData::CurrentWidgetId = -1;
     DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
     DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
     DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];

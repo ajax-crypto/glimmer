@@ -2,6 +2,10 @@
 
 #include "types.h"
 
+#ifndef GLIMMER_MAX_STYLE_STACKSZ
+#define GLIMMER_MAX_STYLE_STACKSZ 16
+#endif
+
 namespace glimmer
 {
     struct LayoutBuilder;
@@ -199,6 +203,8 @@ namespace glimmer
 
         static void(*GlobalThemeProvider)(GlobalWidgetTheme*);
     };
+
+    using StyleStackT = DynamicStack<StyleDescriptor, int16_t, GLIMMER_MAX_STYLE_STACKSZ>;
 
     struct ToggleButtonStyleDescriptor
     {

@@ -129,6 +129,8 @@ namespace glimmer
         WT_NavDrawer,
         WT_TotalTypes,
 
+        WT_Custom = 1 << 15,
+
         WT_ContextMenu = WT_TotalTypes,
         WT_TotalNestedContexts
     };
@@ -144,6 +146,8 @@ namespace glimmer
         float thickness = 0.f;
         LineType lineType = LineType::Solid; // Unused for rendering
     };
+
+    struct ICustomWidget;
 
     struct UIConfig
     {
@@ -179,6 +183,7 @@ namespace glimmer
             "scroll", "splitter", "invalid", "accordion", "slider", "rangeslider", "spinner",
             "text", "dropdown", "tab", "itemgrid", "chart", "icon"
         };
+        ICustomWidget* customWidget = nullptr;
         void* iconFont = nullptr;
         void* userData = nullptr;
     };
@@ -740,6 +745,22 @@ namespace glimmer
         int optidx = -1;
         int row = -1, col = -1;
         bool isHeader = false;
+    };
+
+    struct LayoutItemDescriptor
+    {
+        WidgetType wtype = WidgetType::WT_Invalid;
+        int32_t id = -1;
+        int32_t scrollid = -1;
+        int16_t layoutIdx = -1;
+        ImRect margin, border, padding, content, text;
+        ImRect prefix, suffix;
+        ImVec2 relative;
+        ImVec2 extent;
+        int32_t sizing = 0;
+        int16_t row = 0, col = 0;
+        int16_t from = -1, to = -1;
+        void* implData = nullptr;
     };
 
 #define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f);

@@ -6,6 +6,7 @@
 #include "draw.h"
 #include "types.h"
 #include "utils.h"
+#include "widgets.h"
 
 #include <limits>
 
@@ -205,6 +206,8 @@ namespace glimmer
         IRenderer& renderer);
     WidgetDrawResult MediaResourceImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
+        IRenderer& renderer, const IODescriptor& io);
     void RecordItemGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
@@ -1774,15 +1777,16 @@ namespace glimmer
             break;
         }
         case WT_TabBar: {
-            auto& state = context.TabBarState(item.id);
-            const auto style = context.GetStyle(WS_Default, item.id);
+            auto& state = context.GetState(item.id).state.tab;
+            const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
             UpdateGeometry(item, bbox, style);
 
             if (render)
             {
                 context.AddItemGeometry(item.id, bbox);
                 result = TabBarImpl(item.id, item.margin, style, io, renderer);
-                if (result.event != WidgetEvent::Clicked) result.tabidx = state.current;
+                if (result.event != WidgetEvent::Clicked) 
+                    result.tabidx = context.TabBarState(item.id).current;
                 if (!context.nestedContextStack.empty())
                     RecordItemGeometry(item, style);
             }
@@ -1791,7 +1795,7 @@ namespace glimmer
         }
         case WT_MediaResource: {
             auto& state = context.GetState(item.id).state.media;
-            const auto style = context.GetStyle(WS_Default, item.id);
+            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
             UpdateGeometry(item, bbox, style);
 
             if (render)
@@ -1800,6 +1804,23 @@ namespace glimmer
                 result = MediaResourceImpl(item.id, style, item.margin, item.border, item.padding, item.content, renderer, io);
                 if (!context.nestedContextStack.empty())
                     RecordItemGeometry(item, style);
+            }
+
+            break;
+        }
+        case WT_Custom: {
+            if (Config.customWidget != nullptr)
+            {
+                const auto style = Config.customWidget->GetStyle(item.id, StyleStack);
+                UpdateGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = DrawCustomWidget(item.id, style, item, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        RecordItemGeometry(item, style);
+                }
             }
 
             break;
