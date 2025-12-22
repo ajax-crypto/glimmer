@@ -7464,6 +7464,45 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Custom Widget
+
+    void HandleCustomWidgetEvent(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
+    {
+        if (!GetContext().deferEvents)
+            Config.customWidget->HandleEvents(id, offset, io, result);
+        else
+            GetContext().deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
+    }
+
+    WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
+        IRenderer& renderer, const IODescriptor& io)
+    {
+        WidgetDrawResult result;
+        Config.customWidget->DrawWidget(style, layoutItem, renderer, io);
+        HandleCustomWidgetEvent(id, layoutItem.margin.Min, io, result);
+        return result;
+    }
+
+    ImRect ICustomWidget::GetBouds(int32_t id)
+    {
+        return GetContext().GetGeometry(id);
+    }
+
+    std::tuple<ImRect, ImRect, ImRect, ImRect> ICustomWidget::GetBoxModelBounds(ImRect content,
+        const StyleDescriptor& style)
+    {
+        return glimmer::GetBoxModelBounds(content, style);
+    }
+
+    std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> ICustomWidget::GetBoxModelBounds(ImVec2 pos,
+        const StyleDescriptor& style, std::string_view text, IRenderer& renderer, int32_t geometry,
+        TextType type, const NeighborWidgets& neighbors, float width, float height)
+    {
+        return glimmer::GetBoxModelBounds(pos, style, text, renderer, geometry, type, neighbors, width, height);
+    }
+
+#pragma endregion
+
 #pragma region Implementation Details
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
@@ -7505,23 +7544,6 @@ namespace glimmer
         Config.implicitInheritedProps = ~(StyleBackground | StyleHeight | StyleWidth | StyleMaxWidth |
             StyleMaxHeight | StyleMinWidth | StyleMinHeight);
         return Config;
-    }
-
-    void HandleCustomWidgetEvent(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
-    {
-        if (!GetContext().deferEvents)
-			Config.customWidget->HandleEvents(id, offset, io, result);
-        else
-			GetContext().deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
-    }
-
-    WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
-        IRenderer& renderer, const IODescriptor& io)
-    {
-        WidgetDrawResult result;
-		Config.customWidget->DrawWidget(id, style, layoutItem, renderer, io);
-		HandleCustomWidgetEvent(id, layoutItem.margin.Min, io, result);
-        return result;
     }
 
     // Widget rendering are of three types:
@@ -7997,13 +8019,13 @@ namespace glimmer
                 {
                     auto& layout = context.layouts[context.layoutStack.top()];
                     auto pos = layout.geometry.Min;
-                    Config.customWidget->ComputeGeometry(wid, pos, layoutItem);
+                    Config.customWidget->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
                     AddItemToLayout(layout, layoutItem, style);
                 }
                 else
                 {
                     auto pos = context.NextAdHocPos();
-                    Config.customWidget->ComputeGeometry(wid, pos, layoutItem);
+                    Config.customWidget->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
                     context.AddItemGeometry(wid, layoutItem.margin);
                     result = DrawCustomWidget(wid, style, layoutItem, renderer, io);
                     RecordItemGeometry(layoutItem, style);

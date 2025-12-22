@@ -60,9 +60,10 @@ Custom widgets can be implemented using the following interface:
 struct ICustomWidget
 {
     virtual StyleDescriptor GetStyle(int32_t id, const StyleStackT& stack) = 0;
-    virtual ImRect ComputeGeometry(int32_t id, const ImVec2& pos, const LayoutItemDescriptor& layoutItem) = 0;
-    virtual WidgetDrawResult DrawWidget(int32_t id, const StyleDescriptor& style, 
-        const LayoutItemDescriptor& layoutItem, IRenderer& renderer, const IODescriptor& io) = 0;
+    virtual ImRect ComputeGeometry(const ImVec2& pos, const LayoutItemDescriptor& layoutItem, 
+        const NeighborWidgets& neighbors, ImVec2 maxsz) = 0;
+    virtual WidgetDrawResult DrawWidget(const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem, 
+        IRenderer& renderer, const IODescriptor& io) = 0;
     virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
 };
 ```
