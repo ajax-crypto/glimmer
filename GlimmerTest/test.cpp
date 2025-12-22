@@ -180,7 +180,7 @@ void TestWindow(glimmer::UIConfig& config)
         Label(widgets[UPPER], ExpandH);
         Move(FD_Vertical);
 
-        StartTabBar(widgets[TAB]);
+        BeginTabBar(widgets[TAB]);
         AddTab("Tab 1", "", TI_Closeable);
         AddTab("Tab 2", "", TI_Closeable);
         AddTab("Tab 3", "", TI_Closeable);
@@ -198,11 +198,11 @@ void TestWindow(glimmer::UIConfig& config)
         PopStyle(1, WS_Default | WS_Hovered);
         Move(FD_Horizontal);
 
-        StartSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
+        BeginSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
             SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
 
         {
-            StartSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
+            BeginSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
                 SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
             {
                 Label(widgets[LEFT], ExpandAll);
@@ -225,14 +225,14 @@ void TestWindow(glimmer::UIConfig& config)
 
             NextSplitRegion();
 
-            StartAccordion(widgets[ACCORDION], ExpandH | ToTop | ToRight, NeighborWidgets{ .top = widgets[TAB] });
+            BeginAccordion(widgets[ACCORDION], ExpandH | ToTop | ToRight, NeighborWidgets{ .top = widgets[TAB] });
             PushStyle("background-color: rgb(100, 0, 255); color: rgb(200, 200, 200);", "color: white;");
-            StartAccordionHeader();
+            BeginAccordionHeader();
             AddAccordionHeaderText("Test Accordion");
             EndAccordionHeader(FramesRendered() == 0 ? std::optional<bool>{ true } : std::nullopt);
             PopStyle(1, WS_Default);
 
-            if (StartAccordionContent())
+            if (BeginAccordionContent())
             {
                 BeginFlexLayout(DIR_Horizontal, AlignHCenter | ExpandAll, false, { 5.f, 5.f });
                 {
@@ -273,8 +273,8 @@ void TestWindow(glimmer::UIConfig& config)
             Move(widgets[LEFT], widgets[TAB], true, true);
             PushStyle("background-color: white; padding: 5px; border: none;");
 
-            StartItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
-            StartItemGridHeader(2);
+            BeginItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
+            BeginItemGridHeader(2);
             AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
             AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
             AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });

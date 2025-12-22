@@ -101,20 +101,20 @@ namespace glimmer
     WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), 
         int32_t totalRows, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
-    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+    void BeginSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void NextSplitRegion();
     void EndSplitRegion();
 
-    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
-    void SetPopUpCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
+    void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
     WidgetDrawResult EndPopUp(bool alwaysVisible = true);
 
-    void StartScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
+    void BeginScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     ImRect EndScrollableRegion();
 
-    bool StartContextMenu(ImVec2 fixedsz = { FLT_MAX, FLT_MAX });
+    bool BeginContextMenu(ImVec2 fixedsz = { FLT_MAX, FLT_MAX });
     UIElementDescriptor GetContextMenuContext();
     void AddContextMenuEntry(std::string_view text, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
     void AddContextMenuEntry(SymbolIcon icon, std::string_view text, TextType type = TextType::PlainText);
@@ -122,7 +122,7 @@ namespace glimmer
     void AddContextMenuSeparator(uint32_t color, float thickness = 1.f);
     WidgetDrawResult EndContextMenu();
 
-    bool StartTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
@@ -132,18 +132,18 @@ namespace glimmer
     void AddNavDrawerEntry(int32_t resflags, std::string_view icon, std::string_view text, bool atStart = true, float iconFontSzRatio = 1.f);
     WidgetDrawResult EndNavDrawer();
 
-    bool StartAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    bool StartAccordionHeader();
+    bool BeginAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginAccordionHeader();
     void AddAccordionHeaderExpandedIcon(int32_t resflags, std::string_view res);
     void AddAccordionHeaderCollapsedIcon(int32_t resflags, std::string_view res);
     void AddAccordionHeaderText(std::string_view content, TextType textType = TextType::PlainText);
     void EndAccordionHeader(std::optional<bool> expanded = std::nullopt);
-    bool StartAccordionContent(float height = FLT_MAX, int32_t scrollflags = 0, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
+    bool BeginAccordionContent(float height = FLT_MAX, int32_t scrollflags = 0, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     void EndAccordionContent();
     WidgetDrawResult EndAccordion();
 
-    bool StartItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    bool StartItemGridHeader(int levels = 1);
+    bool BeginItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginItemGridHeader(int levels = 1);
     void AddHeaderColumn(const ItemGridConfig::ColumnConfig& config);
     void CategorizeColumns();
     void AddColumnCategory(const ItemGridConfig::ColumnConfig& config, int16_t from, int16_t to);
@@ -152,7 +152,7 @@ namespace glimmer
     WidgetDrawResult EndItemGrid();
 
 #ifndef GLIMMER_DISABLE_PLOTS
-    bool StartPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
+    bool BeginPlot(std::string_view id, ImVec2 size = { FLT_MAX, FLT_MAX }, int32_t flags = 0);
     WidgetDrawResult EndPlot();
 #endif
 }

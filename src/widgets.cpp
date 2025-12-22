@@ -657,7 +657,7 @@ namespace glimmer
             context.adhocLayout.top().insideContainer = true;
     }
 
-    void StartScrollableRegion(int32_t id, int32_t scrollType, int32_t geometry,
+    void BeginScrollableRegion(int32_t id, int32_t scrollType, int32_t geometry,
         const NeighborWidgets& neighbors, ImVec2 maxsz)
     {
         auto& context = GetContext();
@@ -1442,12 +1442,12 @@ namespace glimmer
         return false;
     }
 
-    bool StartContextMenu(ImVec2 fixedsz)
+    bool BeginContextMenu(ImVec2 fixedsz)
     {
         if (WidgetContextData::RightClickContext.pos != ImVec2{})
         {
-            StartPopUp(WT_ContextMenu << WidgetTypeBits, WidgetContextData::RightClickContext.pos, fixedsz);
-            SetPopUpCallback(PopupCallback::PCB_AfterRender, [](void*, IRenderer&, ImVec2 offset, const ImRect& region) {
+            BeginPopup(WT_ContextMenu << WidgetTypeBits, WidgetContextData::RightClickContext.pos, fixedsz);
+            SetPopupCallback(PopupCallback::PCB_AfterRender, [](void*, IRenderer&, ImVec2 offset, const ImRect& region) {
                 auto io = Config.platform->desc;
 
                 if (!region.Contains(io.mousepos))
@@ -2978,7 +2978,7 @@ namespace glimmer
                 ImVec2 available2 = ImVec2{ maxw - border.Min.x, maxh - padding.Min.y };
 
                 // Create the popup with its own context                
-                if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), state.overlayHeight }))
+                if (BeginPopup(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), state.overlayHeight }))
                 {
                     state.ShowList(state, available1, available2);
                     EndPopUp();
@@ -3128,7 +3128,7 @@ namespace glimmer
             ImVec2{ padding.Min.x, maxh };
 
         // Create the popup with its own context                
-        if (StartPopUp(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
+        if (BeginPopup(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
         {
             static bool hasClicked = false;
             static int32_t wid = -1, selected = -1, hovered = -1;
@@ -3305,7 +3305,7 @@ namespace glimmer
                 selectedColor = state.optionSelectionColor;
 
                 if (state.hasSelection)
-                    SetPopUpCallback(PCB_BeforeRender, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
+                    SetPopupCallback(PCB_BeforeRender, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
                     auto io = Config.platform->desc;
                     auto optidx = 0, hoveridx = -1;
 
@@ -4065,7 +4065,7 @@ namespace glimmer
         return result;
     }
 
-    bool StartTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    bool BeginTabBar(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         auto& tab = context.layoutStack.empty() ? context.currentTab : 
@@ -4379,9 +4379,9 @@ namespace glimmer
             }
 
             auto selected = navstate.selected;
-            StartPopUp(wid, extent.Min, extent.GetSize());
+            BeginPopup(wid, extent.Min, extent.GetSize());
 
-            SetPopUpCallback(PCB_GeneratePrimitives, [](void* ptr, IRenderer& renderer, ImVec2 origin, const ImRect&) {
+            SetPopupCallback(PCB_GeneratePrimitives, [](void* ptr, IRenderer& renderer, ImVec2 origin, const ImRect&) {
                 auto data = (Data*)ptr;
                 auto& nav = data->builder;
                 auto& navstate = data->state;
@@ -4417,7 +4417,7 @@ namespace glimmer
                 renderer.ResetClipRect();
             }, (void*)&data);
 
-            SetPopUpCallback(PCB_HandleEvents, [](void* ptr, IRenderer&, ImVec2 offset, const ImRect&) {
+            SetPopupCallback(PCB_HandleEvents, [](void* ptr, IRenderer&, ImVec2 offset, const ImRect&) {
                 auto data = (Data*)ptr;
                 auto& nav = data->builder;
                 auto& navstate = data->state;
@@ -4487,7 +4487,7 @@ namespace glimmer
 
 #pragma region Accordion
 
-    bool StartAccordion(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    bool BeginAccordion(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.push();
@@ -4515,7 +4515,7 @@ namespace glimmer
         return true;
     }
 
-    bool StartAccordionHeader()
+    bool BeginAccordionHeader()
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
@@ -4632,7 +4632,7 @@ namespace glimmer
         accordion.totalsz.y += bg.GetHeight();
     }
 
-    bool StartAccordionContent(float height, int32_t scrollflags, ImVec2 maxsz)
+    bool BeginAccordionContent(float height, int32_t scrollflags, ImVec2 maxsz)
     {
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
@@ -5044,7 +5044,7 @@ namespace glimmer
         }
     }
 
-    bool StartItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    bool BeginItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         auto& builder = context.itemGrids.push();
@@ -5073,7 +5073,7 @@ namespace glimmer
         return true;
     }
 
-    bool StartItemGridHeader(int levels)
+    bool BeginItemGridHeader(int levels)
     {
         assert(levels > 0 && levels <= GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL);
         auto& context = *WidgetContextData::CurrentItemGridContext;
@@ -6325,7 +6325,7 @@ namespace glimmer
         
         int16_t currparent = -1;
         auto hlevels = (int32_t)config.config.headers.size();
-        StartItemGridHeader(hlevels);
+        BeginItemGridHeader(hlevels);
 
         for (auto level = hlevels - 1; level >= 0; --level)
         {
@@ -6363,7 +6363,7 @@ namespace glimmer
 
 #pragma region Splitter
 
-    void StartSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+    void BeginSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry, const NeighborWidgets& neighbors)
     {
         assert((int)splits.size() < GLIMMER_MAX_SPLITTER_REGIONS);
@@ -6535,7 +6535,7 @@ namespace glimmer
 
 #pragma region Popups
 
-    bool StartPopUp(int32_t id, ImVec2 origin, ImVec2 size)
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size)
     {
         auto io = Config.platform->CurrentIO();
         if (!io.isKeyPressed(Key_Escape))
@@ -6555,7 +6555,7 @@ namespace glimmer
         return false;
     }
 
-    void SetPopUpCallback(PopupCallback phase, PopUpCallbackT callback, void* data)
+    void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data)
     {
         auto& context = GetContext();
         context.popupCallbacks[phase] = callback;
@@ -6635,7 +6635,7 @@ namespace glimmer
 #ifndef GLIMMER_DISABLE_PLOTS
 #pragma region Charts
 
-    bool StartPlot(std::string_view str, ImVec2 size, int32_t flags)
+    bool BeginPlot(std::string_view str, ImVec2 size, int32_t flags)
     {
         auto& context = GetContext();
         auto extent = context.MaximumExtent();
@@ -7863,8 +7863,8 @@ namespace glimmer
         auto& grid = GetWidgetConfig(wid).state.grid;
         grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
 
-        StartItemGrid(wid, geometry, neighbors);
-        StartItemGridHeader(1);
+        BeginItemGrid(wid, geometry, neighbors);
+        BeginItemGridHeader(1);
 
         for (const auto hname : headers)
         {
