@@ -501,7 +501,9 @@ namespace glimmer
         Vector<NavDrawerItem, int16_t, 16> items{ false };
         ImRect extent;
         int32_t current = -1;
+        int32_t selected = -1;
         int32_t state = WS_Default;
+        float visiblew = 0.f;
         float currw = 0.f;
         bool isOpen = false;
     };
@@ -726,6 +728,7 @@ namespace glimmer
         static EventDeferInfo ForDropDown(int32_t id, const ImRect& margin, const ImRect& border,
             const ImRect& padding, const ImRect& content);
         static EventDeferInfo ForTabBar(int32_t id, const ImRect& content);
+        static EventDeferInfo ForNavDrawer(int32_t id);
         static EventDeferInfo ForAccordion(int32_t id, const ImRect& region, int32_t ridx);
         static EventDeferInfo ForScrollRegion(int32_t id);
         static EventDeferInfo ForMediaResource(int32_t id, const ImRect& padding, const ImRect& content);
@@ -898,8 +901,8 @@ namespace glimmer
 
         ImVec2 popupOrigin{ -1.f, -1.f }, popupSize{ -1.f, -1.f };
         RendererEventIndexRange popupRange;
-        PopUpCallbackT popupCallbacks[PRP_Total] = { nullptr, nullptr, nullptr };
-        void* popupCallbackData[PRP_Total] = { nullptr, nullptr, nullptr };
+        PopUpCallbackT popupCallbacks[(int)PCB_Total] = { nullptr, nullptr, nullptr, nullptr };
+        void* popupCallbackData[(int)PCB_Total] = { nullptr, nullptr, nullptr, nullptr };
 
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;

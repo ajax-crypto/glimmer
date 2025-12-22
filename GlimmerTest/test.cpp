@@ -191,9 +191,9 @@ void TestWindow(glimmer::UIConfig& config)
         glimmer::PushStyle("background-color: rgb(225, 225, 225); padding: 5px;",
             "background-color: rgb(175, 175, 175);");
         BeginNavDrawer(0, true);
-        AddNavDrawerEntry(RT_SYMBOL, "warning", "Warning!!!");
-        AddNavDrawerEntry(RT_SYMBOL, "error", "Error!!!");
-        AddNavDrawerEntry(RT_SYMBOL, "home", "Home!!!");
+        AddNavDrawerEntry(RT_SYMBOL, "warning", "First!!!");
+        AddNavDrawerEntry(RT_SYMBOL, "error", "Second!!!");
+        AddNavDrawerEntry(RT_SYMBOL, "home", "Third!!!");
         EndNavDrawer();
         PopStyle(1, WS_Default | WS_Hovered);
         Move(FD_Horizontal);

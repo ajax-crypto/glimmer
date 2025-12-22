@@ -210,6 +210,8 @@ namespace glimmer
         bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override;
         int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override;
 
+        void DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) override;
+
     private:
 
         void ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr);
@@ -238,6 +240,14 @@ namespace glimmer
             bool hasCommonPrefetch = false;
         };
 
+        struct DebugRect
+        {
+            ImVec2 startpos;
+            ImVec2 endpos;
+            uint32_t color;
+            float thickness;
+        };
+
         void ExtractResourceData(const ResourceData& data, std::pair<int, int> range, const char* source,
             bool hasCommonPrefetch, bool createTextAtlas, std::vector<ImageData>& indexes, int& totalwidth, int& maxheight);
         int64_t RecordImage(std::pair<ImageLookupKey, ImTextureID>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw);
@@ -247,6 +257,7 @@ namespace glimmer
         float _currentFontSz = 0.f;
         std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
         std::vector<std::pair<GifLookupKey, ImTextureID>> gifframes;
+        std::vector<DebugRect> debugrects;
         Vector<char, int32_t, 4096> prefetched; // All resource prefetched data is read into this
         ImDrawList* prevlist = nullptr;
     };
@@ -277,9 +288,14 @@ namespace glimmer
 
     void ImGuiRenderer::FinalizeFrame(int32_t cursor)
     {
+        for (const auto& rect : debugrects)
+            (ImGui::GetForegroundDrawList())->AddRect(
+                rect.startpos, rect.endpos, rect.color, 0.f, ImDrawFlags_None, rect.thickness);
+
         ImGui::End();
         ImGui::SetMouseCursor((ImGuiMouseCursor)cursor);
         ImGui::Render();
+        debugrects.clear();
     }
 
     void ImGuiRenderer::SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
@@ -1017,6 +1033,18 @@ namespace glimmer
         return totalBytes;
     }
 
+    void ImGuiRenderer::DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness)
+    {
+        if (GetContext().PopupTarget != -1)
+        {
+            startpos += GetContext().popupOrigin;
+            endpos += GetContext().popupOrigin;
+        }
+
+        Round(startpos); Round(endpos); thickness = roundf(thickness);
+        debugrects.push_back({ startpos, endpos, color, thickness });
+    }
+
     void ImGuiRenderer::ConstructRoundedRect(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr)
     {
         auto& dl = *((ImDrawList*)UserData);
@@ -1324,7 +1352,7 @@ namespace glimmer
                     break;
 
                 case DrawingOps::Resource:
-                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos, 
+                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos + offset,
                         entry.second.resource.size, entry.second.resource.color, entry.second.resource.content,
                         entry.second.resource.id);
                     break;

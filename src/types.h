@@ -720,13 +720,13 @@ namespace glimmer
         return result;
     }
 
-    enum PopUpRenderPhase
+    enum PopupCallback
     {
-        PRP_GeneratePrimitives, 
-        PRP_BeforePrimitives, 
-        PRP_AfterPrimitives, 
-        PRP_AfterEvents, 
-        PRP_Total
+        PCB_GeneratePrimitives, 
+        PCB_BeforeRender, 
+        PCB_AfterRender, 
+        PCB_HandleEvents, 
+        PCB_Total
     };
 
     using PopUpCallbackT = void (*)(void*, IRenderer&, ImVec2, const ImRect&);
@@ -741,4 +741,7 @@ namespace glimmer
         int row = -1, col = -1;
         bool isHeader = false;
     };
+
+#define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f);
+#define DEBUG_RECT2(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 2.f);
 }

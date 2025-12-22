@@ -49,6 +49,8 @@ namespace glimmer
     void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
     void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleNavDrawerEvents(const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate,
+        WidgetDrawResult& result, const IODescriptor& io, ImVec2 offset);
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
     void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
 
@@ -696,6 +698,13 @@ namespace glimmer
         return info;
     }
 
+    EventDeferInfo EventDeferInfo::ForNavDrawer(int32_t id)
+    {
+        EventDeferInfo info;
+        info.type = WT_NavDrawer;
+        return info;
+    }
+
     EventDeferInfo EventDeferInfo::ForAccordion(int32_t id, const ImRect& region, int32_t ridx)
     {
         EventDeferInfo info;
@@ -814,6 +823,12 @@ namespace glimmer
                 ev.params.tabbar.content.Translate(origin);
                 HandleTabBarEvent(ev.id, ev.params.tabbar.content, io, renderer, result);
                 break;
+            case WT_NavDrawer:
+            {
+				auto& navstate = NavDrawerState(ev.id);
+                HandleNavDrawerEvents(currentNavDrawer, navstate, result, io, origin);
+                break;
+            }
             case WT_Accordion:
                 ev.params.accordion.region.Translate(origin);
                 HandleAccordionEvent(ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
@@ -1072,6 +1087,7 @@ namespace glimmer
 
                 navdrawer.iconSpacing = 5.f * Config.scaling;
                 navdrawer.itemGap = 5.f * Config.scaling;
+                navdrawer.openAnimationTime = 0.2f;
 
                 switch (idx)
                 {

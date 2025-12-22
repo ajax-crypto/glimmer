@@ -1447,7 +1447,7 @@ namespace glimmer
         if (WidgetContextData::RightClickContext.pos != ImVec2{})
         {
             StartPopUp(WT_ContextMenu << WidgetTypeBits, WidgetContextData::RightClickContext.pos, fixedsz);
-            SetPopUpCallback(PopUpRenderPhase::PRP_AfterPrimitives, [](void*, IRenderer&, ImVec2 offset, const ImRect& region) {
+            SetPopUpCallback(PopupCallback::PCB_AfterRender, [](void*, IRenderer&, ImVec2 offset, const ImRect& region) {
                 auto io = Config.platform->desc;
 
                 if (!region.Contains(io.mousepos))
@@ -3305,7 +3305,7 @@ namespace glimmer
                 selectedColor = state.optionSelectionColor;
 
                 if (state.hasSelection)
-                    SetPopUpCallback(PRP_BeforePrimitives, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
+                    SetPopUpCallback(PCB_BeforeRender, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
                     auto io = Config.platform->desc;
                     auto optidx = 0, hoveridx = -1;
 
@@ -4131,62 +4131,49 @@ namespace glimmer
         auto navDrawerStyle = context.navDrawerStyles[state].top();
         auto style = context.GetStyle(state, id);
         ImRect content;
+        float maxwidth = 0.f, occupied = 0.f, total = 0.f;
+        navstate.visiblew = 0.f;
 
         if (nav.direction == DIR_Vertical)
         {
             auto idx = 0;
-            float maxwidth = 0.f, occupied = 0.f, 
-                curry = (navstate.isOpen ? 0.f : available.Min.y) + style.border.top.thickness + style.padding.top,
-                startx = (navstate.isOpen ? 0.f : available.Min.x) + style.border.left.thickness + style.padding.left;
-
-            for (const auto& item : nav.items)
-            {
-                auto width = item.style.font.size * item.iconFontSzRatio;
-                auto& itemgeom = navstate.items[idx];
-                curry += item.style.border.top.thickness;
-
-                itemgeom.border.Min = ImVec2{ startx, curry };
-                curry += item.style.padding.top;
-
-                itemgeom.icon.Min = ImVec2{ 
-                    startx + item.style.border.left.thickness + item.style.padding.left, 
-                    curry };
-                itemgeom.icon.Max = ImVec2{ 
-                    startx + width + item.style.border.right.thickness + item.style.padding.right,
-                    curry + width };
-
-                if (nav.showText || navstate.isOpen)
-                {
-                    auto textsz = renderer.GetTextSize(item.text, item.style.font.font, item.style.font.size);
-                    itemgeom.text.Min = nav.showText ? ImVec2{ itemgeom.icon.Min.x, itemgeom.icon.Max.y + navDrawerStyle.iconSpacing } :
-                        ImVec2{ itemgeom.icon.Max.x + navDrawerStyle.iconSpacing, itemgeom.icon.Min.y };
-                    itemgeom.text.Max = itemgeom.text.Min + textsz;
-                    //textsz.x += (item.style.padding.right + item.style.border.right.thickness);
-                    maxwidth = nav.showText ? std::max({ maxwidth, width, textsz.x }) :
-                        std::max(maxwidth, width + textsz.x + navDrawerStyle.iconSpacing);
-                    curry += nav.showText ? width + navDrawerStyle.iconSpacing + textsz.y : std::max(width, textsz.y);
-                    itemgeom.border.Max = itemgeom.text.Max + ImVec2{
-                        0.f, item.style.padding.bottom + item.style.border.bottom.thickness,
-                    };
-                }
-                else
-                {
-                    curry += width;
-                    //width += (item.style.padding.right + item.style.border.right.thickness);
-                    maxwidth = std::max(maxwidth, width);
-                    itemgeom.border.Max = itemgeom.icon.Max + ImVec2{ 
-                        item.style.padding.right + item.style.border.right.thickness,
-                        item.style.padding.bottom + item.style.border.bottom.thickness,
-                    };
-                }
-                
-                occupied = nav.showText ? maxwidth : std::max(occupied, itemgeom.icon.Max.x);
-                curry += navDrawerStyle.itemGap + item.style.border.bottom.thickness + item.style.padding.bottom;
-                ++idx;
-            }
 
             if (nav.showText)
             {
+                float curry = available.Min.y + style.border.top.thickness + style.padding.top,
+                    startx = available.Min.x + style.border.left.thickness + style.padding.left;
+
+                for (const auto& item : nav.items)
+                {
+                    auto iconwidth = item.style.font.size * item.iconFontSzRatio;
+                    auto& itemgeom = navstate.items[idx];
+
+                    itemgeom.border.Min = ImVec2{ startx, curry };
+                    curry += item.style.padding.top + item.style.border.top.thickness;
+
+                    itemgeom.icon.Min = ImVec2{
+                        startx + item.style.border.left.thickness + item.style.padding.left,
+                        curry };
+                    itemgeom.icon.Max = ImVec2{
+                        startx + iconwidth + item.style.border.right.thickness + item.style.padding.right,
+                        curry + iconwidth };
+
+                    auto textsz = renderer.GetTextSize(item.text, item.style.font.font, item.style.font.size);
+                    itemgeom.text.Min = ImVec2{ itemgeom.icon.Min.x, itemgeom.icon.Max.y + navDrawerStyle.iconSpacing };
+                    itemgeom.text.Max = itemgeom.text.Min + textsz;
+                    maxwidth = std::max(maxwidth, std::max(iconwidth, textsz.x) + item.style.padding.h() + 
+                        item.style.border.h());
+                    curry += iconwidth + navDrawerStyle.iconSpacing + textsz.y;
+                    itemgeom.border.Max = itemgeom.text.Max + ImVec2{
+                        item.style.padding.right + item.style.border.right.thickness, 
+                        item.style.padding.bottom + item.style.border.bottom.thickness,
+                    };
+
+                    occupied = maxwidth;
+                    curry += navDrawerStyle.itemGap + item.style.border.bottom.thickness + item.style.padding.bottom;
+                    ++idx;
+                }
+
                 for (auto& item : navstate.items)
                 {
                     auto hdiff = (maxwidth - item.icon.GetWidth()) * 0.5f;
@@ -4194,14 +4181,76 @@ namespace glimmer
 
                     hdiff = (maxwidth - item.text.GetWidth()) * 0.5f;
                     item.text.TranslateX(hdiff);
+
+					item.border.Max.x = item.border.Min.x + maxwidth;
+                    total = std::max(total, item.border.GetWidth());
                 }
             }
-
-            idx = 0;
-            for (auto& item : navstate.items)
+            else
             {
-                item.border.Max.x = item.border.Min.x + maxwidth + nav.items[idx].style.padding.h();
-                ++idx;
+                float curry = (navstate.isOpen ? 0.f : available.Min.y) + style.border.top.thickness + style.padding.top,
+                    startx = available.Min.x + style.border.left.thickness + style.padding.left;
+
+                for (const auto& item : nav.items)
+                {
+                    auto iconwidth = item.style.font.size * item.iconFontSzRatio;
+                    auto& itemgeom = navstate.items[idx];
+
+                    itemgeom.border.Min = ImVec2{ startx, curry };
+                    curry += item.style.padding.top + item.style.border.top.thickness;
+
+                    itemgeom.icon.Min = ImVec2{
+                        startx + item.style.border.left.thickness + item.style.padding.left,
+                        curry };
+                    itemgeom.icon.Max = itemgeom.icon.Min + ImVec2{ iconwidth, iconwidth };
+
+                    if (navstate.isOpen)
+                    {
+                        auto textsz = renderer.GetTextSize(item.text, item.style.font.font, item.style.font.size);
+                        itemgeom.text.Min = ImVec2{ itemgeom.icon.Max.x + navDrawerStyle.iconSpacing, itemgeom.icon.Min.y };
+                        itemgeom.text.Max = itemgeom.text.Min + textsz;
+                        maxwidth = std::max(maxwidth, iconwidth + textsz.x + navDrawerStyle.iconSpacing);
+                        curry += std::max(iconwidth, textsz.y);
+                        itemgeom.border.Max = itemgeom.text.Max + ImVec2{
+                            0.f, item.style.padding.bottom + item.style.border.bottom.thickness,
+                        };
+                    }
+                    else
+                    {
+                        curry += iconwidth;
+                        maxwidth = std::max(maxwidth, iconwidth);
+                        itemgeom.border.Max = itemgeom.icon.Max + ImVec2{
+                            item.style.padding.right + item.style.border.right.thickness,
+                            item.style.padding.bottom + item.style.border.bottom.thickness,
+                        };
+                    }
+
+                    if (iconwidth < itemgeom.text.GetHeight())
+                    {
+                        auto vdiff = (itemgeom.text.GetHeight() - iconwidth) * 0.5f;
+                        itemgeom.icon.TranslateY(vdiff);
+					}
+                    else if (iconwidth > itemgeom.text.GetHeight())
+                    {
+                        auto vdiff = (iconwidth - itemgeom.text.GetHeight()) * 0.5f;
+						itemgeom.text.TranslateY(vdiff);
+                    }
+
+                    occupied = std::max(occupied, itemgeom.icon.Max.x);
+                    curry += navDrawerStyle.itemGap + item.style.border.bottom.thickness + item.style.padding.bottom;
+                    navstate.visiblew = std::max(navstate.visiblew, iconwidth + item.style.border.h() +
+                        item.style.padding.h());
+                    ++idx;
+                }
+
+                idx = 0; 
+                for (auto& item : navstate.items)
+                {
+                    item.border.Max.x = item.border.Min.x + maxwidth + nav.items[idx].style.padding.h() + 
+                        nav.items[idx].style.border.h();
+					total = std::max(total, item.border.GetWidth());
+                    ++idx;
+                }
             }
 
             content.Min = available.Min;
@@ -4210,10 +4259,64 @@ namespace glimmer
                 available.Max.y
             };
             navstate.extent = content;
-            navstate.extent.Max.x = content.Min.x + maxwidth + style.padding.h() + style.border.h();
+            navstate.extent.Max.x = content.Min.x + total + style.padding.h() + style.border.h();
+			navstate.visiblew += style.padding.h() + style.border.h();
         }
 
         return content;
+    }
+
+    void HandleNavDrawerEvents(const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate, 
+        WidgetDrawResult& result, const IODescriptor& io, ImVec2 offset)
+    {
+        if (!GetContext().deferEvents)
+        {
+            navstate.current = -1;
+            auto idx = 0;
+
+            for (auto& item : navstate.items)
+            {
+                item.border.Translate(offset);
+				item.icon.Translate(offset);
+				item.text.Translate(offset);
+
+                ImRect entry = item.border;
+                if (entry.Contains(io.mousepos))
+                {
+                    navstate.current = idx;
+                    item.state = io.isLeftMouseDown() ? WS_Hovered | WS_Pressed : WS_Hovered;
+
+                    if (io.clicked() && idx != navstate.selected)
+                    {
+						if (navstate.selected != -1)
+                        {
+                            auto& previtem = navstate.items[navstate.selected];
+                            previtem.state &= ~WS_Selected;
+                        }
+
+                        navstate.selected = idx;
+                        result.event = WidgetEvent::Clicked;
+                        result.tabidx = navstate.selected;
+                        item.state |= WS_Selected;
+                    }
+                }
+                else
+                    item.state = WS_Default;
+                ++idx;
+            }
+
+            navstate.state = navstate.extent.Contains(io.mousepos) ? WS_Hovered : WS_Default;
+
+            if (navstate.state != WS_Hovered)
+            {
+                navstate.isOpen = false;
+                navstate.currw = 0.018f;
+            }
+            else
+                navstate.isOpen = true;
+        }
+        else
+			GetContext().deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
     }
 
     WidgetDrawResult NavDrawerImpl(int32_t wid, const ImRect& border, const StyleDescriptor& style,
@@ -4230,7 +4333,6 @@ namespace glimmer
         if (!navstate.isOpen)
         {
             renderer.SetClipRect(extent.Min, extent.Max);
-            //DrawBoxShadow(border.Min, border.Max, style, renderer);
             DrawBackground(border.Min, border.Max, style, renderer);
             DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
 
@@ -4239,8 +4341,7 @@ namespace glimmer
                 auto state = idx == navstate.current ? WS_Hovered : WS_Default;
                 const auto& desc = context.currentNavDrawer.items[idx];
 
-                ImRect entry{ item.icon.Min, navstate.isOpen || context.currentNavDrawer.showText ?
-                    item.text.Max : item.icon.Max };
+                ImRect entry = item.border;
                 auto isItemHovered = entry.Contains(io.mousepos);
 
                 renderer.SetClipRect(entry.Min, entry.Max);
@@ -4248,31 +4349,11 @@ namespace glimmer
                 DrawBackground(border.Min, border.Max, desc.style, renderer);
                 DrawBorderRect(border.Min, border.Max, desc.style.border, desc.style.bgcolor, renderer);
                 renderer.DrawResource(desc.resflags, item.icon.Min, item.icon.GetSize(), desc.style.bgcolor, desc.icon);
-
-                if (entry.Contains(io.mousepos))
-                {
-                    navstate.current = idx;
-                    navstate.isOpen = true;
-                    item.state = io.isLeftMouseDown() ? WS_Hovered | WS_Pressed : WS_Hovered;
-                }
-                else
-                    item.state = WS_Default;
-
                 renderer.ResetClipRect();
                 ++idx;
             }
 
-            if (io.mousepos.x > 0 && io.mousepos.y > 0.f)
-            fprintf(stdout, "Sidebar extent: (%f, %f) -> (%f, %f) | mouse at: (%f, %f)\n",
-                extent.Min.x, extent.Min.y, extent.Max.x, extent.Max.y, io.mousepos.x, io.mousepos.y);
-            navstate.state = extent.Contains(io.mousepos) ? WS_Hovered : WS_Default;
-
-            if (navstate.state != WS_Hovered)
-            {
-                navstate.isOpen = false;
-                navstate.currw = 0.018f;
-            }
-
+            HandleNavDrawerEvents(context.currentNavDrawer, navstate, result, io, {});
             renderer.ResetClipRect();
         }
         else
@@ -4287,29 +4368,31 @@ namespace glimmer
 
             Data data{ context.currentNavDrawer, navstate, style, border };
 
-            /*if (navDrawerStyle.openAnimationTime > 0 && navstate.currw < 1.0)
+            if (navDrawerStyle.openAnimationTime > 0 && navstate.currw < 1.0)
             {
                 auto t = navstate.currw;
                 float sqr = t * t;
-                auto ratio = sqr / (2.0f * (sqr - t) + 1.0f);
-                extent.Max.x = extent.Min.x + (extent.GetWidth() * ratio);
+                auto ratio = sqr / (2.0f * (sqr - t) + 1.0f); // t* t* (3.0f - 2.0f * t);
+                extent.Max.x = extent.Min.x + ((extent.GetWidth() - navstate.visiblew) * ratio) + navstate.visiblew;
                 navstate.currw += (io.deltaTime / navDrawerStyle.openAnimationTime);
-            }*/
+                assert(navstate.currw > t);
+            }
 
+            auto selected = navstate.selected;
             StartPopUp(wid, extent.Min, extent.GetSize());
 
-            SetPopUpCallback(PRP_GeneratePrimitives, [](void* ptr, IRenderer& renderer, ImVec2, const ImRect&) {
+            SetPopUpCallback(PCB_GeneratePrimitives, [](void* ptr, IRenderer& renderer, ImVec2 origin, const ImRect&) {
                 auto data = (Data*)ptr;
                 auto& nav = data->builder;
                 auto& navstate = data->state;
-                const auto& border = navstate.extent;
                 const auto& style = data->style;
                 auto idx = 0;
 
-                renderer.SetClipRect(navstate.extent.Min, navstate.extent.Max);
-                //DrawBoxShadow(border.Min, border.Max, style, renderer);
-                DrawBackground(border.Min, border.Max, style, renderer);
-                DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+                auto rect = navstate.extent;
+				rect.Translate(-origin); // This is required as pop-up translates all coordinates by origin
+                renderer.SetClipRect(rect.Min, rect.Max);
+                DrawBackground(rect.Min, rect.Max, style, renderer);
+                DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
 
                 for (const auto& item : navstate.items)
                 {
@@ -4321,7 +4404,7 @@ namespace glimmer
                     DrawBoxShadow(item.border.Min, item.border.Max, desc.style, renderer);
                     DrawBackground(item.border.Min, item.border.Max, desc.style, renderer);
                     DrawBorderRect(item.border.Min, item.border.Max, desc.style.border, desc.style.bgcolor, renderer);
-                    renderer.DrawResource(desc.resflags, item.icon.Min, item.icon.GetSize(), desc.style.bgcolor, desc.icon);
+                    renderer.DrawResource(desc.resflags, item.icon.Min, item.icon.GetSize(), desc.style.fgcolor, desc.icon);
 
                     auto txtflags = desc.style.font.flags;
                     txtflags |= ToTextFlags(desc.textType);
@@ -4334,36 +4417,18 @@ namespace glimmer
                 renderer.ResetClipRect();
             }, (void*)&data);
 
-            SetPopUpCallback(PRP_AfterEvents, [](void* ptr, IRenderer&, ImVec2, const ImRect& region) {
+            SetPopUpCallback(PCB_HandleEvents, [](void* ptr, IRenderer&, ImVec2 offset, const ImRect&) {
                 auto data = (Data*)ptr;
                 auto& nav = data->builder;
                 auto& navstate = data->state;
                 const auto& io = Config.platform->desc;
-                auto idx = 0;
-                navstate.current = -1;
 
-                for (auto& item : navstate.items)
-                {
-                    ImRect entry{ item.icon.Min, navstate.isOpen || nav.showText ?
-                        item.text.Max : item.icon.Max };
-                    if (entry.Contains(io.mousepos))
-                    {
-                        navstate.current = idx;
-                        item.state = io.isLeftMouseDown() ? WS_Hovered | WS_Pressed : WS_Hovered;
-                    }
-                    else
-                        item.state = WS_Default;
-                    ++idx;
-                }
-
-                navstate.state = region.Contains(io.mousepos) ? WS_Hovered : WS_Default;
-
-                if (navstate.state != WS_Hovered)
-                {
-                    navstate.isOpen = false;
-                    navstate.currw = 0.018f;
+                WidgetDrawResult temp{}; // Will be unused, maybe use std::optional param?
+                HandleNavDrawerEvents(nav, navstate, temp, io, offset);
+                
+				if (navstate.state != WS_Hovered)
                     WidgetContextData::RemovePopup();
-                }
+                
             }, (void*)&data);
 
             result = EndPopUp(false);
@@ -4391,8 +4456,9 @@ namespace glimmer
         auto& context = GetContext();
         auto& nav = context.currentNavDrawer;
         auto& navstate = context.NavDrawerState(nav.id);
-        auto style = context.GetStyle(navstate.current == -1 ? WS_Default :
-            navstate.items[navstate.current].state);
+        auto style = context.GetStyle(
+            ((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
+            navstate.items[nav.items.size() - 1].state);
         nav.items.emplace_back(text, icon, resflags, extype, iconFontSzRatio, style, atStart);
     }
 
@@ -4401,8 +4467,9 @@ namespace glimmer
         auto& context = GetContext();
         auto& nav = context.currentNavDrawer;
         auto& navstate = context.NavDrawerState(nav.id);
-        auto style = context.GetStyle(navstate.current == -1 ? WS_Default :
-            navstate.items[navstate.current].state);
+        auto style = context.GetStyle(
+			((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
+            navstate.items[nav.items.size() - 1].state);
         nav.items.emplace_back(text, icon, resflags, TextType::PlainText, iconFontSzRatio, style, atStart);
     }
 
@@ -4413,7 +4480,6 @@ namespace glimmer
         auto& navstate = context.NavDrawerState(nav.id);
 
         navstate.items.resize(nav.items.size(), true);
-        navstate.currw = 0.018f;
         return Widget(nav.id, WT_NavDrawer, nav.geometry, nav.neighbors);
     }
 
@@ -6489,7 +6555,7 @@ namespace glimmer
         return false;
     }
 
-    void SetPopUpCallback(PopUpRenderPhase phase, PopUpCallbackT callback, void* data)
+    void SetPopUpCallback(PopupCallback phase, PopUpCallbackT callback, void* data)
     {
         auto& context = GetContext();
         context.popupCallbacks[phase] = callback;
@@ -6501,8 +6567,8 @@ namespace glimmer
         auto& overlayctx = GetContext();
         WidgetDrawResult result;
 
-        if (overlayctx.popupCallbacks[PRP_GeneratePrimitives])
-            overlayctx.popupCallbacks[PRP_GeneratePrimitives](overlayctx.popupCallbackData[PRP_GeneratePrimitives], 
+        if (overlayctx.popupCallbacks[PCB_GeneratePrimitives])
+            overlayctx.popupCallbacks[PCB_GeneratePrimitives](overlayctx.popupCallbackData[PCB_GeneratePrimitives],
                 *overlayctx.deferedRenderer, overlayctx.popupOrigin, {});
 
         overlayctx.RecordDeferRange(overlayctx.popupRange, false);
@@ -6510,7 +6576,8 @@ namespace glimmer
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
-            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.deferedRenderer->size };
+            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.popupSize != ImVec2{ FLT_MAX, FLT_MAX } ?
+                overlayctx.popupSize : overlayctx.deferedRenderer->size };
 
             if (alwaysVisible)
             {
@@ -6531,23 +6598,23 @@ namespace glimmer
                 WidgetContextData::ActivePopUpRegion = ImRect{ origin, origin + size };
                 DrawBorderRect(origin, origin + size, style.border, style.bgcolor, renderer);
                 
-                if (overlayctx.popupCallbacks[PRP_BeforePrimitives])
-                    overlayctx.popupCallbacks[PRP_BeforePrimitives](overlayctx.popupCallbackData[PRP_BeforePrimitives], renderer, origin,
+                if (overlayctx.popupCallbacks[PCB_BeforeRender])
+                    overlayctx.popupCallbacks[PCB_BeforeRender](overlayctx.popupCallbackData[PCB_BeforeRender], renderer, origin,
                         WidgetContextData::ActivePopUpRegion);
 
                 overlayctx.deferedRenderer->Render(renderer, origin, overlayctx.popupRange.primitives.first,
                     overlayctx.popupRange.primitives.second);
 
-                if (overlayctx.popupCallbacks[PRP_AfterPrimitives])
-                    overlayctx.popupCallbacks[PRP_AfterPrimitives](overlayctx.popupCallbackData[PRP_AfterPrimitives], renderer, origin,
+                if (overlayctx.popupCallbacks[PCB_AfterRender])
+                    overlayctx.popupCallbacks[PCB_AfterRender](overlayctx.popupCallbackData[PCB_AfterRender], renderer, origin,
                         WidgetContextData::ActivePopUpRegion);
 
                 overlayctx.deferEvents = false;
                 result = overlayctx.HandleEvents(origin, overlayctx.popupRange.events.first,
                     overlayctx.popupRange.events.second);
 
-                if (overlayctx.popupCallbacks[PRP_AfterEvents])
-                    overlayctx.popupCallbacks[PRP_AfterEvents](overlayctx.popupCallbackData[PRP_AfterEvents], renderer, origin,
+                if (overlayctx.popupCallbacks[PCB_HandleEvents])
+                    overlayctx.popupCallbacks[PCB_HandleEvents](overlayctx.popupCallbackData[PCB_HandleEvents], renderer, origin,
                         WidgetContextData::ActivePopUpRegion);
 
                 renderer.EndOverlay();

@@ -72,6 +72,8 @@ namespace glimmer
         virtual void Render(IRenderer& renderer, ImVec2 offset, int from = 0, int to = -1) {}
         virtual int TotalEnqueued() const { return 0; }
         virtual void Reset() {}
+
+        virtual void DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) {}
     };
 
     // =============================================================================================
