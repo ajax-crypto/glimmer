@@ -5,10 +5,6 @@
 #include <cstring>
 #include <list>
 
-#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
-#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
-#endif
-
 #include "libs/inc/SDL3/SDL.h"
 #include "libs/inc/imguisdl3/imgui_impl_sdl3.h"
 #include "libs/inc/imguisdl3/imgui_impl_sdlrenderer3.h"
@@ -23,41 +19,7 @@
 #endif
 
 #ifdef _WIN32
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#include <WinUser.h>
 #undef CreateWindow
-
-static void DetermineKeyStatus(glimmer::IODescriptor& desc)
-{
-    desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
-    desc.insert = false;
-}
-#elif __linux__
-#include <ctsdio>
-#include <unistd.h>
-
-static std::string exec(const char* cmd)
-{
-    char buffer[128];
-    std::string result = "";
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) throw std::runtime_error("popen() failed!");
-
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-        result += buffer;
-
-    pclose(pipe);
-    return result;
-}
-
-static void DetermineKeyStatus(glimmer::IODescriptor& desc)
-{
-    std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
-    desc.capslock = xset_output.find("on") != std::string::npos;
-    desc.insert = false;
-}
 #endif
 
 namespace glimmer
@@ -93,6 +55,11 @@ namespace glimmer
 
     struct ImGuiSDL3SoftwarePlatform final : public IPlatform
     {
+        ImGuiSDL3SoftwarePlatform()
+        {
+            DetermineInitialKeyStates(desc);
+        }
+
         void SetClipboardText(std::string_view input)
         {
             SDL_SetClipboardText(input.data());
@@ -127,6 +94,22 @@ namespace glimmer
             {
                 SDL_Log("Error: SDL_CreateRenderer(): %s\n", SDL_GetError());
                 return false;
+            }
+
+            if (params.icon.size() > 0)
+            {
+                SDL_Surface* iconSurface = nullptr;
+
+                if (params.iconType == (RT_PATH | RT_BMP))
+                    iconSurface = SDL_LoadBMP(params.icon.data());
+                else
+                    assert(false);
+
+                if (iconSurface)
+                {
+                    SDL_SetWindowIcon(window, iconSurface);
+                    SDL_DestroySurface(iconSurface);
+                }
             }
 
             SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
@@ -191,7 +174,12 @@ namespace glimmer
                 ImGui_ImplSDL3_NewFrame();
 
                 if (EnterFrame(width, height))
+                {
                     done = !runner(ImVec2{ width, height }, *this, data);
+
+                    for (auto [data, handler] : handlers)
+                        done = !handler(data, desc) && done;
+                }
 
                 ExitFrame();
 
@@ -229,6 +217,11 @@ namespace glimmer
             return (ImTextureID)(intptr_t)(texture);
         }
 
+        void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) override
+        {
+            handlers.emplace_back(data, callback);
+        }
+
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 
         void GetWindowHandle(void* out) override
@@ -252,13 +245,13 @@ namespace glimmer
 
 #elif !defined(__EMSCRIPTEN__)
 
-        int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+        int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters,
             int totalFilters, const DialogProperties& props) override
         {
             struct PathSet
             {
-                std::string_view* out = nullptr;
+                std::span<char>* out = nullptr;
                 int32_t outsz = 0;
                 int32_t filled = 0;
                 bool done = false;
@@ -274,7 +267,14 @@ namespace glimmer
 
                 while (filelist[idx] != nullptr && idx < pathset.outsz)
                 {
-                    pathset.out[idx] = filelist[idx];
+                    auto pathsz = strlen(filelist[idx]);
+
+                    if (pathsz < pathset.out[idx].size() - 1)
+                    {
+                        memcpy(pathset.out[idx].data(), filelist[idx], pathsz);
+                        pathset.out[idx][pathsz] = 0;
+                    }
+
                     pathset.filled++;
                     idx++;
                 }
@@ -305,6 +305,7 @@ namespace glimmer
                 SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_ACCEPT_STRING, props.confirmBtnText.data());
                 SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_CANCEL_STRING, props.cancelBtnText.data());
 
+                modalDialog = true;
                 SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFILE, callback, &pathset, pset);
                 SDL_DestroyProperties(pset);
             }
@@ -320,6 +321,7 @@ namespace glimmer
                 SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_ACCEPT_STRING, props.confirmBtnText.data());
                 SDL_SetStringProperty(pset, SDL_PROP_FILE_DIALOG_CANCEL_STRING, props.cancelBtnText.data());
 
+                modalDialog = true;
                 SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, callback, &pathset, pset);
                 SDL_DestroyProperties(pset);
             }
@@ -331,6 +333,7 @@ namespace glimmer
                 SDL_Delay(10);
             }
 
+            modalDialog = false;
             return pathset.filled;
         }
 
@@ -347,9 +350,7 @@ namespace glimmer
 
         SDL_Window* window = nullptr;
         SDL_Renderer* renderer = nullptr;
-#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
-        std::once_flag nfdInitialized;
-#endif
+        std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
     };
 
     IPlatform* GetPlatform(ImVec2 size)

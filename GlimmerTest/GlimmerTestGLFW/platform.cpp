@@ -8,10 +8,6 @@
 #define GLIMMER_MAX_CLIPBOARD_TEXTSZ 4096
 #endif
 
-#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
-#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
-#endif
-
 #include "libs/inc/imgui/imgui_impl_glfw.h"
 #include "libs/inc/imgui/imgui_impl_opengl3.h"
 #include "libs/inc/imgui/imgui_impl_opengl3_loader.h"
@@ -33,42 +29,10 @@
 #include "libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
+#include "libs/inc/stb_image/stb_image.h"
+
 #ifdef _WIN32
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#include <WinUser.h>
 #undef CreateWindow
-
-static void DetermineKeyStatus(glimmer::IODescriptor& desc)
-{
-    desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
-    desc.insert = false;
-}
-#elif __linux__
-#include <ctsdio>
-#include <unistd.h>
-
-static std::string exec(const char* cmd)
-{
-    char buffer[128];
-    std::string result = "";
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) throw std::runtime_error("popen() failed!");
-
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-        result += buffer;
-
-    pclose(pipe);
-    return result;
-}
-
-static void DetermineKeyStatus(glimmer::IODescriptor& desc)
-{
-    std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
-    desc.capslock = xset_output.find("on") != std::string::npos;
-    desc.insert = false;
-}
 #endif
 
 namespace glimmer
@@ -109,7 +73,7 @@ namespace glimmer
     {
         ImGuiGLFWPlatform()
         {
-            DetermineKeyStatus(desc);
+            DetermineInitialKeyStates(desc);
         }
 
         void SetClipboardText(std::string_view input)
@@ -189,6 +153,17 @@ namespace glimmer
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
             io.IniFilename = nullptr;
 
+            if (!params.icon.empty())
+            {
+                GLFWimage images[1];
+
+                if (params.iconType & RT_PATH)
+                    images[0].pixels = stbi_load(params.icon.data(), &images[0].width, &images[0].height, 0, 4); 
+
+                glfwSetWindowIcon(window, 1, images);
+                stbi_image_free(images[0].pixels);
+            }
+
             // Setup Platform/Renderer backends
             ImGui_ImplGlfw_InitForOpenGL(window, true);
 #ifdef __EMSCRIPTEN__
@@ -241,7 +216,12 @@ namespace glimmer
                 ImGui_ImplGlfw_NewFrame();
 
                 if (EnterFrame(width, height))
+                {
                     close = !runner(ImVec2{ width, height }, *this, data);
+
+                    for (auto [data, handler] : handlers)
+                        close = !handler(data, desc) && close;
+                }
 
                 ExitFrame();
 
@@ -298,10 +278,16 @@ namespace glimmer
 
 #endif
 
+        void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) override
+        {
+            handlers.emplace_back(data, callback);
+        }
+
         GLFWwindow* window = nullptr;
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
         std::once_flag nfdInitialized;
 #endif
+        std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
     };
 
     IPlatform* GetPlatform(ImVec2 size)

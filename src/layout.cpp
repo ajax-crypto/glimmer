@@ -107,9 +107,13 @@ YGNodeRef GetNewYogaNode(const glimmer::LayoutBuilder& layout, int32_t layoutIdx
     else
     {
         auto& root = FlexLayoutRoots[rootIdx];
-        auto index = layout.itemIndexes.back().first;
-        isWidget ? root.widgets.emplace_back(index, node) :
-            root.layouts.emplace_back(layoutIdx, node);
+
+        if (isWidget)
+        {
+            auto index = layout.itemIndexes.back().first;
+            root.widgets.emplace_back(index, node);
+        }
+        else root.layouts.emplace_back(layoutIdx, node);
 
         root.levelOrderNodes[root.depth].push_back(node);
         if (!isWidget) root.depth++;
@@ -2223,7 +2227,7 @@ namespace glimmer
 #endif
         auto& layout = context.layouts[lidx];
 
-        layout.geometry.Min = layout.startpos;
+        layout.geometry.Min = layout.startpos + bbox.Min;
         layout.geometry.Max = ImMax(bbox.Max + layout.startpos + ImVec2{ layout.spacing.x * 2.f, layout.spacing.y * 2.f }, 
             layout.geometry.Max);
 
@@ -2329,7 +2333,7 @@ namespace glimmer
 
     static void UpdateItemGeometry(WidgetContextData& context, ImRect& bbox, LayoutItemDescriptor& item, const LayoutBuilder& layout)
     {
-        bbox.Translate(layout.startpos + layout.spacing);
+        bbox.Translate(layout.geometry.Min + layout.spacing);
 
         if (item.scrollid != -1)
         {
@@ -2363,6 +2367,7 @@ namespace glimmer
             case LayoutOps::AddWidget:
             {
                 auto& item = context.layoutItems[(int16_t)data];
+                const auto& sublayout = context.layouts[item.layoutIdx];
                 auto isFlexLayout = layout.type == Layout::Horizontal || layout.type == Layout::Vertical;
 
                 if (isFlexLayout)
@@ -2375,20 +2380,20 @@ namespace glimmer
                         ImRect bbox = { { command.boundingBox.x, command.boundingBox.y }, 
                             { command.boundingBox.x + command.boundingBox.width,
                             command.boundingBox.y + command.boundingBox.height } };
-                        UpdateItemGeometry(context, bbox, item, layout);
+                        UpdateItemGeometry(context, bbox, item, sublayout);
                     }
 
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
 
                     auto child = static_cast<YGNodeRef>(item.implData);
                     auto bbox = GetBoundingBox(child);
-                    UpdateItemGeometry(context, bbox, item, layout);
+                    UpdateItemGeometry(context, bbox, item, sublayout);
 
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
 
                     auto child = reinterpret_cast<lay_id>(item.implData);
                     auto bbox = GetBoundingBox(child, LayoutRootStack.top());
-                    UpdateItemGeometry(context, bbox, item, layout);
+                    UpdateItemGeometry(context, bbox, item, sublayout);
 
 #endif
                 }

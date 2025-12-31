@@ -52,6 +52,9 @@
     <Filter Include="Header Files\iconfonts">
       <UniqueIdentifier>{40827885-006f-4bde-88c9-0e8fa91907d0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\custom">
+      <UniqueIdentifier>{e8a79cfe-32cd-40bf-bbef-381623459c38}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -203,6 +206,9 @@
     </ClInclude>
     <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialSymbols.h">
       <Filter>Header Files\iconfonts</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\custom\PathInput.h">
+      <Filter>Header Files\custom</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -1,10 +1,12 @@
 #pragma once
 #include "types.h"
 #include "style.h"
+#include "platform.h"
 
 namespace glimmer
 {
-    UIConfig& GetUIConfig(bool needRichText);
+    UIConfig& GetUIConfig();
+    UIConfig& CreateUIConfig(bool needRichText);
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 
@@ -166,7 +168,8 @@ namespace glimmer
             IRenderer& renderer, const IODescriptor& io) = 0;
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
 
-        static ImRect GetBouds(int32_t id);
+		static StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack);
+        static ImRect GetBounds(int32_t id);
         static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style);
         static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
             std::string_view text, IRenderer& renderer, int32_t geometry, TextType type,

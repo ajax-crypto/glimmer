@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "context.h"
 #include "draw.h"
+#include "platform.h"
 
 #include <cstdio>
 #include <charconv>

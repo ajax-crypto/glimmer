@@ -6,6 +6,44 @@
 #include "nfd-ext/src/include/nfd.h"
 #endif
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <WinUser.h>
+#undef CreateWindow
+
+static void DetermineKeyStatus(glimmer::IODescriptor& desc)
+{
+    desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
+    desc.insert = false;
+}
+#elif __linux__
+#include <ctsdio>
+#include <unistd.h>
+
+static std::string exec(const char* cmd)
+{
+    char buffer[128];
+    std::string result = "";
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) throw std::runtime_error("popen() failed!");
+
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+        result += buffer;
+
+    pclose(pipe);
+    return result;
+}
+
+static void DetermineKeyStatus(glimmer::IODescriptor& desc)
+{
+    std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
+    desc.capslock = xset_output.find("on") != std::string::npos;
+    desc.insert = false;
+}
+#endif
+
 namespace glimmer
 {
     int64_t FramesRendered()
@@ -41,7 +79,7 @@ namespace glimmer
         return pidx;
     }
 
-    int32_t IPlatform::ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+    int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
         int totalFilters, const DialogProperties& props)
     {
@@ -125,7 +163,7 @@ namespace glimmer
 
 #else
 
-    int32_t IPlatform::ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+    int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
         int totalFilters, const DialogProperties& props)
     {
@@ -248,6 +286,12 @@ namespace glimmer
         }
 
         Config.renderer->FinalizeFrame((int32_t)cursor);
+    }
+
+    bool IPlatform::DetermineInitialKeyStates(IODescriptor& desc)
+    {
+        DetermineKeyStatus(desc);
+        return true;
     }
 
     float IPlatform::fps() const

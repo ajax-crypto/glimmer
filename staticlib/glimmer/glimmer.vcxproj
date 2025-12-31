@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h" />
+    <ClInclude Include="..\..\src\custom\PathInput.h" />
     <ClInclude Include="..\..\src\draw.h" />
     <ClInclude Include="..\..\src\glimmer.h" />
     <ClInclude Include="..\..\src\im_font_manager.h" />

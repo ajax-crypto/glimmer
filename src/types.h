@@ -2,8 +2,9 @@
 
 #define GLIMMER_MAX_COLORSTOPS 4
 
-#include "platform.h"
 #include "utils.h"
+#include "libs/inc/imgui/imgui.h"
+#include "libs/inc/imgui/imgui_internal.h"
 
 #include <string_view>
 #include <optional>
@@ -94,11 +95,6 @@ namespace glimmer
         High      // Unimplemented
     };
 
-    enum class LayoutPolicy
-    {
-        ImmediateMode, DeferredMode
-    };
-
     struct IntersectRects
     {
         ImRect intersects[4];
@@ -142,12 +138,13 @@ namespace glimmer
 
     struct Border
     {
-        uint32_t color = IM_COL32_BLACK_TRANS;
+        uint32_t color = ToRGBA(0, 0, 0, 0);
         float thickness = 0.f;
         LineType lineType = LineType::Solid; // Unused for rendering
     };
 
     struct ICustomWidget;
+    struct IPlatform;
 
     struct UIConfig
     {
@@ -171,7 +168,6 @@ namespace glimmer
         std::string_view closeTabsTooltip = "Click to close tab";
         std::string_view toggleButtonText = "ONOFF";
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
-        LayoutPolicy layoutPolicy = LayoutPolicy::ImmediateMode;
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
 #ifndef GLIMMER_DISABLE_RICHTEXT
@@ -184,6 +180,7 @@ namespace glimmer
             "text", "dropdown", "tab", "itemgrid", "chart", "icon"
         };
         ICustomWidget* customWidget = nullptr;
+        void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
         void* iconFont = nullptr;
         void* userData = nullptr;
     };
@@ -379,10 +376,10 @@ namespace glimmer
         std::string_view placeholder;
         std::pair<int, int> selection{ -1, -1 };
         std::string_view prefix, suffix;
-        int32_t prefixType, suffixType;
+        int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
-        bool clearButton = false;
+		SymbolIcon suffixIcon = SymbolIcon::None;
     };
 
     enum WidgetStateIndex : int32_t

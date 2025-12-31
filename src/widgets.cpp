@@ -99,6 +99,7 @@ namespace glimmer
             auto idClasses = ExtractIdClasses(key);
             it = NamedIds[type].emplace(idClasses.id, GetNextId(type)).first;
             GetContext().RegisterWidgetIdClass(type, it->second, idClasses);
+			if (Config.RecordWidgetId) (*Config.RecordWidgetId)(key, it->second);
             initial = true;
         }
         return { it->second, initial };
@@ -3045,7 +3046,7 @@ namespace glimmer
         }
     }
 
-    void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
+    void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& suffix, const IODescriptor& io,
         IRenderer& renderer, WidgetDrawResult& result)
     {
         auto& context = GetContext();
@@ -3467,25 +3468,36 @@ namespace glimmer
 
             if (!state.text.empty())
             {
+                if (input.pixelpos.size() < state.text.size())
+                {
+                    auto index = input.pixelpos.size();
+                    input.pixelpos.expand_and_create(state.text.size() - index, true);
+                    UpdatePosition(state, index, input, style, renderer);
+                    input.caretpos = state.text.size();
+                }
+
                 input.scroll.content.x = input.pixelpos.back();
                 input.scroll.viewport = content;
                 HandleHScroll(input.scroll, renderer, io, 5.f, false);
             }
 
-            if (clear.Contains(io.mousepos) && (input.clearState != WS_Disabled))
+            if (suffix.Contains(io.mousepos) && (input.suffixState != WS_Disabled))
             {
-                input.clearState |= io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
+                input.suffixState |= io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
                 if (io.clicked()) ClearAllText(state, input);
             }
             else
-                input.clearState = state.text.empty() ? WS_Disabled : WS_Default;
+                input.suffixState = state.text.empty() ? WS_Disabled : WS_Default;
 
             if (state.out.source)
+            {
+                memset(state.out.source, 0, state.out.size());
                 memcpy(state.out.source, state.text.data(), std::min((int)state.text.size(), state.out.size()));
+            }
 
             HandleContextMenu(id, content, io);
         }
-        else context.deferedEvents.emplace_back(EventDeferInfo::ForTextInput(id, content, clear));
+        else context.deferedEvents.emplace_back(EventDeferInfo::ForTextInput(id, content, suffix));
     }
 
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& text,
@@ -3497,6 +3509,7 @@ namespace glimmer
         auto& input = context.InputTextState(id);
         const auto& config = context.GetState(id).state.input;
         ImRect content = text;
+        content.Min.x += prefix.GetWidth();
 
         if (state.state & WS_Focused)
             renderer.DrawRect(extent.Min, extent.Max, Config.focuscolor, false, 2.f);
@@ -3505,24 +3518,24 @@ namespace glimmer
         DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
         renderer.SetCurrentFont(style.font.font, style.font.size);
 
-        // !Add prefix/suffix
-        DrawText(prefix.Min, prefix.Max, prefix, config.prefix, config.state & WS_Disabled, style, renderer, ToTextFlags(config.prefixType));
-        DrawText(suffix.Min, suffix.Max, suffix, config.suffix, config.state & WS_Disabled, style, renderer, ToTextFlags(config.suffixType));
+        // Add prefix/suffix
+        renderer.DrawResource(config.prefixType, prefix.Min, prefix.GetSize(), style.fgcolor, config.prefix);
+        renderer.DrawResource(config.suffixType, suffix.Min, suffix.GetSize(), style.fgcolor, config.suffix);
         
-        if (config.clearButton)
+        if (config.suffixIcon != SymbolIcon::None)
         {
             auto left = !config.suffix.empty() ? suffix.Min.x - style.font.size : content.Max.x - style.font.size;
             auto btnsz = style.font.size * 0.25f;
             clear = ImRect{ { left, content.Min.y }, { left + style.font.size, content.Max.y } };
 
-            if (input.clearState & WS_Hovered)
+            if (input.suffixState & WS_Hovered)
             {
                 auto radius = style.font.size * 0.5f;
                 ImVec2 center{ left + radius, clear.Min.y + radius };
                 renderer.DrawCircle(center, radius, ToRGBA(200, 0, 0), true);
-                DrawSymbol(clear.Min, clear.GetSize(), { btnsz, btnsz }, SymbolIcon::Cross, ToRGBA(255, 255, 255), 0, 2.f, renderer);
+                DrawSymbol(clear.Min, clear.GetSize(), { btnsz, btnsz }, config.suffixIcon, ToRGBA(255, 255, 255), 0, 2.f, renderer);
             }
-            else DrawSymbol(clear.Min, clear.GetSize(), { btnsz, btnsz }, SymbolIcon::Cross, style.fgcolor, 0, 2.f, renderer);
+            else DrawSymbol(clear.Min, clear.GetSize(), { btnsz, btnsz }, config.suffixIcon, style.fgcolor, 0, 2.f, renderer);
 
             content.Max.x -= style.font.size;
         }
@@ -3538,7 +3551,10 @@ namespace glimmer
                 phstyle, renderer, FontStyleOverflowMarquee | TextIsPlainText);
         }
         else
-        {
+        { 
+            content.Max.x -= suffix.GetWidth();
+            renderer.SetClipRect(content.Min, content.Max);
+
             if (state.selection.second != -1)
             {
                 std::string_view text{ state.text.data(), state.text.size() };
@@ -3575,6 +3591,8 @@ namespace glimmer
                 std::string_view text{ state.text.data(), state.text.size() };
                 renderer.DrawText(text, startpos, style.fgcolor);
             }
+
+            renderer.ResetClipRect();
         }
 
         if ((state.state & WS_Focused) && input.caretVisible)
@@ -3615,9 +3633,8 @@ namespace glimmer
         auto [id, initial] = GetIdFromOutPtr(out, WT_TextInput);
         auto& config = GetWidgetConfig(id).state.input;
         config.placeholder = placeholder; config.out = Span<char>{ out, size };
-        config.text.reserve(size); config.clearButton = true;
-        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
-        memcpy(config.text.data(), out, sz);
+        config.text.reserve(size); config.suffixIcon = SymbolIcon::Cross;
+        config.text.assign(out, out + strlen);
         return Widget(id, WT_TextInput, geometry, neighbors);
     }
 
@@ -3626,9 +3643,8 @@ namespace glimmer
         auto [wid, initial] = GetIdFromString(id, WT_TextInput);
         auto& config = GetWidgetConfig(wid).state.input;
         config.placeholder = placeholder; config.out = Span<char>{ out, size };
-        config.text.reserve(size); config.clearButton = true;
-        auto sz = initial ? std::max(strlen, 0) : (int)config.text.size();
-        memcpy(config.text.data(), out, sz);
+        config.text.reserve(size); config.suffixIcon = SymbolIcon::Cross;
+        config.text.assign(out, out + strlen);
         return Widget(wid, WT_TextInput, geometry, neighbors);
     }
 
@@ -7339,12 +7355,11 @@ namespace glimmer
     void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result)
     {
         auto& context = GetContext();
-        const auto& state = context.GetState(id).state.media;
+        auto& state = context.GetState(id).state.media;
         const auto style = context.GetStyle(state.state, id);
 
         if (!context.deferEvents)
         {
-            auto& state = context.GetState(id).state.button;
             auto ismouseover = padding.Contains(io.mousepos);
             state.state = !ismouseover ? WS_Default :
                 io.isLeftMouseDown() ? WS_Pressed | WS_Hovered : WS_Hovered;
@@ -7483,7 +7498,12 @@ namespace glimmer
         return result;
     }
 
-    ImRect ICustomWidget::GetBouds(int32_t id)
+    StyleDescriptor ICustomWidget::GetStyle(int32_t id, int32_t state, const StyleStackT& stack)
+    {
+        return glimmer::GetStyle(GetContext(), id, &stack, state);
+    }
+
+    ImRect ICustomWidget::GetBounds(int32_t id)
     {
         return GetContext().GetGeometry(id);
     }
@@ -7520,7 +7540,12 @@ namespace glimmer
 
 #endif
 
-    UIConfig& GetUIConfig(bool needsRichText)
+    UIConfig& GetUIConfig()
+    {
+        return Config;
+    }
+
+    UIConfig& CreateUIConfig(bool needsRichText)
     {
 #ifndef GLIMMER_DISABLE_RICHTEXT
         if (needsRichText && Config.richTextConfig == nullptr)

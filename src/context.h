@@ -335,7 +335,7 @@ namespace glimmer
     struct InputTextPersistentState
     {
         int caretpos = 0;
-        int32_t clearState = WS_Default;
+        int32_t suffixState = WS_Default;
         bool caretVisible = true;
         bool isSelecting = false;
         float lastCaretShowTime = 0.f;
@@ -1028,7 +1028,7 @@ namespace glimmer
     void PopContext();
     void Cleanup();
 
-    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT* StyleStack, int32_t state);
+    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state);
 
     extern NestedContextSource InvalidSource;
 

@@ -1,4 +1,5 @@
 #include "../src/glimmer.h"
+#include "../src/custom/PathInput.h"
 
 #if !defined(_DEBUG) && defined(WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -256,6 +257,10 @@ void TestWindow(glimmer::UIConfig& config)
                     Move(FD_Horizontal);
                     DropDown(widgets[DROPDOWN], ToRight);
 
+					Move(FD_Horizontal);
+                    static char buffer[256];
+					custom::PathInput("path-input", buffer, 255, false, "");
+
                     PushStyle(WS_Default, "width: 200px; border-radius: 3px;");
                     PushStyle(WS_Hovered, "background-color: blue; color: white;");
                     Move(FD_Horizontal);
@@ -306,7 +311,7 @@ int CALLBACK WinMain(
 int main(int argc, char** argv)
 #endif
 {
-    auto& config = glimmer::GetUIConfig(true);
+    auto& config = glimmer::CreateUIConfig(true);
     config.renderer = glimmer::CreateImGuiRenderer();
     config.defaultFontSz = 24.f;
     config.platform = glimmer::GetPlatform();

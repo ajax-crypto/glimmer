@@ -4,6 +4,7 @@
 #include <span>
 #include <optional>
 #include <stdint.h>
+#include <assert.h>
 
 #ifdef _DEBUG
 #include <cstdio>
@@ -247,7 +248,7 @@ namespace glimmer
                 _capacity = targetsz;
             }
 
-            if (initialize) _default_init(_size, targetsz);
+            if (initialize) _default_init(_size, _size + count);
         }
 
         void expand_and_create(Sz count, bool initialize = true)
@@ -262,8 +263,8 @@ namespace glimmer
                 _capacity = targetsz;
             }
 
-            _size = targetsz;
-            if (initialize) _default_init(_size, targetsz);
+            if (initialize) _default_init(_size, _size + count);
+            _size += count;
         }
 
         template <typename... ArgsT>
@@ -469,6 +470,8 @@ namespace glimmer
         bool empty() const { return _data.size() == 0; }
         IteratorT begin() { return _data.begin(); }
         IteratorT end() { return _data.end(); }
+        IteratorT begin() const { return _data.begin(); }
+        IteratorT end() const { return _data.end(); }
 
         T& operator[](int idx) { return _data[idx]; }
         T const& operator[](int idx) const { return _data[idx]; }

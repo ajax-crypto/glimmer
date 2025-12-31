@@ -9,6 +9,8 @@
 #define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
 #define GLIMMER_KEY_ENUM_END ImGuiKey_NamedKey_END
 
+#include "types.h"
+
 inline bool operator==(const ImRect& lhs, const ImRect& rhs)
 {
     return lhs.Min == rhs.Min && lhs.Max == rhs.Max;
@@ -180,6 +182,8 @@ namespace glimmer
     {
         ImVec2 size{ FLT_MAX, FLT_MAX };
         std::string_view title;
+        std::string_view icon;
+        int32_t iconType = RT_PATH | RT_PNG;
         uint8_t bgcolor[4] = { 255, 255, 255, 255 };
         bool softwareCursor = false;
     };
@@ -211,8 +215,9 @@ namespace glimmer
         virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
         virtual ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels) = 0;
 
+        virtual void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) {}
         virtual void GetWindowHandle(void*);
-        virtual int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
+        virtual int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
             int totalFilters = 0, const DialogProperties& props = DialogProperties{});
 
@@ -229,6 +234,8 @@ namespace glimmer
 
         bool EnterFrame(float w, float h);
         void ExitFrame();
+
+        static bool DetermineInitialKeyStates(IODescriptor& desc);
 
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;

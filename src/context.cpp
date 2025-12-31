@@ -1182,7 +1182,7 @@ namespace glimmer
         ImPlot::DestroyContext(ChartsContext);
     }
 
-    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT* StyleStack, int32_t state)
+    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state)
     {
         StyleDescriptor res;
         StyleDescriptor const* defstyle = nullptr;
