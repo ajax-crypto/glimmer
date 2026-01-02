@@ -17,7 +17,7 @@ namespace glimmer
     // corresponding styles, merged (with the current stack as well), and then applied.
     static std::unordered_map<std::string_view, StyleDescriptor[WSI_Total]> StyleSheet;
 
-#pragma optimize( "", on )
+//#pragma optimize( "", on )
 
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
     {
@@ -68,7 +68,7 @@ namespace glimmer
         while ((from < end) && ((std::isdigit(text[from])) || (text[from] == '.'))) from++;
         return from;
     }
-#pragma optimize( "", off )
+//#pragma optimize( "", off )
 
     [[nodiscard]] bool AreSame(const std::string_view lhs, const char* rhs)
     {
@@ -1126,10 +1126,10 @@ namespace glimmer
                     break;
                 case glimmer::StyleFontFamily:
                     dest.font.family = src.font.family;
-					break;
+                    break;
                 case glimmer::StyleFontWeight:
                     dest.font.flags = src.font.flags;
-					break;
+                    break;
                 case glimmer::StyleFontStyle:
                     dest.font.flags = src.font.flags;
                     break;
@@ -1203,7 +1203,7 @@ namespace glimmer
         for (int64_t idx = 0; idx <= StyleTotal; ++idx)
         {
             auto prop = (StyleProperty)((1ll << idx));
-			if (Config.implicitInheritedProps & prop) continue;
+            if (Config.implicitInheritedProps & prop) continue;
 
             switch (prop)
             {
@@ -1248,18 +1248,18 @@ namespace glimmer
                 style.margin = FourSidedMeasure{};
                 break;
             case glimmer::StyleBorder:
-				style.border = FourSidedBorder{};
+                style.border = FourSidedBorder{};
                 break;
             case glimmer::StyleBorderRadius:
             {
-				style.border.cornerRadius[0] = 0.f;
-				style.border.cornerRadius[1] = 0.f;
-				style.border.cornerRadius[2] = 0.f;
-				style.border.cornerRadius[3] = 0.f;
+                style.border.cornerRadius[0] = 0.f;
+                style.border.cornerRadius[1] = 0.f;
+                style.border.cornerRadius[2] = 0.f;
+                style.border.cornerRadius[3] = 0.f;
                 break;
             }
             case glimmer::StyleTextWrap:
-				style.font.flags &= ~StyleTextWrap;
+                style.font.flags &= ~StyleTextWrap;
                 break;
             case glimmer::StyleBoxShadow:
                 style.shadow = BoxShadow{};
@@ -1505,15 +1505,15 @@ namespace glimmer
         for (auto style = 0; style < WSI_Total; ++style)
         {
             auto desc = context.StyleStack[style].top();
-			desc.font.flags = type == TextType::RichText ? (desc.font.flags | TextIsRichText) : 
+            desc.font.flags = type == TextType::RichText ? (desc.font.flags | TextIsRichText) : 
                 (desc.font.flags & ~TextIsRichText);
-			context.StyleStack[style].push() = desc;
+            context.StyleStack[style].push() = desc;
         }
     }
 
     void PopTextType()
     {
-		PopStyle(1, 0b111111111);
+        PopStyle(1, 0b111111111);
     }
 #endif
 
@@ -1753,7 +1753,7 @@ namespace glimmer
                 break;
                 default: break;
                 }
-				specified |= styleprop;
+                specified |= styleprop;
             }
         }
 

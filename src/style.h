@@ -252,7 +252,7 @@ namespace glimmer
         float trackBorderThickness = 1.f;
         ThumbStyle minThumb, maxThumb;
 
-		float offset() const { return (minThumb.offset + maxThumb.offset); }
+        float offset() const { return (minThumb.offset + maxThumb.offset); }
 
         static RangeSliderStyleDescriptor ParseFrom(std::string_view css);
     };
@@ -276,6 +276,22 @@ namespace glimmer
         float animate = 0.3f;
 
         static RadioButtonStyleDescriptor ParseFrom(std::string_view css);
+    };
+
+    struct DropDownStyleDescriptor
+    {
+        uint32_t bgcolor = ToRGBA(230, 230, 230);
+        uint32_t optionHoverColor = ToRGBA(20, 20, 150);
+        uint32_t optionSelectionColor = ToRGBA(150, 150, 255);
+        uint32_t indicatorColor = ToRGBA(0, 0, 0);
+        std::string_view indicators[2] = { "arrow-down", "arrow-up" };
+        int32_t indicatorType = RT_SYMBOL;
+        float indicatorScale = 0.5f;
+        ImVec2 optionSpacing{ 2.f, 2.f };
+        Border separator;
+        bool isIndicatorSuffix = true;
+
+        static DropDownStyleDescriptor ParseFrom(std::string_view css);
     };
 
     struct TabBarStyleDescriptor
@@ -305,11 +321,12 @@ namespace glimmer
         RangeSliderStyleDescriptor rangeSlider;
         SpinnerStyleDescriptor spinner;
         RadioButtonStyleDescriptor radio;
+        DropDownStyleDescriptor dropdown;
         TabBarStyleDescriptor tabbar;
         NavDrawerStyleDescriptor navdrawer;
     };
 
-	// TODO: Add other widget style descriptors here and populate in style.cpp
+    // TODO: Add other widget style descriptors here and populate in style.cpp
     union CommonWidgetStyleDescriptor
     {
         ToggleButtonStyleDescriptor toggle;
@@ -334,7 +351,7 @@ namespace glimmer
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
     void PushTextType(TextType type);
-	void PopTextType();
+    void PopTextType();
 #endif
 
     template <typename... ArgsT>

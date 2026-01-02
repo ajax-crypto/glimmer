@@ -82,7 +82,7 @@ namespace glimmer
 
     inline int log2(auto i) { return i <= 0 ? 0 : 8 * sizeof(i) - std::countl_zero(i) - 1; }
 
-	using RegionStackT = DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING>;
+    using RegionStackT = DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING>;
 
     struct RendererEventIndexRange
     {
@@ -104,10 +104,32 @@ namespace glimmer
         ImVec2 origin;
         ImVec2 size;
         int32_t depth = 0;
-		Layout layout = Layout::Invalid;
-		StyleDescriptor style;
-		bool fixedWidth = false;
-		bool fixedHeight = false;
+        Layout layout = Layout::Invalid;
+        StyleDescriptor style;
+        bool fixedWidth = false;
+        bool fixedHeight = false;
+    };
+
+    struct DropDownBuilder
+    {
+        int32_t id = -1;
+        int32_t geometry = 0;
+        NeighborWidgets neighbors;
+        Vector<DropDownState::OptionDescriptor, int16_t, 16> items;
+    };
+
+    struct WidgetContextData;
+
+    struct DropDownPersistentState
+    {
+        struct ChildWidget
+        {
+            int32_t label = -1;
+            int32_t prefix = -1;
+        };
+
+        Vector<ChildWidget, int16_t, 16> children;
+        WidgetContextData* context = nullptr;
     };
 
     struct ItemGridStyleDescriptor
@@ -452,7 +474,7 @@ namespace glimmer
         ImRect expand;
         ImRect moveForward, moveBackward;
         float createHoverDuration = 0.f;
-		float lastRowStarty = 0.f;
+        float lastRowStarty = 0.f;
         int32_t tabBeingDragged = -1;
         ImVec2 dragPosition{};
         ImVec2 dragStart{};
@@ -560,9 +582,9 @@ namespace glimmer
     enum class LayoutOps 
     { 
         PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
-		PushTextType, PopTextType,
-		PushRegion, PopRegion,
-		PushScrollRegion, PopScrollRegion,
+        PushTextType, PopTextType,
+        PushRegion, PopRegion,
+        PushScrollRegion, PopScrollRegion,
         AddWidget, AddLayout 
     };
 
@@ -592,7 +614,7 @@ namespace glimmer
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
         int32_t regionIdx = -1;
-		void* implData = nullptr;
+        void* implData = nullptr;
         bool popSizingOnEnd = false;
 
         Vector<std::pair<int32_t, LayoutOps>, int16_t> itemIndexes{ false };
@@ -692,7 +714,7 @@ namespace glimmer
         EventDeferInfo() : type{ WT_Invalid }, id{ -1 } {}
 
         static EventDeferInfo ForRegion(int32_t id, const ImRect& margin, const ImRect& border,
-			const ImRect& padding, const ImRect& content);
+            const ImRect& padding, const ImRect& content);
         static EventDeferInfo ForLabel(int32_t id, const ImRect& margin, const ImRect& border, 
             const ImRect& padding, const ImRect& content, const ImRect& text);
         static EventDeferInfo ForButton(int32_t id, const ImRect& margin, const ImRect& border,
@@ -768,7 +790,7 @@ namespace glimmer
         std::vector<NavDrawerPersistentState> navDrawerStates;
         std::vector<AccordionPersistentState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
-        std::vector<std::vector<std::pair<int32_t, int32_t>>> dropDownOptions;
+        std::vector<DropDownPersistentState> dropDownOptions;
         
         // Regions stack
         DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING> regionBuilders{ false };
@@ -779,6 +801,9 @@ namespace glimmer
 
         // Navigation drawer cannot be nested
         NavDrawerBuilder currentNavDrawer;
+
+        // Drop-down builder, non-nested
+        DropDownBuilder currentDropDown;
 
         // Stack of current item grids
         DynamicStack<ItemGridBuilder, int16_t, 4> itemGrids{ false };
@@ -797,6 +822,7 @@ namespace glimmer
         static DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> sliderStyles[WSI_Total];
         static DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> rangeSliderStyles[WSI_Total];
         static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
+        static DynamicStack<DropDownStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> dropdownStyles[WSI_Total];
         static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
         static DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> navDrawerStyles[WSI_Total];
 
@@ -887,6 +913,7 @@ namespace glimmer
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;
         static UIElementDescriptor RightClickContext;
+        static WidgetContextData* PopupContext;
         static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;
         static Vector<ContextMenuItemParams, int16_t, 16> ContextMenuOptionParams;
         static int32_t CurrentWidgetId;

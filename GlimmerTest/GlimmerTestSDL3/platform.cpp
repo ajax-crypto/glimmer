@@ -85,12 +85,20 @@ namespace glimmer
                 return false;
             }
 
-			if (params.icon.size() > 0)
+            if (params.icon.size() > 0)
             {
                 SDL_Surface* iconSurface = nullptr;
 
                 if (params.iconType == (RT_PATH | RT_BMP))
                     iconSurface = SDL_LoadBMP(params.icon.data());
+#if 0
+                else if (params.iconType & RT_ICO)
+                {
+                    auto stream = (params.iconType & RT_PATH) ? SDL_IOFromFile(params.icon.data(), "r") :
+                        SDL_IOFromConstMem(params.icon.data(), params.icon.size());
+                    iconSurface = IMG_LoadICO_IO(stream);
+                }
+#endif
                 else
                     assert(false);
 
@@ -106,12 +114,17 @@ namespace glimmer
             SDL_ShowWindow(window);
 
             // Create GPU Device
+#ifdef _DEBUG
+            auto enableDeviceDebugging = true;
+#else
+            auto enableDeviceDebugging = false;
+#endif
 #ifdef _WIN32
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXBC, true, "direct3d12");
+            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXBC, enableDeviceDebugging, "direct3d12");
 #elif __linux__
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, "vulkan");
+            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, enableDeviceDebugging, "vulkan");
 #elif __APPLE__
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_METALLIB, true, "metal");
+            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_METALLIB, enableDeviceDebugging, "metal");
 #endif
             if (device == nullptr)
             {
@@ -376,10 +389,10 @@ namespace glimmer
         void GetWindowHandle(void* out) override
         {
             std::call_once(nfdInitialized, [] { NFD_Init(); });
-			auto nativeWindow = (nfdwindowhandle_t*)out;
+            auto nativeWindow = (nfdwindowhandle_t*)out;
 #if defined(__WIN32__)
             nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
-            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);;
+            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
 #elif defined(__MACOSX__)
             nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_COCOA;
             nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
@@ -387,7 +400,7 @@ namespace glimmer
             if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
             {
                 nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_X11;
-                nativeWindow->handle = SDL_GetNumberProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);;
+                nativeWindow->handle = SDL_GetNumberProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
             }
 #endif
         }
@@ -455,7 +468,7 @@ namespace glimmer
 
                 modalDialog = true;
                 SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFILE, callback, &pathset, pset);
-				SDL_DestroyProperties(pset);
+                SDL_DestroyProperties(pset);
             }
             else
             {
@@ -478,7 +491,7 @@ namespace glimmer
             while (!pathset.done)
             {
                 SDL_PollEvent(&event);
-				SDL_Delay(10);
+                SDL_Delay(10);
             }
 
             modalDialog = false;

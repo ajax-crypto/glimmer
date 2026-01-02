@@ -127,7 +127,7 @@ void PopYogaLayoutNode()
 {
     if (!FlexLayoutRootStack.empty())
     {
-		auto top = FlexLayoutRootStack.top();
+        auto top = FlexLayoutRootStack.top();
         auto& root = FlexLayoutRoots[top];
 
         if (root.depth > 0) root.depth--;
@@ -141,7 +141,7 @@ void PopYogaLayoutNode()
 
 void ResetYogaLayoutSystem()
 {
-	for (auto& root : FlexLayoutRoots)
+    for (auto& root : FlexLayoutRoots)
     {
         YGNodeRemoveAllChildren(root.root);
 
@@ -200,7 +200,7 @@ namespace glimmer
     WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, 
         const ImRect& prefix, const ImRect& suffix, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, const ImRect& prefix, IRenderer& renderer, const IODescriptor& io);
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
     void StartScrollableImpl(int32_t id, int32_t flags, ImVec2 maxsz, const StyleDescriptor& style,
@@ -718,7 +718,7 @@ namespace glimmer
     void AddItemToLayout(LayoutBuilder& layout, LayoutItemDescriptor& item, const StyleDescriptor& style)
     {
         auto& context = GetContext();
-		auto isItemLayout = item.wtype == WT_Layout;
+        auto isItemLayout = item.wtype == WT_Layout;
         layout.itemIndexes.emplace_back(context.layoutItems.size(), isItemLayout ?
             LayoutOps::AddLayout : item.wtype == WT_Scrollable ? LayoutOps::PushScrollRegion : LayoutOps::AddWidget);
 
@@ -1030,7 +1030,7 @@ namespace glimmer
             StyleDescriptor style;
             item.id = layout.id;
             item.margin = available;
-			item.implData = layout.implData;
+            item.implData = layout.implData;
             parent.itemIndexes.emplace_back(context.layoutItems.size(), LayoutOps::AddLayout);
             layout.itemidx = context.layoutItems.size();
             AddItemToLayout(parent, item, style);
@@ -1369,10 +1369,10 @@ namespace glimmer
    //         auto& state = context.GetState(regionId).state.region;
    //         auto style = context.GetStyle(state.state, regionId);
    //         
-			//available.Min.x += style.margin.left + style.border.left.thickness + style.padding.left;
+            //available.Min.x += style.margin.left + style.border.left.thickness + style.padding.left;
    //         available.Min.y += style.margin.top + style.border.top.thickness + style.padding.top;
    //         available.Max.x -= style.margin.right + style.border.right.thickness + style.padding.right;
-			//available.Max.y -= style.margin.bottom + style.border.bottom.thickness + style.padding.bottom;
+            //available.Max.y -= style.margin.bottom + style.border.bottom.thickness + style.padding.bottom;
    //     }
 
         auto sz = available.GetSize();
@@ -1443,13 +1443,13 @@ namespace glimmer
     ImRect BeginFlexLayout(Direction dir, int32_t geometry, bool wrap, ImVec2 spacing, 
         ImVec2 size, const NeighborWidgets& neighbors)
     {
-		return BeginFlexLayoutRegion(dir, geometry, wrap, spacing, size, neighbors, -1);
+        return BeginFlexLayoutRegion(dir, geometry, wrap, spacing, size, neighbors, -1);
     }
 
     ImRect BeginGridLayout(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents,
         const std::initializer_list<float>& colExtents, ImVec2 spacing, ImVec2 size, const NeighborWidgets& neighbors)
     {
-		return BeginGridLayoutRegion(rows, cols, dir, geometry, rowExtents, colExtents, spacing, size, neighbors, -1);
+        return BeginGridLayoutRegion(rows, cols, dir, geometry, rowExtents, colExtents, spacing, size, neighbors, -1);
     }
 
     ImRect BeginLayout(std::string_view desc, const NeighborWidgets& neighbors)
@@ -1477,7 +1477,7 @@ namespace glimmer
                 layout.rows[layout.currow].x = 0.f;
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
                 YGNodeRef child = YGNodeNew();
-				auto parent = static_cast<YGNodeRef>(layout.implData);
+                auto parent = static_cast<YGNodeRef>(layout.implData);
                 YGNodeStyleSetWidthPercent(child, 100);
                 YGNodeStyleSetHeight(child, 0);
                 YGNodeInsertChild(parent, child, YGNodeGetChildCount(parent));
@@ -1748,7 +1748,7 @@ namespace glimmer
             if (render)
             {
                 context.AddItemGeometry(item.id, bbox);
-                result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
+                result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
                 if (!context.nestedContextStack.empty())
                     RecordItemGeometry(item, style);
             }
@@ -2271,7 +2271,7 @@ namespace glimmer
 
             auto isParentFlex = IsParentFlexLayout(context);
 
-			if (!isParentFlex)
+            if (!isParentFlex)
             {
                 auto rootNode = static_cast<YGNodeRef>(layout.implData);
                 auto& root = FlexLayoutRoots[FlexLayoutRootStack.top()];
@@ -2548,13 +2548,13 @@ namespace glimmer
     {
         // This stores the data for replay of style push/pop operations within a layout block
         static StyleStackT StyleStack[WSI_Total];
-		static RegionStackT RegionStack;
-		InitLocalStyleStack(context, layout, StyleStack);
-		InitLocalRegionStack(context, layout, RegionStack);
+        static RegionStackT RegionStack;
+        InitLocalStyleStack(context, layout, StyleStack);
+        InitLocalRegionStack(context, layout, RegionStack);
 
         auto io = Config.platform->CurrentIO();
-		UpdateWidgetGeometryPass(context, layout, io, RegionStack, StyleStack);
-		RenderWidgetPass(context, layout, result, io, StyleStack);
+        UpdateWidgetGeometryPass(context, layout, io, RegionStack, StyleStack);
+        RenderWidgetPass(context, layout, result, io, StyleStack);
     }
 
     WidgetDrawResult EndLayout(int depth)
@@ -2584,7 +2584,7 @@ namespace glimmer
             context.nestedContextStack.pop(1, true);
 
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
-			PopYogaLayoutNode();
+            PopYogaLayoutNode();
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
             PopFlexLayoutNode();
 #endif
@@ -2595,7 +2595,7 @@ namespace glimmer
             context.ResetLayoutData();
 
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
-			ResetYogaLayoutSystem();
+            ResetYogaLayoutSystem();
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
             
             for (auto& root : LayContexts)

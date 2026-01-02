@@ -16,7 +16,7 @@
 static void DetermineKeyStatus(glimmer::IODescriptor& desc)
 {
     desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
-    desc.insert = false;
+    desc.insert = GetAsyncKeyState(VK_INSERT) < 0;
 }
 #elif __linux__
 #include <ctsdio>
@@ -40,6 +40,13 @@ static void DetermineKeyStatus(glimmer::IODescriptor& desc)
 {
     std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
     desc.capslock = xset_output.find("on") != std::string::npos;
+    desc.insert = false;
+}
+#elif __APPLE__
+#include <CoreGraphics/CGEventSource.h>
+static void DetermineKeyStatus(glimmer::IODescriptor& desc)
+{
+    desc.capslock = ((CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift) != 0);
     desc.insert = false;
 }
 #endif
@@ -175,10 +182,14 @@ namespace glimmer
     IODescriptor IPlatform::CurrentIO() const
     {
         auto& context = GetContext();
+        auto isWithinPopup = WidgetContextData::ActivePopUpRegion.Contains(desc.mousepos);
         IODescriptor result{};
         result.deltaTime = desc.deltaTime;
 
-        if (!WidgetContextData::ActivePopUpRegion.Contains(desc.mousepos)) 
+        // Either the current context is the popup's context in which case only events that
+        // are within the popup matter or the current context is not for the popup and hence
+        // ignore events that occured within it.
+        if (!isWithinPopup || (isWithinPopup && WidgetContextData::PopupContext == &context))
             result = desc;
 
         return result;

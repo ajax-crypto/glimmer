@@ -100,12 +100,12 @@ void TestWindow(glimmer::UIConfig& config)
     widgets[TAB] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_DropDown);
-    auto& dd = glimmer::GetWidgetConfig(tid).state.dropdown;
+    /*auto& dd = glimmer::GetWidgetConfig(tid).state.dropdown;
     dd.text = "DropDown";
     std::vector<std::pair<glimmer::WidgetType, std::string_view>> options;
     options.emplace_back(glimmer::WT_Checkbox, "Option 1");
     options.emplace_back(glimmer::WT_Checkbox, "Option 2");
-    dd.options = options;
+    dd.options = options;*/
     widgets[DROPDOWN] = tid;
 
     widgets[ACCORDION] = glimmer::GetNextId(glimmer::WT_Accordion);
@@ -120,13 +120,15 @@ void TestWindow(glimmer::UIConfig& config)
         glimmer::GetWidgetConfig(id).state.label.text = std::string_view{ buffer, (size_t)sz };
         auto result = glimmer::Label(id);
 
-        glimmer::Move(glimmer::FD_Horizontal);
-        id = glimmer::GetNextId(glimmer::WT_Checkbox);
-        glimmer::GetWidgetConfig(id);
-        result = glimmer::Checkbox(id);
+        if (col == 1000)
+        {
+            glimmer::Move(glimmer::FD_Horizontal);
+            id = glimmer::GetNextId(glimmer::WT_Checkbox);
+            glimmer::GetWidgetConfig(id);
+            result = glimmer::Checkbox(id);
+        }
 
         PopStyle(1, glimmer::WS_Default);
-        result;
         };
     grid.cellprops = [](int32_t row, int16_t, int16_t, int32_t, int32_t) {
         glimmer::ItemGridItemProps props;
@@ -218,7 +220,7 @@ void TestWindow(glimmer::UIConfig& config)
 
                     PushStyle("padding: 5px; background-color: lightgreen;");
                     Label(widgets[LEFT2], ExpandV);
-				}
+                }
                 EndRegion();
                 PopStyle(3, WS_Default);
             }
@@ -239,7 +241,7 @@ void TestWindow(glimmer::UIConfig& config)
                 {
                     PushStyle(WS_Hovered, "background-color: crimson; color: white;");
                     Button("bottom", "Bottom");
-					PopStyle(1, WS_Hovered);
+                    PopStyle(1, WS_Hovered);
                     Move(FD_Horizontal);
 
                     ToggleButton(widgets[TOGGLE], ToRight);
@@ -255,11 +257,16 @@ void TestWindow(glimmer::UIConfig& config)
                     PopStyle(1, WS_Default | WS_Focused);
 
                     Move(FD_Horizontal);
-                    DropDown(widgets[DROPDOWN], ToRight);
+                    if (BeginDropDown(widgets[DROPDOWN], "DropDown"))
+                    {
+                        for (auto opt = 0; opt < 8; ++opt)
+                            AddOption(WT_Checkbox, "option");
+                    }
+                    EndDropDown(nullptr);
 
-					Move(FD_Horizontal);
+                    Move(FD_Horizontal);
                     static char buffer[256];
-					custom::PathInput("path-input", buffer, 255, false, "");
+                    custom::PathInput("path-input", buffer, 255, false, "");
 
                     PushStyle(WS_Default, "width: 200px; border-radius: 3px;");
                     PushStyle(WS_Hovered, "background-color: blue; color: white;");

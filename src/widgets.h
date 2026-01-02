@@ -99,6 +99,11 @@ namespace glimmer
     WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginDropDown(int32_t id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginDropDown(std::string_view id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void AddOption(std::string_view optionText, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
+    void AddOption(WidgetType wtype, std::string_view optionText, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
+    WidgetDrawResult EndDropDown(int32_t* selection);
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), 
@@ -111,7 +116,7 @@ namespace glimmer
 
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
-    WidgetDrawResult EndPopUp(bool alwaysVisible = true);
+    WidgetDrawResult EndPopUp(bool alwaysVisible = true, std::optional<uint32_t> bgcolor = std::nullopt);
 
     void BeginScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
@@ -168,7 +173,7 @@ namespace glimmer
             IRenderer& renderer, const IODescriptor& io) = 0;
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
 
-		static StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack);
+        static StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack);
         static ImRect GetBounds(int32_t id);
         static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style);
         static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,

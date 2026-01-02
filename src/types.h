@@ -207,12 +207,12 @@ namespace glimmer
 
     enum EventsToProcess
     {
-		ETP_Hovered = 1,
-		ETP_Clicked = 1 << 1,
-		ETP_DoubleClicked = 1 << 2,
-		ETP_RightClicked = 1 << 3,
-		ETP_MouseEnter = 1 << 4,
-		ETP_MouseLeave = 1 << 5
+        ETP_Hovered = 1,
+        ETP_Clicked = 1 << 1,
+        ETP_DoubleClicked = 1 << 2,
+        ETP_RightClicked = 1 << 3,
+        ETP_MouseEnter = 1 << 4,
+        ETP_MouseLeave = 1 << 5
     };
 
     enum class TextType { PlainText, RichText, SVG, ImagePath, SVGPath };
@@ -229,19 +229,19 @@ namespace glimmer
     {
         RT_INVALID = 0, 
         RT_SYMBOL = 1, RT_PNG = 2, RT_SVG = 4, RT_JPG = 8, RT_GIF = 16,
-        RT_BMP = 32, RT_PSD = 64,
+        RT_BMP = 32, RT_PSD = 64, RT_ICO = 128,
 
-        RT_ICON_FONT = 128,
+        RT_ICON_FONT = 1 << 15,
 
         RT_GENERIC_IMG = 1 << 16,
-		RT_PATH = 1 << 17, // treat resource as file path
-		RT_BASE64 = 1 << 18, // treat resource as base64 encoded data
-		RT_BIN = 1 << 19 // treat resource as raw binary data (For SVG, it is markup)
+        RT_PATH = 1 << 17, // treat resource as file path
+        RT_BASE64 = 1 << 18, // treat resource as base64 encoded data
+        RT_BIN = 1 << 19 // treat resource as raw binary data (For SVG, it is markup)
     };
 
     struct RegionState : public CommonWidgetData
     {
-		int32_t events = 0; // bitmask of WidgetState
+        int32_t events = 0; // bitmask of WidgetState
     };
 
     struct ButtonState : public CommonWidgetData
@@ -333,8 +333,8 @@ namespace glimmer
         float min_range = 0.f, max_range = FLT_MAX, delta = 1.f;
         uint32_t(*TrackColor)(float) = nullptr; // Use this to color the track based on value
         Direction dir = DIR_Horizontal;
-		int32_t minState = WS_Default;
-		int32_t maxState = WS_Default;
+        int32_t minState = WS_Default;
+        int32_t maxState = WS_Default;
         void* out_min = nullptr;
         void* out_max = nullptr;
         OutPtrType outType = OutPtrType::Invalid;
@@ -379,7 +379,7 @@ namespace glimmer
         int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
-		SymbolIcon suffixIcon = SymbolIcon::None;
+        SymbolIcon suffixIcon = SymbolIcon::None;
     };
 
     enum WidgetStateIndex : int32_t
@@ -393,31 +393,34 @@ namespace glimmer
     {
         struct OptionDescriptor
         {
+            std::string_view text;
+            TextType textType = TextType::PlainText;
+            WidgetType prefixType = WT_Invalid;
+        };
+
+        struct OptionStyleDescriptor
+        {
             std::string_view css[WSI_Total];
             bool isSelectable = true;
         };
 
         std::string_view text;
         TextType textType = TextType::PlainText;
-        Direction dir;
-        TextInputState input;
+        //TextInputState input;
         int32_t inputId = -1;
         int32_t selected = -1;
         int32_t hovered = -1;
         int32_t width = -1; // how many characters wide
         int32_t* out = nullptr;
-        uint32_t optionHoverColor = ToRGBA(20, 20, 150);
-        uint32_t optionSelectionColor = ToRGBA(150, 150, 255);
-        std::span<std::pair<WidgetType, std::string_view>> options;
-        std::string_view prefix;
-        int32_t prefixType = RT_SVG;
-        ImVec2 optionSpacing{ 2.f, 2.f };
-        Border separator;
+
+        std::span<OptionDescriptor> options;
+        bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
+        std::pair<std::string_view, TextType> (*CurrentSelectedOption)(int32_t) = nullptr;
+        OptionStyleDescriptor(*OptionStyle)(int32_t) = nullptr;
+        
         bool isComboBox = false;
         bool opened = false;
         bool hasSelection = true;
-        bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
-        OptionDescriptor(*OptionStyle)(int32_t) = nullptr;
     };
 
     enum TabItemProperty
@@ -451,7 +454,7 @@ namespace glimmer
         bool expandTabs = false;
         bool circularButtons = true;
         bool createNewTabs = false;
-		bool addNavigationButtons = false;
+        bool addNavigationButtons = false;
     };
 
     enum ColumnProperty : int32_t
@@ -526,7 +529,7 @@ namespace glimmer
         int16_t depth = -1;
         int16_t tabidx = -1;
         int16_t optidx = -1;
-		std::pair<int32_t, int32_t> range; // For reorder events
+        std::pair<int32_t, int32_t> range; // For reorder events
         ImRect geometry, content;
         float wheel = 0.f;
         TabButtonType tabtype = TabButtonType::None;
@@ -572,7 +575,7 @@ namespace glimmer
             int32_t props = COL_Resizable;
             int16_t width = 0;
             int16_t parent = -1;
-			TextType textType = TextType::PlainText;
+            TextType textType = TextType::PlainText;
         };
 
         struct Configuration

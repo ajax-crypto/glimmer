@@ -99,7 +99,7 @@ namespace glimmer
             auto idClasses = ExtractIdClasses(key);
             it = NamedIds[type].emplace(idClasses.id, GetNextId(type)).first;
             GetContext().RegisterWidgetIdClass(type, it->second, idClasses);
-			if (Config.RecordWidgetId) (*Config.RecordWidgetId)(key, it->second);
+            if (Config.RecordWidgetId) (*Config.RecordWidgetId)(key, it->second);
             initial = true;
         }
         return { it->second, initial };
@@ -858,7 +858,7 @@ namespace glimmer
 
 #pragma endregion
 
-#pragma region Button & Lables
+#pragma region Button & Labels
 
     bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io);
 
@@ -2137,6 +2137,8 @@ namespace glimmer
             if (state.out) *state.out = state.check;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+            fprintf(stdout, "Mouse at (%f, %f) | Extent is (%f, %f) -> (%f, %f)\n", io.mousepos.x, io.mousepos.y,
+                extent.Min.x, extent.Min.y, extent.Max.x, extent.Max.y);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForCheckbox(id, extent));
     }
@@ -2149,7 +2151,7 @@ namespace glimmer
         WidgetDrawResult result;
 
         DrawBorderRect(extent.Min, extent.Max, style.border, style.bgcolor, renderer);
-        DrawBackground(extent.Min, extent.Max, style, renderer);
+        DrawBackground(padding.Min, padding.Max, style, renderer);
         auto height = padding.GetHeight(), width = padding.GetWidth();
 
         if (check.animate && check.progress < 1.f)
@@ -3652,15 +3654,57 @@ namespace glimmer
 
 #pragma region DropDown
 
+    void CreateDropDownOptionWidget(const DropDownState::OptionDescriptor& option,
+        DropDownPersistentState& optstates, int32_t optidx, DropDownState& state,
+        bool& hasWidgets)
+    {
+        auto& optstate = optidx < (int32_t)optstates.children.size() ? optstates.children[optidx] : 
+            optstates.children.emplace_back(-1, -1);
+
+        switch (option.prefixType)
+        {
+        case WT_Checkbox:
+        {
+            if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_Checkbox);
+            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
+            /*GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
+                CheckState::Checked : CheckState::Unchecked;*/
+            GetWidgetConfig(optstate.prefix);
+            auto& label = GetWidgetConfig(optstate.label).state.label;
+            label.text = option.text; label.type = option.textType;
+            hasWidgets = true;
+            break;
+        }
+        case WT_ToggleButton:
+        {
+            if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_ToggleButton);
+            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
+            //GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
+            GetWidgetConfig(optstate.prefix);
+            auto& label = GetWidgetConfig(optstate.label).state.label;
+            label.text = option.text; label.type = option.textType;
+            hasWidgets = true;
+            break;
+        }
+        default:
+        {
+            optstate.prefix = -1;
+            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
+            auto& label = GetWidgetConfig(optstate.label).state.label;
+            label.text = option.text; label.type = option.textType;
+            break;
+        }
+        }
+    }
+
     void ShowDropDownOptions(WidgetContextData& parent, DropDownState& state, int32_t id, const ImRect& margin, 
         const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
     {
         ImRect maxrect{ { 0.f, 0.f }, parent.WindowSize() };
         auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
-        ImVec2 available1 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Max.y } :
-            ImVec2{ padding.Max.x, maxh };
-        ImVec2 available2 = state.dir == DIR_Vertical ? ImVec2{ maxw - border.Min.x, maxh - padding.Min.y } :
-            ImVec2{ padding.Min.x, maxh };
+        const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
+        ImVec2 available1 = ImVec2{ maxw - border.Min.x, maxh - padding.Max.y };
+        ImVec2 available2 = ImVec2{ maxw - border.Min.x, maxh - padding.Min.y };
 
         // Create the popup with its own context                
         if (BeginPopup(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
@@ -3681,70 +3725,54 @@ namespace glimmer
                 static Vector<ImRect, int16_t, 16> widgetrects;
                 static Vector<int32_t, int16_t, 16> selectable;
 
-                auto& optstates = GetContext().parentContext->dropDownOptions[id & WidgetIndexMask];
-                if (optstates.empty()) optstates.reserve(state.options.size());
+                auto& context = GetContext();
+                auto& optstates = context.parentContext->dropDownOptions[id & WidgetIndexMask];
+                auto& adhoc = context.adhocLayout.top();
                 auto optidx = 0;
-                auto& adhoc = GetContext().adhocLayout.top();
                 auto hasWidgets = false;
+                optstates.context = &context;
 
-                for (const auto& option : state.options)
+                if (state.options.empty())
                 {
-                    if ((int)optstates.size() <= optidx)
-                    {
-                        auto& optstate = optstates.emplace_back();
-                        switch (option.first)
-                        {
-                        case WT_Checkbox:
-                        {
-                            optstate.first = GetNextId(WT_Checkbox);
-                            optstate.second = GetNextId(WT_Label);
-                            GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
-                                CheckState::Checked : CheckState::Unchecked;
-                            GetWidgetConfig(optstate.second).state.label.text = option.second;
-                            hasWidgets = true;
-                            break;
-                        }
-                        case WT_ToggleButton:
-                        {
-                            optstate.first = GetNextId(WT_ToggleButton);
-                            optstate.second = GetNextId(WT_Label);
-                            GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
-                            GetWidgetConfig(optstate.second).state.label.text = option.second;
-                            hasWidgets = true;
-                            break;
-                        }
-                        case WT_Invalid:
-                        {
-                            optstate.first = -1;
-                            optstate.second = GetNextId(WT_Label);
-                            GetWidgetConfig(optstate.second).state.label.text = option.second;
-                            break;
-                        }
-                        default: break;
-                        }
+                    const auto& items = context.parentContext->currentDropDown.items;
+                    optstates.children.expand(items.size());
 
+                    for (const auto& option : items)
+                    {
+                        CreateDropDownOptionWidget(option, optstates, optidx, state, hasWidgets);
+                        ++optidx;
+                    }
+                }
+                else
+                {
+                    optstates.children.expand(state.options.size());
+
+                    for (const auto& option : state.options)
+                    {
+                        CreateDropDownOptionWidget(option, optstates, optidx, state, hasWidgets);
                         ++optidx;
                     }
                 }
 
                 if (hasWidgets)
                 {
-                    PushStyleFmt(WS_Default | WS_Hovered, "background-color: transparent; border: none;");
+                    PushStyle(WS_Default | WS_Hovered, "background-color: transparent; border: none;");
                     wid = id; hovered = state.hovered;
                     selected = state.out ? *state.out : state.selected;
-                    DropDownState::OptionDescriptor props;
+                    DropDownState::OptionStyleDescriptor props;
                     optidx = 0;
 
-                    for (const auto& option : state.options)
+                    for (const auto& optstate : optstates.children)
                     {
-                        auto& optstate = optstates[optidx];
                         auto startpos = adhoc.nextpos;
                         int32_t stylesAdded = 0;
 
                         BeginFlexLayout(DIR_Horizontal, AlignVCenter | AlignLeft,
-                            false, state.optionSpacing, state.width == -1 ? ImVec2{ border.GetWidth(), 0.f } : ImVec2{});
-                        auto type = (WidgetType)(optstate.first >> WidgetTypeBits);
-                        Widget(optstate.first, type, ToBottomRight, {});
+                            false, ddstyle.optionSpacing, state.width == -1 ? ImVec2{ border.GetWidth(), 0.f } : ImVec2{});
+                        auto type = (WidgetType)(optstate.prefix >> WidgetTypeBits);
+                        PushStyle(WS_AllStates, "border: 1px solid black; background-color: white;");
+                        Widget(optstate.prefix, type, ToBottomRight, {});
+                        PopStyle(1, WS_AllStates);
 
                         if (state.OptionStyle)
                         {
@@ -3760,19 +3788,19 @@ namespace glimmer
                         else selectable.emplace_back(state.hasSelection);
 
                         if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
-                        Widget(optstate.second, WT_Label, ToBottomRight, {});
+                        Widget(optstate.label, WT_Label, ToBottomRight, {});
                         if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
 
                         if (stylesAdded != 0)
                             PopStyle(1, stylesAdded);
 
                         EndLayout();
-                        widgetrects.emplace_back(GetContext().GetGeometry(optstate.first));
+                        widgetrects.emplace_back(context.GetGeometry(optstate.prefix));
 
                         Move(FD_Vertical | FD_Horizontal);
-                        GetContext().deferedRenderer->DrawLine(startpos, adhoc.nextpos, state.separator.color,
-                            state.separator.thickness);
-                        adhoc.nextpos.y += state.separator.thickness;
+                        context.deferedRenderer->DrawLine(startpos, adhoc.nextpos, ddstyle.separator.color,
+                            ddstyle.separator.thickness);
+                        adhoc.nextpos.y += ddstyle.separator.thickness;
                         auto endpos = adhoc.nextpos;
                         adhoc.nextpos.x = 0.f;
                         optrects.emplace_back(startpos, endpos);
@@ -3785,18 +3813,17 @@ namespace glimmer
                 {
                     PushStyleFmt(WS_Default | WS_Hovered, 
                         "background-color: transparent; border: none; margin: %fpx %fpx %fpx %fpx;", 
-                        state.optionSpacing.x, state.optionSpacing.y, state.optionSpacing.x,
-                        state.optionSpacing.y);
+                        ddstyle.optionSpacing.x, ddstyle.optionSpacing.y, ddstyle.optionSpacing.x,
+                        ddstyle.optionSpacing.y);
 
                     if (state.width == -1) PushStyleFmt(WS_Default | WS_Hovered, "width: %fpx", border.GetWidth());
                     wid = id; hovered = state.hovered;
                     selected = state.out ? *state.out : state.selected;
-                    DropDownState::OptionDescriptor props;
+                    DropDownState::OptionStyleDescriptor props;
                     optidx = 0;
 
-                    for (const auto& option : state.options)
+                    for (const auto& optstate : optstates.children)
                     {
-                        auto& optstate = optstates[optidx];
                         auto startpos = adhoc.nextpos;
                         int32_t stylesAdded = 0;
 
@@ -3814,16 +3841,16 @@ namespace glimmer
                         else selectable.emplace_back(state.hasSelection);
                         
                         if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
-                        Widget(optstate.second, WT_Label, ToBottomRight, {});
+                        Widget(optstate.label, WT_Label, ToBottomRight, {});
                         if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
 
                         if (stylesAdded != 0)
                             PopStyle(1, stylesAdded);
 
                         Move(FD_Vertical | FD_Horizontal);
-                        GetContext().deferedRenderer->DrawLine(startpos, adhoc.nextpos, state.separator.color,
-                            state.separator.thickness);
-                        adhoc.nextpos.y += state.separator.thickness;
+                        context.deferedRenderer->DrawLine(startpos, adhoc.nextpos, ddstyle.separator.color,
+                            ddstyle.separator.thickness);
+                        adhoc.nextpos.y += ddstyle.separator.thickness;
                         auto endpos = adhoc.nextpos;
                         adhoc.nextpos.x = 0.f;
                         optrects.emplace_back(startpos, endpos);
@@ -3836,8 +3863,8 @@ namespace glimmer
                 }
 
                 static uint32_t hoverColor = 0, selectedColor = 0;
-                hoverColor = state.optionHoverColor;
-                selectedColor = state.optionSelectionColor;
+                hoverColor = ddstyle.optionHoverColor;
+                selectedColor = ddstyle.optionSelectionColor;
 
                 if (state.hasSelection)
                     SetPopupCallback(PCB_BeforeRender, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
@@ -3850,13 +3877,16 @@ namespace glimmer
                         rect.Min.x = extent.Min.x;
                         rect.Max.x = extent.Max.x;
 
+                        auto& wrect = widgetrects[optidx];
+                        wrect.Translate(offset);
+
                         if (rect.Contains(io.mousepos))
                         {
                             if (selectable[optidx])
                             {
                                 renderer.DrawRect(rect.Min, rect.Max, hoverColor, true);
                                 hoveridx = optidx;
-                                if (io.clicked() && !(widgetrects[optidx].Contains(io.mousepos)))
+                                if (io.clicked() && !(wrect.Contains(io.mousepos)))
                                 {
                                     selected = optidx;
                                     hasClicked = true;
@@ -3881,7 +3911,7 @@ namespace glimmer
                 });
             }
 
-            EndPopUp();
+            EndPopUp(true, ddstyle.bgcolor);
             if (state.out) *state.out = selected;
             state.selected = selected;
             state.hovered = hovered;
@@ -3909,7 +3939,8 @@ namespace glimmer
 
             if (ismouseover && io.clicked())
             {
-                result.event = WidgetEvent::Clicked; state.opened = !state.opened;
+                result.event = WidgetEvent::Clicked; 
+                state.opened = !state.opened;
             }
             else if (ismouseover && io.isLeftMouseDoubleClicked())
             {
@@ -3955,30 +3986,61 @@ namespace glimmer
     }
 
     WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, const ImRect& prefix, IRenderer& renderer, const IODescriptor& io)
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
         auto& context = GetContext();
         const auto& config = GetWidgetConfig(id).state.dropdown;
+        const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
         DrawBackground(border.Min, border.Max, style, renderer);
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        DrawText(prefix.Min, prefix.Max, prefix, config.prefix, config.state & WS_Disabled, style, 
-            renderer, ToTextFlags(config.prefixType));
+
+        if (!ddstyle.isIndicatorSuffix)
+        {
+            auto indicator = ImRect{ content.Min, content.Min + ImVec2{ style.font.size, style.font.size } };
+            auto isz = style.font.size * ddstyle.indicatorScale;
+            auto diff = (content.GetHeight() - isz) * 0.5f;
+
+            indicator.Min += ImVec2{ diff, diff };
+            indicator.Max -= ImVec2{ diff, diff };
+            renderer.DrawResource(ddstyle.indicatorType, indicator.Min, indicator.GetSize(), style.fgcolor,
+                ddstyle.indicators[state.opened]);
+        }
 
         if (!(state.opened && state.isComboBox))
         {
-            auto dt = state.selected == -1 ? state.text : state.options[state.selected].second;
-            DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer);
+            if (state.CurrentSelectedOption)
+            {
+                auto [dt, textType] = state.CurrentSelectedOption(state.selected);
+                auto txtflags = ToTextFlags(textType) | FontStyleOverflowMarquee;
+                DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer, txtflags);
+            }
+            else
+            {
+                auto index = id & WidgetIndexMask;
+                const auto& optstates = context.dropDownOptions;
+                auto dt = (index < (int)optstates.size() && state.selected != -1) ?
+                    optstates[index].context->GetState(optstates[index].children[state.selected].label).state.label.text :
+                    state.text;
+                auto txtflags = ToTextFlags(config.textType) | FontStyleOverflowMarquee;
+                DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer, txtflags);
+            }
         }
 
-        auto arrowh = style.font.size * 0.33333f;
-        auto arroww = style.font.size * 0.25f;
-        auto arrowst = ImVec2{ content.Max.x - style.font.size + arroww, content.Min.y + arrowh };
-        auto darker = DarkenColor(style.bgcolor);
-        DrawSymbol(arrowst, { arroww, arrowh }, {}, state.opened ? SymbolIcon::UpArrow : SymbolIcon::DownArrow, 
-            darker, 0, 2.f, renderer);
+        if (ddstyle.isIndicatorSuffix)
+        {
+            auto indicator = ImRect{ padding.Max - ImVec2{ style.font.size, style.font.size }, padding.Max };
+            auto isz = style.font.size * ddstyle.indicatorScale;
+            auto diff = (content.GetHeight() - isz) * 0.5f;
+
+            indicator.Min += ImVec2{ diff, diff };
+            indicator.Max -= ImVec2{ diff, diff };
+            renderer.DrawResource(ddstyle.indicatorType, indicator.Min, indicator.GetSize(), style.fgcolor,
+                ddstyle.indicators[state.opened]);
+        }
+
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
         HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
 
@@ -4017,12 +4079,12 @@ namespace glimmer
 
     WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
+        static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
 
         auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
         auto& config = GetWidgetConfig(id).state.dropdown;
 
-        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back(WT_Invalid, option);
+        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back().text = option;
         config.options = OptionsMap.at(id);
         config.text = text;
         return Widget(id, WT_DropDown, geometry, neighbors);
@@ -4030,15 +4092,69 @@ namespace glimmer
 
     WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
     {
-        static std::unordered_map<int32_t, std::vector<std::pair<WidgetType, std::string_view>>> OptionsMap;
+        static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
 
         auto wid = GetIdFromString(id, WT_DropDown).first;
         auto& config = GetWidgetConfig(wid).state.dropdown;
 
-        if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back(WT_Invalid, option);
+        if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back().text = option;
         config.options = OptionsMap.at(wid);
         config.text = text;
         return Widget(wid, WT_DropDown, geometry, neighbors);
+    }
+
+    bool BeginDropDown(int32_t id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& config = GetWidgetConfig(id).state.dropdown;
+        config.text = text;
+        config.textType = type;
+        context.currentDropDown.geometry = geometry;
+        context.currentDropDown.neighbors = neighbors;
+        context.currentDropDown.id = id;
+        context.currentDropDown.items.clear(true);
+        return config.opened;
+    }
+
+    bool BeginDropDown(std::string_view id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto iid = GetIdFromString(id, WT_DropDown).first;
+        auto& config = GetWidgetConfig(iid).state.dropdown;
+        config.text = text;
+        config.textType = type;
+        context.currentDropDown.geometry = geometry;
+        context.currentDropDown.neighbors = neighbors;
+        context.currentDropDown.id = iid;
+        context.currentDropDown.items.clear(true);
+        return config.opened;
+    }
+
+    void AddOption(std::string_view optionText, TextType type, std::string_view prefix, ResourceType rt)
+    {
+        auto& context = GetContext();
+        auto& item = context.currentDropDown.items.emplace_back();
+        item.prefixType = WT_Invalid;
+        item.text = optionText;
+        item.textType = type;
+    }
+
+    void AddOption(WidgetType wtype, std::string_view optionText, TextType type, std::string_view prefix, ResourceType rt)
+    {
+        auto& context = GetContext();
+        auto& item = context.currentDropDown.items.emplace_back();
+        item.prefixType = wtype;
+        item.text = optionText;
+        item.textType = type;
+    }
+
+    WidgetDrawResult EndDropDown(int32_t* selection)
+    {
+        auto& context = GetContext();
+        auto& state = GetWidgetConfig(context.currentDropDown.id).state.dropdown;
+        state.out = selection;
+        return Widget(context.currentDropDown.id, WT_DropDown, context.currentDropDown.geometry, 
+            context.currentDropDown.neighbors);
     }
 
 #pragma endregion
@@ -4772,7 +4888,7 @@ namespace glimmer
                     hdiff = (maxwidth - item.text.GetWidth()) * 0.5f;
                     item.text.TranslateX(hdiff);
 
-					item.border.Max.x = item.border.Min.x + maxwidth;
+                    item.border.Max.x = item.border.Min.x + maxwidth;
                     total = std::max(total, item.border.GetWidth());
                 }
             }
@@ -4819,11 +4935,11 @@ namespace glimmer
                     {
                         auto vdiff = (itemgeom.text.GetHeight() - iconwidth) * 0.5f;
                         itemgeom.icon.TranslateY(vdiff);
-					}
+                    }
                     else if (iconwidth > itemgeom.text.GetHeight())
                     {
                         auto vdiff = (iconwidth - itemgeom.text.GetHeight()) * 0.5f;
-						itemgeom.text.TranslateY(vdiff);
+                        itemgeom.text.TranslateY(vdiff);
                     }
 
                     occupied = std::max(occupied, itemgeom.icon.Max.x);
@@ -4838,7 +4954,7 @@ namespace glimmer
                 {
                     item.border.Max.x = item.border.Min.x + maxwidth + nav.items[idx].style.padding.h() + 
                         nav.items[idx].style.border.h();
-					total = std::max(total, item.border.GetWidth());
+                    total = std::max(total, item.border.GetWidth());
                     ++idx;
                 }
             }
@@ -4850,7 +4966,7 @@ namespace glimmer
             };
             navstate.extent = content;
             navstate.extent.Max.x = content.Min.x + total + style.padding.h() + style.border.h();
-			navstate.visiblew += style.padding.h() + style.border.h();
+            navstate.visiblew += style.padding.h() + style.border.h();
         }
 
         return content;
@@ -4867,8 +4983,8 @@ namespace glimmer
             for (auto& item : navstate.items)
             {
                 item.border.Translate(offset);
-				item.icon.Translate(offset);
-				item.text.Translate(offset);
+                item.icon.Translate(offset);
+                item.text.Translate(offset);
 
                 ImRect entry = item.border;
                 if (entry.Contains(io.mousepos))
@@ -4878,7 +4994,7 @@ namespace glimmer
 
                     if (io.clicked() && idx != navstate.selected)
                     {
-						if (navstate.selected != -1)
+                        if (navstate.selected != -1)
                         {
                             auto& previtem = navstate.items[navstate.selected];
                             previtem.state &= ~WS_Selected;
@@ -4906,7 +5022,7 @@ namespace glimmer
                 navstate.isOpen = true;
         }
         else
-			GetContext().deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
+            GetContext().deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
     }
 
     WidgetDrawResult NavDrawerImpl(int32_t wid, const ImRect& border, const StyleDescriptor& style,
@@ -4979,7 +5095,7 @@ namespace glimmer
                 auto idx = 0;
 
                 auto rect = navstate.extent;
-				rect.Translate(-origin); // This is required as pop-up translates all coordinates by origin
+                rect.Translate(-origin); // This is required as pop-up translates all coordinates by origin
                 renderer.SetClipRect(rect.Min, rect.Max);
                 DrawBackground(rect.Min, rect.Max, style, renderer);
                 DrawBorderRect(rect.Min, rect.Max, style.border, style.bgcolor, renderer);
@@ -5016,7 +5132,7 @@ namespace glimmer
                 WidgetDrawResult temp{}; // Will be unused, maybe use std::optional param?
                 HandleNavDrawerEvents(nav, navstate, temp, io, offset);
                 
-				if (navstate.state != WS_Hovered)
+                if (navstate.state != WS_Hovered)
                     WidgetContextData::RemovePopup();
                 
             }, (void*)&data);
@@ -5058,7 +5174,7 @@ namespace glimmer
         auto& nav = context.currentNavDrawer;
         auto& navstate = context.NavDrawerState(nav.id);
         auto style = context.GetStyle(
-			((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
+            ((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
             navstate.items[nav.items.size() - 1].state);
         nav.items.emplace_back(text, icon, resflags, TextType::PlainText, iconFontSzRatio, style, atStart);
     }
@@ -7164,9 +7280,10 @@ namespace glimmer
             overlayctx.ToggleDeferedRendering(true);
             overlayctx.deferEvents = true;
             overlayctx.popupOrigin = origin;
-            overlayctx.PopupTarget = id;
             overlayctx.popupSize = size;
             overlayctx.RecordDeferRange(overlayctx.popupRange, true);
+            WidgetContextData::PopupContext = &overlayctx;
+            WidgetContextData::PopupTarget = id;
             return true;
         }
         else
@@ -7182,7 +7299,7 @@ namespace glimmer
         context.popupCallbackData[phase] = data;
     }
 
-    WidgetDrawResult EndPopUp(bool alwaysVisible)
+    WidgetDrawResult EndPopUp(bool alwaysVisible, std::optional<uint32_t> bgcoloropt)
     {
         auto& overlayctx = GetContext();
         WidgetDrawResult result;
@@ -7196,14 +7313,13 @@ namespace glimmer
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
-            ImVec2 origin = overlayctx.popupOrigin, size{ overlayctx.popupSize != ImVec2{ FLT_MAX, FLT_MAX } ?
-                overlayctx.popupSize : overlayctx.deferedRenderer->size };
+            ImVec2 origin = overlayctx.popupOrigin, size;
+            size.x = overlayctx.popupSize.x != FLT_MAX ? overlayctx.popupSize.x : overlayctx.deferedRenderer->size.x;
+            size.y = overlayctx.popupSize.y != FLT_MAX ? overlayctx.popupSize.y : overlayctx.deferedRenderer->size.y;
 
             if (alwaysVisible)
             {
                 auto available = overlayctx.parentContext->WindowSize();
-                if (overlayctx.popupSize.x != FLT_MAX) size.x = overlayctx.popupSize.x;
-                if (overlayctx.popupSize.y != FLT_MAX) size.x = overlayctx.popupSize.y;
 
                 if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
                     origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
@@ -7213,10 +7329,12 @@ namespace glimmer
             }
 
             auto style = overlayctx.GetStyle(WS_Default);
-            if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, style.bgcolor))
+            auto bgcolor = bgcoloropt.has_value() ? bgcoloropt.value() : style.bgcolor;
+
+            if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, bgcolor))
             {
                 WidgetContextData::ActivePopUpRegion = ImRect{ origin, origin + size };
-                DrawBorderRect(origin, origin + size, style.border, style.bgcolor, renderer);
+                DrawBorderRect(origin, origin + size, style.border, bgcolor, renderer);
                 
                 if (overlayctx.popupCallbacks[PCB_BeforeRender])
                     overlayctx.popupCallbacks[PCB_BeforeRender](overlayctx.popupCallbackData[PCB_BeforeRender], renderer, origin,
@@ -7907,8 +8025,10 @@ namespace glimmer
         case WT_DropDown: {
             static char DummyString[256];
             memset(DummyString, 'X', 254);
+            DummyString[255] = 0;
 
             auto& state = context.GetState(wid).state.dropdown;
+            const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
             auto style = context.GetStyle(state.state, wid);
             auto textsz = state.width <= 0 ? GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer) :
                 GetTextSize(TextType::PlainText, std::string_view{ DummyString, (size_t)state.width }, style.font, maxxy.x, renderer);
@@ -7918,7 +8038,9 @@ namespace glimmer
             {
                 auto& layout = context.layouts[context.layoutStack.top()];
                 auto pos = layout.geometry.Min;
-                DetermineBounds(textsz, state.prefix, "", pos, layoutItem, style, renderer, geometry, neighbors);
+                DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                    !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                    pos, layoutItem, style, renderer, geometry, neighbors);
                 if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
                 if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
                 AddItemToLayout(layout, layoutItem, style);
@@ -7926,10 +8048,12 @@ namespace glimmer
             else
             {
                 auto pos = context.NextAdHocPos();
-                DetermineBounds(textsz, state.prefix, "", pos, layoutItem, style, renderer, geometry, neighbors);
+                DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                    !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                    pos, layoutItem, style, renderer, geometry, neighbors);
                 renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
                 result = DropDownImpl(wid, state, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
-                    layoutItem.content, layoutItem.text, layoutItem.prefix, renderer, io);
+                    layoutItem.content, layoutItem.text, renderer, io);
                 context.AddItemGeometry(wid, layoutItem.margin);
                 renderer.ResetClipRect();
                 RecordItemGeometry(layoutItem, style);

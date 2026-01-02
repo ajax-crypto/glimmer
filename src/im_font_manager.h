@@ -51,7 +51,7 @@ namespace glimmer
         FLT_Monospace = 2,
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
-		// These are for rich text specific features
+        // These are for rich text specific features
         FLT_HasSmall = 4,
         FLT_HasSuperscript = 8,
         FLT_HasSubscript = 16,

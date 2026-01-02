@@ -1029,8 +1029,8 @@ namespace glimmer
                     }
 
 #ifdef _DEBUG
-					auto end = std::chrono::system_clock().now().time_since_epoch().count();
-					std::printf("Font lookup completed in %lld ms\n", (end - start) / 1000000);
+                    auto end = std::chrono::system_clock().now().time_since_epoch().count();
+                    std::printf("Font lookup completed in %lld ms\n", (end - start) / 1000000);
 #endif
                 }
             }
@@ -1083,7 +1083,7 @@ namespace glimmer
 #elif __linux__
                 it = isDefaultMonospace ? FontLookup.MonospaceFontFamilies.find("DejaVu Mono") :
                     isDefaultSerif ? FontLookup.ProportionalFontFamilies.find("DejaVu Serif") :
-					FontLookup.ProportionalFontFamilies.find("DejaVu Sans");
+                    FontLookup.ProportionalFontFamilies.find("DejaVu Sans");
 #endif
                 // TODO: Implement for Linux
             }

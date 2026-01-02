@@ -281,6 +281,7 @@ namespace glimmer
         {
             WidgetContextData::ActivePopUpRegion = ImRect{};
             WidgetContextData::RightClickContext.pos = ImVec2{};
+            WidgetContextData::PopupContext = nullptr;
         }
     }
 
@@ -1064,6 +1065,18 @@ namespace glimmer
 
     static void InitContextStyles()
     {
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            WidgetContextData::radioButtonStyles[idx].clear(true);
+            WidgetContextData::sliderStyles[idx].clear(true);
+            WidgetContextData::rangeSliderStyles[idx].clear(true);
+            WidgetContextData::spinnerStyles[idx].clear(true);
+            WidgetContextData::dropdownStyles[idx].clear(true);
+            WidgetContextData::toggleButtonStyles[idx].clear(true);
+            WidgetContextData::tabBarStyles[idx].clear(true);
+            WidgetContextData::navDrawerStyles[idx].clear(true);
+        }
+
         if (StyleDescriptor::GlobalThemeProvider != nullptr)
         {
             GlobalWidgetTheme theme;
@@ -1072,12 +1085,12 @@ namespace glimmer
 
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
-                auto& style = WidgetContextData::StyleStack[idx].push();
-
+                WidgetContextData::StyleStack[idx].push();
                 WidgetContextData::radioButtonStyles[idx].push() = theme.radio;
                 WidgetContextData::sliderStyles[idx].push() = theme.slider;
                 WidgetContextData::rangeSliderStyles[idx].push() = theme.rangeSlider;
                 WidgetContextData::spinnerStyles[idx].push() = theme.spinner;
+                WidgetContextData::dropdownStyles[idx].push() = theme.dropdown;
                 WidgetContextData::toggleButtonStyles[idx].push() = theme.toggle;
                 WidgetContextData::tabBarStyles[idx].push() = theme.tabbar;
                 WidgetContextData::navDrawerStyles[idx].push() = theme.navdrawer;
@@ -1090,6 +1103,7 @@ namespace glimmer
                 auto& style = WidgetContextData::StyleStack[idx].push();
 
                 WidgetContextData::radioButtonStyles[idx].push();
+                WidgetContextData::dropdownStyles[idx].push();
                 auto& slider = WidgetContextData::sliderStyles[idx].push();
                 auto& rangeslider = WidgetContextData::rangeSliderStyles[idx].push();
                 auto& spinner = WidgetContextData::spinnerStyles[idx].push();
@@ -1148,16 +1162,19 @@ namespace glimmer
         {
             auto wtype = (id >> WidgetTypeBits);
             auto index = id & WidgetIndexMask;
+            auto& children = CurrentContext->nestedContexts[wtype];
 
-            if ((int)CurrentContext->nestedContexts[wtype].size() <= index)
+            if ((int)children.size() <= index)
             {
                 auto& ctx = WidgetContexts.emplace_back();
                 ctx.parentContext = CurrentContext;
                 ctx.InsideFrame = CurrentContext->InsideFrame;
-
-                auto& children = CurrentContext->nestedContexts[wtype];
-                if (children.empty()) children.resize(WT_TotalNestedContexts, nullptr);
-                children[index] = &ctx;
+                
+                auto count = Config.GetTotalWidgetCount ?
+                    Config.GetTotalWidgetCount((WidgetType)wtype) : 
+                    WidgetContextData::GetExpectedWidgetCount((WidgetType)wtype);
+                if (children.size() <= index) children.reserve(children.size() + count);
+                children.emplace_back(&ctx);
 
                 auto& layout = ctx.adhocLayout.push();
                 layout.nextpos = CurrentContext->adhocLayout.top().nextpos;
@@ -1217,6 +1234,7 @@ namespace glimmer
 
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
+    WidgetContextData* WidgetContextData::PopupContext = nullptr;
     Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions{ false };
     Vector<ContextMenuItemParams, int16_t, 16> WidgetContextData::ContextMenuOptionParams{ false };
     int32_t WidgetContextData::PopupTarget = -1;
@@ -1229,6 +1247,7 @@ namespace glimmer
     DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];
     DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::rangeSliderStyles[WSI_Total];
     DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::spinnerStyles[WSI_Total];
+    DynamicStack<DropDownStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::dropdownStyles[WSI_Total];
     DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::tabBarStyles[WSI_Total];
     DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::navDrawerStyles[WSI_Total];
 }

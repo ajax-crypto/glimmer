@@ -194,10 +194,10 @@ namespace glimmer
     {
         enum FileDialogTarget
         {
-			OneFile = 1, 
+            OneFile = 1, 
             OneDirectory = 2, 
             MultipleFiles = 4,
-			MultipleDirectories = 8
+            MultipleDirectories = 8
         };
 
         struct DialogProperties
@@ -245,7 +245,7 @@ namespace glimmer
         MouseCursor cursor;
         float bgcolor[4];
         bool softwareCursor = false;
-		bool modalDialog = false;
+        bool modalDialog = false;
     };
 
     IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
