@@ -3080,7 +3080,7 @@ namespace glimmer
             // If mouse gets dragged, select the region of text
             if (state.state & WS_Pressed)
             {
-                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
+                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)) && state.isSelectable)
                 {
                     auto posx = mousepos.x - content.Min.x;
                     if (input.selectionStart == -1.f) input.selectionStart = posx;
@@ -3133,7 +3133,7 @@ namespace glimmer
             }
             else
             {
-                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)))
+                if (!state.text.empty() && mousepos.y < (content.Max.y - (1.5f * 5.f)) && state.isSelectable)
                 {
                     auto posx = mousepos.x - content.Min.x;
 
@@ -3218,14 +3218,15 @@ namespace glimmer
 
                             if (io.modifiers & ShiftKeyMod)
                             {
-                                if (state.selection.second == -1)
-                                {
-                                    input.selectionStart = input.pixelpos[input.caretpos];
-                                    state.selection.first = input.caretpos;
-                                    state.selection.second = input.caretpos;
-                                }
-                                else
-                                    state.selection.second = std::max(state.selection.second - 1, 0);
+                                if (state.isSelectable)
+                                    if (state.selection.second == -1)
+                                    {
+                                        input.selectionStart = input.pixelpos[input.caretpos];
+                                        state.selection.first = input.caretpos;
+                                        state.selection.second = input.caretpos;
+                                    }
+                                    else
+                                        state.selection.second = std::max(state.selection.second - 1, 0);
 
                                 input.caretpos = std::max(input.caretpos - 1, 0);
                                 input.caretVisible = false;
@@ -3244,14 +3245,15 @@ namespace glimmer
 
                             if (io.modifiers & ShiftKeyMod)
                             {
-                                if (state.selection.second == -1)
-                                {
-                                    input.selectionStart = input.pixelpos[input.caretpos];
-                                    state.selection.first = input.caretpos;
-                                    state.selection.second = input.caretpos;
-                                }
-                                else
-                                    state.selection.second = std::min(state.selection.second + 1, (int)state.text.size() - 1);
+                                if (state.isSelectable)
+                                    if (state.selection.second == -1)
+                                    {
+                                        input.selectionStart = input.pixelpos[input.caretpos];
+                                        state.selection.first = input.caretpos;
+                                        state.selection.second = input.caretpos;
+                                    }
+                                    else
+                                        state.selection.second = std::min(state.selection.second + 1, (int)state.text.size() - 1);
 
                                 input.caretpos = std::min(input.caretpos + 1, (int)state.text.size());
                                 input.caretVisible = false;
@@ -3556,10 +3558,19 @@ namespace glimmer
         { 
             content.Max.x -= suffix.GetWidth();
             renderer.SetClipRect(content.Min, content.Max);
+            static char buffer[256];
+
+            if (state.isMasked)
+            {
+                memset(buffer, 0, 256);
+                for (auto i = 0; i < 255; i += (int)state.maskchar.size())
+                    memcpy(buffer + i, state.maskchar.data(), state.maskchar.size());
+            }
 
             if (state.selection.second != -1)
             {
-                std::string_view text{ state.text.data(), state.text.size() };
+                std::string_view text{ state.isMasked ? buffer : state.text.data(), 
+                    state.isMasked ? std::min((std::size_t)255, state.text.size()) : state.text.size() };
                 auto selection = state.selection;
                 selection = { std::min(state.selection.first, state.selection.second),
                     std::max(state.selection.first, state.selection.second) };
@@ -3590,7 +3601,8 @@ namespace glimmer
             else
             {
                 ImVec2 startpos{ content.Min.x - input.scroll.state.pos.x, content.Min.y };
-                std::string_view text{ state.text.data(), state.text.size() };
+                std::string_view text{ state.isMasked ? buffer : state.text.data(),
+                    state.isMasked ? std::min((std::size_t)255, state.text.size()) : state.text.size() };
                 renderer.DrawText(text, startpos, style.fgcolor);
             }
 

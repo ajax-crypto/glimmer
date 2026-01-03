@@ -377,9 +377,12 @@ namespace glimmer
         std::pair<int, int> selection{ -1, -1 };
         std::string_view prefix, suffix;
         int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
+		std::string_view maskchar = "•";
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
         SymbolIcon suffixIcon = SymbolIcon::None;
+        bool isMasked = false;
+		bool isSelectable = true;
     };
 
     enum WidgetStateIndex : int32_t
