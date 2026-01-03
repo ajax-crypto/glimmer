@@ -17,6 +17,10 @@ namespace glimmer
     // corresponding styles, merged (with the current stack as well), and then applied.
     static std::unordered_map<std::string_view, StyleDescriptor[WSI_Total]> StyleSheet;
 
+#ifndef GLIMMER_DISABLE_CSS_CACHING
+    static std::unordered_map<std::string_view, StyleDescriptor> ParsedStyleSheets;
+#endif
+
 //#pragma optimize( "", on )
 
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
@@ -1650,41 +1654,54 @@ namespace glimmer
     {
         if (css.empty()) return *this;
 
-        auto sidx = 0;
-        int prop = 0;
-        CommonWidgetStyleDescriptor desc{};
-
-        while (sidx < (int)css.size())
+#ifndef GLIMMER_DISABLE_CSS_CACHING
+		auto it = ParsedStyleSheets.find(css);
+        if (it == ParsedStyleSheets.end())
         {
-            sidx = SkipSpace(css, sidx);
-            auto stbegin = sidx;
-            while ((sidx < (int)css.size()) && (css[sidx] != ':') &&
-                !std::isspace(css[sidx])) sidx++;
-            auto stylePropName = css.substr(stbegin, sidx - stbegin);
+#endif
+            auto sidx = 0;
+            int prop = 0;
+            CommonWidgetStyleDescriptor desc{};
 
-            sidx = SkipSpace(css, sidx);
-            if (css[sidx] == ':') sidx++;
-            sidx = SkipSpace(css, sidx);
-
-            auto stylePropVal = GetQuotedString(css.data(), sidx, (int)css.size());
-            if (!stylePropVal.has_value() || stylePropVal.value().empty())
+            while (sidx < (int)css.size())
             {
-                stbegin = sidx;
-                while ((sidx < (int)css.size()) && css[sidx] != ';') sidx++;
-                stylePropVal = css.substr(stbegin, sidx - stbegin);
+                sidx = SkipSpace(css, sidx);
+                auto stbegin = sidx;
+                while ((sidx < (int)css.size()) && (css[sidx] != ':') &&
+                    !std::isspace(css[sidx])) sidx++;
+                auto stylePropName = css.substr(stbegin, sidx - stbegin);
 
-                if ((sidx < (int)css.size()) && css[sidx] == ';') sidx++;
+                sidx = SkipSpace(css, sidx);
+                if (css[sidx] == ':') sidx++;
+                sidx = SkipSpace(css, sidx);
+
+                auto stylePropVal = GetQuotedString(css.data(), sidx, (int)css.size());
+                if (!stylePropVal.has_value() || stylePropVal.value().empty())
+                {
+                    stbegin = sidx;
+                    while ((sidx < (int)css.size()) && css[sidx] != ';') sidx++;
+                    stylePropVal = css.substr(stbegin, sidx - stbegin);
+
+                    if ((sidx < (int)css.size()) && css[sidx] == ';') sidx++;
+                }
+
+                if (stylePropVal.has_value())
+                    prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value(), Config);
             }
 
-            if (stylePropVal.has_value())
-                prop |= PopulateSegmentStyle(*this, desc, stylePropName, stylePropVal.value(), Config);
+            if ((prop & StyleFontFamily) || (prop & StyleFontSize) || (prop & StyleFontWeight))
+                font.font = nullptr;
+
+            AddFontPtr(font);
+            specified |= prop;
+
+#ifndef GLIMMER_DISABLE_CSS_CACHING
+            ParsedStyleSheets.emplace(css, *this);
         }
-
-        if ((prop & StyleFontFamily) || (prop & StyleFontSize) || (prop & StyleFontWeight))
-            font.font = nullptr;
-
-        AddFontPtr(font);
-        specified |= prop;
+        else
+			*this = it->second;
+#endif
+        
         return *this;
     }
 

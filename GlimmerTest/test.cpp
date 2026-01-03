@@ -303,6 +303,7 @@ void TestWindow(glimmer::UIConfig& config)
 
         EndSplitRegion();
         PopStyle(5);
+        //CacheLayout();
         return true;
     }, data);
 }

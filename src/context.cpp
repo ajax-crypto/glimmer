@@ -245,17 +245,21 @@ namespace glimmer
             context.InsideFrame = false;
             context.adhocLayout.clear(true);
 
-            for (auto idx = 0; idx < WT_TotalTypes; ++idx)
+            if (!WidgetContextData::CacheItemGeometry)
             {
-                context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-                context.itemSizes[idx].reset(ImVec2{});
+                for (auto idx = 0; idx < WT_TotalTypes; ++idx)
+                {
+                    context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
+                    context.itemSizes[idx].reset(ImVec2{});
+                }
+
+                context.regions.clear(true);
             }
             
             context.ResetLayoutData();
             context.maxids[WT_SplitterRegion] = 0;
             context.maxids[WT_Layout] = 0;
             context.maxids[WT_Charts] = 0;
-            context.regions.clear(true);
             context.lastLayoutIdx = -1;
 
             for (auto& layout : context.layouts)
@@ -1232,6 +1236,7 @@ namespace glimmer
 
     NestedContextSource InvalidSource{};
 
+    bool WidgetContextData::CacheItemGeometry = false;
     ImRect WidgetContextData::ActivePopUpRegion;
     UIElementDescriptor WidgetContextData::RightClickContext;
     WidgetContextData* WidgetContextData::PopupContext = nullptr;

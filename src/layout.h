@@ -32,4 +32,7 @@ namespace glimmer
     void PushSizing(float width, float height, bool relativew = false, bool relativeh = false);
     void PopSizing(int depth = -1);
     WidgetDrawResult EndLayout(int depth = 1);
+
+    void CacheLayout();
+    void InvalidateLayout();
 }

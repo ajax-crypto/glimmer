@@ -5305,7 +5305,7 @@ namespace glimmer
         auto& context = GetContext();
         auto& accordion = context.accordions.top();
         auto& state = context.AccordionState(accordion.id);
-        auto isExpanded = expanded.has_value() ? expanded : state.opened == accordion.totalRegions;
+        auto isExpanded = expanded.has_value() ? expanded.value() : state.opened == accordion.totalRegions;
         const auto style = context.GetStyle(state.hstates[accordion.totalRegions]);
         if (isExpanded) state.opened = accordion.totalRegions;
 
@@ -7243,6 +7243,8 @@ namespace glimmer
             state.states[state.current] = WS_Default;
             state.isdragged[state.current] = false;
         }
+
+        if (state.isdragged[state.current]) InvalidateLayout();
 
         state.current++;
         assert(state.current < GLIMMER_MAX_SPLITTER_REGIONS);

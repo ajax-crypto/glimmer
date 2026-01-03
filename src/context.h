@@ -917,6 +917,7 @@ namespace glimmer
         static Vector<ContextMenuItemDescriptor, int16_t, 16> ContextMenuOptions;
         static Vector<ContextMenuItemParams, int16_t, 16> ContextMenuOptionParams;
         static int32_t CurrentWidgetId;
+        static bool CacheItemGeometry;
 
         int32_t GetNextCount(WidgetType type);
 

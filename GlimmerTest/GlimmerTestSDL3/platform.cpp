@@ -1,6 +1,7 @@
 #include "platform.h"
 #include "context.h"
 #include "renderer.h"
+#include "layout.h"
 
 #include <cstring>
 #include <list>
@@ -198,8 +199,10 @@ namespace glimmer
                     ImGui_ImplSDL3_ProcessEvent(&event);
                     if (event.type == SDL_EVENT_QUIT)
                         done = true;
-                    if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
+                    else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
                         done = true;
+                    else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED)
+                        InvalidateLayout();
                 }
 
                 if (done) break;
