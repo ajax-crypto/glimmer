@@ -233,7 +233,7 @@ namespace glimmer
         }
     }
 
-    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id)
+    WidgetConfigData& CreateWidgetConfig(WidgetType type, int16_t id)
     {
         auto& context = GetContext();
         int32_t wid = id;
@@ -262,10 +262,10 @@ namespace glimmer
         return state;
     }
 
-    WidgetConfigData& GetWidgetConfig(int32_t id)
+    WidgetConfigData& CreateWidgetConfig(int32_t id)
     {
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        return GetWidgetConfig(wtype, (int16_t)(id & WidgetIndexMask));
+        return CreateWidgetConfig(wtype, (int16_t)(id & WidgetIndexMask));
     }
 
 #pragma endregion
@@ -433,7 +433,7 @@ namespace glimmer
     void SetTooltip(int32_t id, std::string_view tooltip)
     {
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        auto& state = GetWidgetConfig(id).state;
+        auto& state = CreateWidgetConfig(id).state;
 
         switch (wtype)
         {
@@ -1444,7 +1444,7 @@ namespace glimmer
     static ImVec2 ButtonBounds(int32_t id, ImVec2 pos, LayoutItemDescriptor& item, const StyleDescriptor& style,
         IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors, float width)
     {
-        const auto& config = GetWidgetConfig(id).state.button;
+        const auto& config = CreateWidgetConfig(id).state.button;
         auto textsz = GetTextSize(config.type, config.text, style.font, width, renderer);
         return DetermineBounds(textsz, config.prefix, config.suffix, pos, item, style, renderer, geometry, neighbors);
     }
@@ -1540,14 +1540,14 @@ namespace glimmer
     WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Label).first;
-        GetWidgetConfig(wid).state.label.text = content;
+        CreateWidgetConfig(wid).state.label.text = content;
         return Widget(wid, WT_Label, geometry, neighbors);
     }
 
     WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Label).first;
-        auto& config = GetWidgetConfig(wid).state.label;
+        auto& config = CreateWidgetConfig(wid).state.label;
         config.text = content; config.tooltip = tooltip;
         return Widget(wid, WT_Label, geometry, neighbors);
     }
@@ -1560,7 +1560,7 @@ namespace glimmer
     WidgetDrawResult Button(std::string_view id, std::string_view content, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Button).first;
-        GetWidgetConfig(wid).state.button.text = content;
+        CreateWidgetConfig(wid).state.button.text = content;
         return Widget(wid, WT_Button, geometry, neighbors);
     }
 
@@ -1993,7 +1993,7 @@ namespace glimmer
     WidgetDrawResult ToggleButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(state, WT_ToggleButton).first;
-        auto& config = GetWidgetConfig(id).state.toggle;
+        auto& config = CreateWidgetConfig(id).state.toggle;
         config.checked = *state; config.out = state;
         return Widget(id, WT_ToggleButton, geometry, neighbors);
     }
@@ -2001,7 +2001,7 @@ namespace glimmer
     WidgetDrawResult ToggleButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_ToggleButton).first;
-        auto& config = GetWidgetConfig(wid).state.toggle;
+        auto& config = CreateWidgetConfig(wid).state.toggle;
         config.checked = *state; config.out = state;
         return Widget(wid, WT_ToggleButton, geometry, neighbors);
     }
@@ -2084,7 +2084,7 @@ namespace glimmer
     WidgetDrawResult RadioButton(bool* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(state, WT_RadioButton).first;
-        auto& config = GetWidgetConfig(id).state.radio;
+        auto& config = CreateWidgetConfig(id).state.radio;
         config.checked = *state; config.out = state;
         return Widget(id, WT_RadioButton, geometry, neighbors);
     }
@@ -2092,7 +2092,7 @@ namespace glimmer
     WidgetDrawResult RadioButton(std::string_view id, bool* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_RadioButton).first;
-        auto& config = GetWidgetConfig(wid).state.radio;
+        auto& config = CreateWidgetConfig(wid).state.radio;
         config.checked = *state; config.out = state;
         return Widget(wid, WT_RadioButton, geometry, neighbors);
     }
@@ -2192,7 +2192,7 @@ namespace glimmer
     WidgetDrawResult Checkbox(CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(state, WT_Checkbox).first;
-        auto& config = GetWidgetConfig(id).state.checkbox;
+        auto& config = CreateWidgetConfig(id).state.checkbox;
         config.check = *state; config.out = state;
         return Widget(id, WT_Checkbox, geometry, neighbors);
     }
@@ -2200,7 +2200,7 @@ namespace glimmer
     WidgetDrawResult Checkbox(std::string_view id, CheckState* state, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Checkbox).first;
-        auto& config = GetWidgetConfig(wid).state.checkbox;
+        auto& config = CreateWidgetConfig(wid).state.checkbox;
         config.check = *state; config.out = state;
         return Widget(wid, WT_Checkbox, geometry, neighbors);
     }
@@ -2462,7 +2462,7 @@ namespace glimmer
     WidgetDrawResult Spinner(int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
+        auto& config = CreateWidgetConfig(id).state.spinner;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
         config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
         return Widget(id, WT_Spinner, geometry, neighbors);
@@ -2471,7 +2471,7 @@ namespace glimmer
     WidgetDrawResult Spinner(std::string_view id, int32_t* value, int32_t step, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
+        auto& config = CreateWidgetConfig(wid).state.spinner;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
         config.isInteger = true; config.delta = (float)step; config.min = (float)range.first; config.max = (float)range.second;
         return Widget(wid, WT_Spinner, geometry, neighbors);
@@ -2480,7 +2480,7 @@ namespace glimmer
     WidgetDrawResult Spinner(float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
+        auto& config = CreateWidgetConfig(id).state.spinner;
         config.data = *value; config.out = value; config.outType = OutPtrType::f32;
         config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
         return Widget(id, WT_Spinner, geometry, neighbors);
@@ -2489,7 +2489,7 @@ namespace glimmer
     WidgetDrawResult Spinner(std::string_view id, float* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
+        auto& config = CreateWidgetConfig(wid).state.spinner;
         config.data = *value; config.out = value; config.outType = OutPtrType::f32;
         config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Spinner, geometry, neighbors);
@@ -2498,7 +2498,7 @@ namespace glimmer
     WidgetDrawResult Spinner(double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Spinner).first;
-        auto& config = GetWidgetConfig(id).state.spinner;
+        auto& config = CreateWidgetConfig(id).state.spinner;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
         config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
         return Widget(id, WT_Spinner, geometry, neighbors);
@@ -2507,7 +2507,7 @@ namespace glimmer
     WidgetDrawResult Spinner(std::string_view id, double* value, float step, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Spinner).first;
-        auto& config = GetWidgetConfig(wid).state.spinner;
+        auto& config = CreateWidgetConfig(wid).state.spinner;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
         config.isInteger = false; config.delta = step; config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Spinner, geometry, neighbors);
@@ -2637,7 +2637,7 @@ namespace glimmer
     WidgetDrawResult Slider(int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
+        auto& config = CreateWidgetConfig(id).state.slider;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
         config.min = range.first; config.max = range.second;
         return Widget(id, WT_Slider, geometry, neighbors);
@@ -2646,7 +2646,7 @@ namespace glimmer
     WidgetDrawResult Slider(std::string_view id, int32_t* value, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
+        auto& config = CreateWidgetConfig(wid).state.slider;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::i32;
         config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Slider, geometry, neighbors);
@@ -2655,7 +2655,7 @@ namespace glimmer
     WidgetDrawResult Slider(float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
+        auto& config = CreateWidgetConfig(id).state.slider;
         config.data = *value; config.out = value; config.outType = OutPtrType::f32;
         config.min = range.first; config.max = range.second;
         return Widget(id, WT_Slider, geometry, neighbors);
@@ -2664,7 +2664,7 @@ namespace glimmer
     WidgetDrawResult Slider(std::string_view id, float* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
+        auto& config = CreateWidgetConfig(wid).state.slider;
         config.data = *value; config.out = value; config.outType = OutPtrType::f32;
         config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Slider, geometry, neighbors);
@@ -2673,7 +2673,7 @@ namespace glimmer
     WidgetDrawResult Slider(double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(value, WT_Slider).first;
-        auto& config = GetWidgetConfig(id).state.slider;
+        auto& config = CreateWidgetConfig(id).state.slider;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
         config.min = range.first; config.max = range.second;
         return Widget(id, WT_Slider, geometry, neighbors);
@@ -2682,7 +2682,7 @@ namespace glimmer
     WidgetDrawResult Slider(std::string_view id, double* value, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Slider).first;
-        auto& config = GetWidgetConfig(wid).state.slider;
+        auto& config = CreateWidgetConfig(wid).state.slider;
         config.data = (float)*value; config.out = value; config.outType = OutPtrType::f64;
         config.min = range.first; config.max = range.second;
         return Widget(wid, WT_Slider, geometry, neighbors);
@@ -2875,7 +2875,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        auto& config = CreateWidgetConfig(id).state.rangeSlider;
         config.min_val = (float)*min_val;
         config.max_val = (float)*max_val;
         config.out_min = min_val;
@@ -2889,7 +2889,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(std::string_view id, int32_t* min_val, int32_t* max_val, std::pair<int32_t, int32_t> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        auto& config = CreateWidgetConfig(wid).state.rangeSlider;
         config.min_val = (float)*min_val;
         config.max_val = (float)*max_val;
         config.out_min = min_val;
@@ -2903,7 +2903,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        auto& config = CreateWidgetConfig(id).state.rangeSlider;
         config.min_val = *min_val;
         config.max_val = *max_val;
         config.out_min = min_val;
@@ -2917,7 +2917,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(std::string_view id, float* min_val, float* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        auto& config = CreateWidgetConfig(wid).state.rangeSlider;
         config.min_val = *min_val;
         config.max_val = *max_val;
         config.out_min = min_val;
@@ -2931,7 +2931,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto id = GetIdFromOutPtr(min_val, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(id).state.rangeSlider;
+        auto& config = CreateWidgetConfig(id).state.rangeSlider;
         config.min_val = (float)*min_val;
         config.max_val = (float)*max_val;
         config.out_min = min_val;
@@ -2945,7 +2945,7 @@ namespace glimmer
     WidgetDrawResult RangeSlider(std::string_view id, double* min_val, double* max_val, std::pair<float, float> range, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_RangeSlider).first;
-        auto& config = GetWidgetConfig(wid).state.rangeSlider;
+        auto& config = CreateWidgetConfig(wid).state.rangeSlider;
         config.min_val = (float)*min_val;
         config.max_val = (float)*max_val;
         config.out_min = min_val;
@@ -3645,7 +3645,7 @@ namespace glimmer
     WidgetDrawResult TextInput(char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto [id, initial] = GetIdFromOutPtr(out, WT_TextInput);
-        auto& config = GetWidgetConfig(id).state.input;
+        auto& config = CreateWidgetConfig(id).state.input;
         config.placeholder = placeholder; config.out = Span<char>{ out, size };
         config.text.reserve(size); config.suffixIcon = SymbolIcon::Cross;
         config.text.assign(out, out + strlen);
@@ -3655,7 +3655,7 @@ namespace glimmer
     WidgetDrawResult TextInput(std::string_view id, char* out, int size, int strlen, std::string_view placeholder, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto [wid, initial] = GetIdFromString(id, WT_TextInput);
-        auto& config = GetWidgetConfig(wid).state.input;
+        auto& config = CreateWidgetConfig(wid).state.input;
         config.placeholder = placeholder; config.out = Span<char>{ out, size };
         config.text.reserve(size); config.suffixIcon = SymbolIcon::Cross;
         config.text.assign(out, out + strlen);
@@ -3679,10 +3679,10 @@ namespace glimmer
         {
             if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_Checkbox);
             if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            /*GetWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
+            /*CreateWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
                 CheckState::Checked : CheckState::Unchecked;*/
-            GetWidgetConfig(optstate.prefix);
-            auto& label = GetWidgetConfig(optstate.label).state.label;
+            CreateWidgetConfig(optstate.prefix);
+            auto& label = CreateWidgetConfig(optstate.label).state.label;
             label.text = option.text; label.type = option.textType;
             hasWidgets = true;
             break;
@@ -3691,9 +3691,9 @@ namespace glimmer
         {
             if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_ToggleButton);
             if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            //GetWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
-            GetWidgetConfig(optstate.prefix);
-            auto& label = GetWidgetConfig(optstate.label).state.label;
+            //CreateWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
+            CreateWidgetConfig(optstate.prefix);
+            auto& label = CreateWidgetConfig(optstate.label).state.label;
             label.text = option.text; label.type = option.textType;
             hasWidgets = true;
             break;
@@ -3702,7 +3702,7 @@ namespace glimmer
         {
             optstate.prefix = -1;
             if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            auto& label = GetWidgetConfig(optstate.label).state.label;
+            auto& label = CreateWidgetConfig(optstate.label).state.label;
             label.text = option.text; label.type = option.textType;
             break;
         }
@@ -3961,7 +3961,7 @@ namespace glimmer
                     /* if (state.inputId == -1)
                      {
                          state.inputId = GetNextId(WT_TextInput);
-                         auto& text = GetWidgetConfig(state.inputId).state.input.text;
+                         auto& text = CreateWidgetConfig(state.inputId).state.input.text;
                          for (auto ch : state.text) text.push_back(ch);
                      }
 
@@ -4002,7 +4002,7 @@ namespace glimmer
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        const auto& config = GetWidgetConfig(id).state.dropdown;
+        const auto& config = CreateWidgetConfig(id).state.dropdown;
         const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
@@ -4071,7 +4071,7 @@ namespace glimmer
 
         auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
         fptr[id] = options;
-        auto& config = GetWidgetConfig(id).state.dropdown;
+        auto& config = CreateWidgetConfig(id).state.dropdown;
         config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
         config.text = text;
         return Widget(id, WT_DropDown, geometry, neighbors);
@@ -4083,7 +4083,7 @@ namespace glimmer
 
         auto wid = GetIdFromString(id, WT_DropDown).first;
         fptr[wid] = options;
-        auto& config = GetWidgetConfig(wid).state.dropdown;
+        auto& config = CreateWidgetConfig(wid).state.dropdown;
         config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
         config.text = text;
         return Widget(wid, WT_DropDown, geometry, neighbors);
@@ -4094,7 +4094,7 @@ namespace glimmer
         static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
 
         auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
-        auto& config = GetWidgetConfig(id).state.dropdown;
+        auto& config = CreateWidgetConfig(id).state.dropdown;
 
         if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back().text = option;
         config.options = OptionsMap.at(id);
@@ -4107,7 +4107,7 @@ namespace glimmer
         static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
 
         auto wid = GetIdFromString(id, WT_DropDown).first;
-        auto& config = GetWidgetConfig(wid).state.dropdown;
+        auto& config = CreateWidgetConfig(wid).state.dropdown;
 
         if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back().text = option;
         config.options = OptionsMap.at(wid);
@@ -4118,7 +4118,7 @@ namespace glimmer
     bool BeginDropDown(int32_t id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
-        auto& config = GetWidgetConfig(id).state.dropdown;
+        auto& config = CreateWidgetConfig(id).state.dropdown;
         config.text = text;
         config.textType = type;
         context.currentDropDown.geometry = geometry;
@@ -4132,7 +4132,7 @@ namespace glimmer
     {
         auto& context = GetContext();
         auto iid = GetIdFromString(id, WT_DropDown).first;
-        auto& config = GetWidgetConfig(iid).state.dropdown;
+        auto& config = CreateWidgetConfig(iid).state.dropdown;
         config.text = text;
         config.textType = type;
         context.currentDropDown.geometry = geometry;
@@ -4163,7 +4163,7 @@ namespace glimmer
     WidgetDrawResult EndDropDown(int32_t* selection)
     {
         auto& context = GetContext();
-        auto& state = GetWidgetConfig(context.currentDropDown.id).state.dropdown;
+        auto& state = CreateWidgetConfig(context.currentDropDown.id).state.dropdown;
         state.out = selection;
         return Widget(context.currentDropDown.id, WT_DropDown, context.currentDropDown.geometry, 
             context.currentDropDown.neighbors);
@@ -4579,7 +4579,7 @@ namespace glimmer
                 }
             }
 
-            const auto& config = GetWidgetConfig(id).state.tab;
+            const auto& config = CreateWidgetConfig(id).state.tab;
             ShowTooltip(state.createHoverDuration, state.create, config.newTabTooltip, io);
 
             if (state.moveBackward.Contains(io.mousepos))
@@ -6232,6 +6232,130 @@ namespace glimmer
         return result;
     }
 
+    static void ExtractColumnProps(ColumnProps& colprops, const ItemGridPersistentState& state, ItemGridBuilder& builder,
+        const ItemGridConfig& config, const ItemGridItemProps& props, const std::pair<float, float>& bounds, int16_t col,
+        int32_t row, int16_t depth, bool selected = false, bool highlighted = false);
+    static ImVec2 RenderItemGridFilterCell(WidgetContextData& context, ItemGridBuilder& builder,
+        ItemGridPersistentState& state, const ItemGridConfig& config, float maxh, int16_t col,
+        WidgetDrawResult& result);
+
+    WidgetDrawResult AddFilterRow()
+    {
+        WidgetDrawResult result;
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& builder = context.itemGrids.top();
+        auto& state = context.GridState(builder.id);
+        const auto& config = context.GetState(builder.id).state.grid;
+        auto& ctx = GetContext();
+        auto startx = builder.headers[builder.levels - 1][0].content.Min.x;
+		builder.phase = ItemGridConstructPhase::FilterRow;
+
+        auto coloffset = 1;
+        auto maxh = 0.f;
+        builder.currentY = builder.nextpos.y;
+        builder.nextpos.y += config.cellpadding.y;
+
+        if (builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].empty())
+            builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
+
+        // Add filter row for each column
+        for (auto vcol = 0; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+        {
+            auto col = state.colmap[builder.levels - 1].vtol[vcol];
+
+            if (col < builder.movingCols.first || col > builder.movingCols.second)
+            {
+                auto& colprops = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
+
+                builder.currCol = col;
+                builder.currRow = -1;
+                ctx.ToggleDeferedRendering(true, false);
+                ctx.deferEvents = true;
+                std::pair<float, float> bounds;
+
+				ItemGridItemProps props{};
+                auto& header = builder.headers[builder.levels - 1][col];
+                bounds.first = header.extent.Min.x + ((col == 0) ? builder.cellIndent : 0.f) + config.cellpadding.x;
+                bounds.second = header.extent.Max.x - config.cellpadding.x;
+                ExtractColumnProps(colprops, state, builder, config, props, bounds, col, -1, builder.depth);
+
+                builder.nextpos.x = bounds.first;
+                ctx.adhocLayout.top().nextpos = builder.nextpos;
+                ctx.RecordDeferRange(header.range, true);
+
+                auto id = [&] {
+                    if (header.id.empty())
+                    {
+                        static char buffer[256] = { 0 };
+                        auto sz = std::snprintf(buffer, 255, "[itemgrid-%d][filter-%d]", builder.id, col);
+                        return GetIdFromString(std::string_view{ buffer, (std::size_t)sz }, WT_TextInput).first;
+                    }
+                    else return GetIdFromString(header.id, WT_TextInput).first;
+                }();
+				auto& filterstate = CreateWidgetConfig(id).state.input;
+                filterstate.out = Span<char>{ colprops.filterout.data(), (int)colprops.filterout.size() };
+				auto style = ctx.GetStyle(props.disabled ? WS_Disabled : filterstate.state, id);
+				ImRect cellextent{ { bounds.first, builder.nextpos.y },
+                    { bounds.second, builder.nextpos.y + style.font.size } };
+                cellextent.Min += { config.gridwidth, config.gridwidth };
+				cellextent.Max -= { config.gridwidth, config.gridwidth };
+                LayoutItemDescriptor fitem;
+                DetermineBounds({ style.dimension.x, style.font.size }, {}, filterstate.suffix, cellextent.Min, 
+                    fitem, style, *Config.renderer, ToBottomRight, {});
+                TextInputImpl(id, filterstate, style, cellextent, cellextent, fitem.prefix, fitem.suffix,
+                    ctx.GetRenderer(), Config.platform->CurrentIO());
+
+                ctx.RecordDeferRange(header.range, false);
+
+                builder.maxCellExtent = cellextent.Max;
+                colprops.content = colprops.extent = cellextent;
+                colprops.offset = cellextent.GetSize();
+
+                auto height = builder.maxCellExtent.y - builder.nextpos.y;
+                maxh = std::max(maxh, height);
+                coloffset = props.colspan;
+                builder.maxCellExtent = ImVec2{};
+            }
+        }
+
+        ctx.ToggleDeferedRendering(false, false);
+        ctx.deferEvents = false;
+
+        // Draw frozen columns first
+        ImVec2 frozensz;
+        auto vcol = 0;
+        for (; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+        {
+            auto col = state.colmap[builder.levels - 1].vtol[vcol];
+            if (col < config.frozencols)
+            {
+                auto sz = RenderItemGridFilterCell(ctx, builder, state, config, maxh, col, result);
+                frozensz = ImMax(frozensz, sz);
+            }
+            else break;
+        }
+
+        // Draw non-frozen columns after setting appropriate clipping rect for frozen part
+        Config.renderer->SetClipRect(builder.origin + ImVec2{ frozensz.x, 0.f }, builder.origin + builder.size);
+        for (; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+        {
+            auto col = state.colmap[builder.levels - 1].vtol[vcol];
+            if (col < builder.movingCols.first || col > builder.movingCols.second)
+                RenderItemGridFilterCell(ctx, builder, state, config, maxh, col, result);
+        }
+
+        Config.renderer->ResetClipRect();
+        builder.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
+        builder.nextpos.x = startx;
+        ctx.adhocLayout.top().nextpos = builder.nextpos;
+        ctx.ClearDeferredData();
+
+        builder.totalsz.y = builder.nextpos.y;
+        builder.totalsz.x = builder.headers[builder.currlevel].back().extent.Max.x + config.gridwidth;
+
+        return result;
+    }
+
     void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method)
     {
         auto& context = *WidgetContextData::CurrentItemGridContext;
@@ -6552,8 +6676,7 @@ namespace glimmer
 
         auto hdiff = HAlignCellContent(builder, config, col, required.x, available.x);
         auto vdiff = VAlignCellContent(builder, config, col, required.y, available.y);
-        auto hshift = 0.f; /* (config.frozencols == col + 1) ? -state.altscroll.state.pos.x :
-            (config.frozencols <= col) ? -state.scroll.state.pos.x : 0.f;*/
+        auto hshift = 0.f;
         const auto& range = header.range;
 
         ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
@@ -6626,6 +6749,55 @@ namespace glimmer
         return cellGeometry.extent.GetSize();
     }
 
+    static ImVec2 RenderItemGridFilterCell(WidgetContextData& context, ItemGridBuilder& builder,
+        ItemGridPersistentState& state, const ItemGridConfig& config, float maxh, int16_t col,
+        WidgetDrawResult& result)
+    {
+        const auto& header = builder.headers[builder.levels - 1][col];
+        auto& cellGeometry = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
+        ImVec2 available{ header.content.GetWidth(), maxh }, required = cellGeometry.offset;
+        if (col == 0) available.x -= builder.cellIndent;
+        cellGeometry.extent.Max.y = cellGeometry.extent.Min.y + maxh + (2.f * config.cellpadding.y);
+        cellGeometry.content.Max.y = cellGeometry.content.Min.y + maxh;
+
+        auto hdiff = HAlignCellContent(builder, config, col, required.x, available.x);
+        auto vdiff = VAlignCellContent(builder, config, col, required.y, available.y);
+        auto hshift = 0.f;
+        const auto& range = header.range;
+
+        ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
+        Config.renderer->DrawRect(cellGeometry.extent.Min - gridline + shift, cellGeometry.extent.Max + gridline + shift,
+            config.gridcolor, false, config.gridwidth);
+
+        if (IsColorVisible(cellGeometry.bgcolor))
+            Config.renderer->DrawRect(cellGeometry.extent.Min + shift, cellGeometry.extent.Max + shift,
+                cellGeometry.bgcolor, true);
+
+        Config.renderer->SetClipRect(cellGeometry.content.Min + shift, cellGeometry.content.Max + shift);
+        context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff + hshift, vdiff },
+            range.primitives.first, range.primitives.second);
+        Config.renderer->ResetClipRect();
+
+        auto res = context.HandleEvents(ImVec2{ hdiff + hshift, vdiff }, range.events.first, range.events.second);
+        if (res.event != WidgetEvent::None) result = res;
+        else
+        {
+            auto io = Config.platform->CurrentIO();
+            if (ImRect{ builder.origin, builder.origin + builder.size }.Contains(io.mousepos))
+            {
+                cellGeometry.extent.TranslateX(hshift);
+
+                if (HandleContextMenu(builder.id, cellGeometry.content, io))
+                {
+                    WidgetContextData::RightClickContext.row = -1;
+                    WidgetContextData::RightClickContext.col = col;
+                }
+            }
+        }
+
+        return cellGeometry.extent.GetSize();
+    }
+
     static void RecordRowYRange(ItemGridBuilder& builder, const ItemGridConfig& config, float height, int32_t totalRows, int32_t row)
     {
         if (config.selection & IG_SelectRow)
@@ -6658,15 +6830,14 @@ namespace glimmer
         auto row = 0;
         auto startx = builder.headers[builder.levels - 1][0].content.Min.x;
         builder.phase = ItemGridConstructPhase::Rows;
-        builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
+        if (builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].empty())
+            builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
+        
         if ((config.selection & IG_SelectRow) && (builder.perDepthRowCount.empty()) && config.isTree)
         {
             builder.perDepthRowCount.resize(32, false);
             builder.perDepthRowCount[builder.depth] = 0;
         }
-
-        // Create filter for filterable row
-
 
         while (totalRows > 0)
         {
@@ -6846,8 +7017,10 @@ namespace glimmer
         if (builder.method == ItemGridPopulateMethod::ByRows) AddRowData(ctx, builder, state, config, result, totalRows);
         else
         {
+            if (builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].empty())
+                builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
+
             builder.phase = ItemGridConstructPhase::Columns;
-            builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
             builder.nextpos.x += config.cellpadding.x + config.gridwidth;
             Config.renderer->SetClipRect({ builder.origin.x, builder.origin.y + builder.headerHeight },
                 builder.origin + builder.size);
@@ -7088,7 +7261,7 @@ namespace glimmer
         static auto fptr = cell;
 
         auto wid = GetIdFromString(id, WT_ItemGrid).first;
-        auto& grid = GetWidgetConfig(wid).state.grid;
+        auto& grid = CreateWidgetConfig(wid).state.grid;
         grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
 
         BeginItemGrid(wid, geometry, neighbors);

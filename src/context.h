@@ -164,8 +164,8 @@ namespace glimmer
 
         struct BiDirMap
         {
-            Vector<int16_t, int16_t> ltov{ 128, -1 };
-            Vector<int16_t, int16_t> vtol{ 128, -1 };
+            Vector<int16_t, int16_t> ltov{ 128, -1 }; // Logical columns to visual columns
+			Vector<int16_t, int16_t> vtol{ 128, -1 }; // Visual columns to logical columns
         };
 
         Vector<HeaderCellResizeState, int16_t, 32> cols[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
@@ -264,7 +264,7 @@ namespace glimmer
 
     enum class ItemGridConstructPhase
     {
-        None, Headers, HeaderCells, HeaderPlacement, Rows, Columns
+        None, Headers, HeaderCells, HeaderPlacement, FilterRow, Rows, Columns
     };
 
     struct WidgetContextData;

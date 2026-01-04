@@ -10,8 +10,8 @@ namespace glimmer
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 
-    WidgetConfigData& GetWidgetConfig(WidgetType type, int16_t id);
-    WidgetConfigData& GetWidgetConfig(int32_t id);
+    WidgetConfigData& CreateWidgetConfig(WidgetType type, int16_t id);
+    WidgetConfigData& CreateWidgetConfig(int32_t id);
     void SetTooltip(int32_t id, std::string_view tooltip);
     void SetPrevTooltip(std::string_view tooltip);
     void SetNextTooltip(std::string_view tooltip);
@@ -156,6 +156,7 @@ namespace glimmer
     void CategorizeColumns();
     void AddColumnCategory(const ItemGridConfig::ColumnConfig& config, int16_t from, int16_t to);
     WidgetDrawResult EndItemGridHeader();
+    WidgetDrawResult AddFilterRow();
     void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows);
     WidgetDrawResult EndItemGrid();
 

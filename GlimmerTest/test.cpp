@@ -35,7 +35,7 @@ void TestWindow(glimmer::UIConfig& config)
     int32_t widgets[TOTAL];
 
     auto lid = glimmer::GetNextId(glimmer::WT_Label);
-    auto& st = glimmer::GetWidgetConfig(lid).state.label;
+    auto& st = glimmer::CreateWidgetConfig(lid).state.label;
     st.text = svg;
     st.type = glimmer::TextType::SVG;
 
@@ -43,64 +43,64 @@ void TestWindow(glimmer::UIConfig& config)
     widgets[UPPER] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::GetWidgetConfig(lid).state.label.text = "Left";
+    glimmer::CreateWidgetConfig(lid).state.label.text = "Left";
     widgets[LEFT] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::GetWidgetConfig(lid).state.label.text = "Left2";
+    glimmer::CreateWidgetConfig(lid).state.label.text = "Left2";
     widgets[LEFT2] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Splitter);
-    glimmer::GetWidgetConfig(lid);
+    glimmer::CreateWidgetConfig(lid);
     widgets[SPLIT1] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Splitter);
-    glimmer::GetWidgetConfig(lid);
+    glimmer::CreateWidgetConfig(lid);
     widgets[SPLIT2] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::GetWidgetConfig(lid).state.label.text = "Content";
+    glimmer::CreateWidgetConfig(lid).state.label.text = "Content";
     widgets[CONTENT] = lid;
 
     lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::GetWidgetConfig(lid).state.label.text = "Bottom";
+    glimmer::CreateWidgetConfig(lid).state.label.text = "Bottom";
     widgets[BOTTOM] = lid;
 
     auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
-    glimmer::GetWidgetConfig(tid).state.toggle.checked = false;
+    glimmer::CreateWidgetConfig(tid).state.toggle.checked = false;
     widgets[TOGGLE] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_RadioButton);
-    glimmer::GetWidgetConfig(tid).state.radio.checked = false;
+    glimmer::CreateWidgetConfig(tid).state.radio.checked = false;
     widgets[RADIO] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_Checkbox);
-    glimmer::GetWidgetConfig(tid);
+    glimmer::CreateWidgetConfig(tid);
     widgets[CHECKBOX] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_Spinner);
-    glimmer::GetWidgetConfig(tid).state.spinner.max = 100;
+    glimmer::CreateWidgetConfig(tid).state.spinner.max = 100;
     widgets[SPINNER] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_TextInput);
-    auto& model = glimmer::GetWidgetConfig(tid).state.input;
+    auto& model = glimmer::CreateWidgetConfig(tid).state.input;
     model.placeholder = "This will be removed!";
     model.text.reserve(256);
     widgets[INPUT] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_Slider);
-    auto& slider = glimmer::GetWidgetConfig(tid).state.slider;
+    auto& slider = glimmer::CreateWidgetConfig(tid).state.slider;
     slider.max = 100.f;
     widgets[SLIDER] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_TabBar);
-    auto& tab = glimmer::GetWidgetConfig(tid).state.tab;
+    auto& tab = glimmer::CreateWidgetConfig(tid).state.tab;
     tab.sizing = glimmer::TabBarItemSizing::ResizeToFit;
     tab.expandTabs = true;
     widgets[TAB] = tid;
 
     tid = glimmer::GetNextId(glimmer::WT_DropDown);
-    /*auto& dd = glimmer::GetWidgetConfig(tid).state.dropdown;
+    /*auto& dd = glimmer::CreateWidgetConfig(tid).state.dropdown;
     dd.text = "DropDown";
     std::vector<std::pair<glimmer::WidgetType, std::string_view>> options;
     options.emplace_back(glimmer::WT_Checkbox, "Option 1");
@@ -111,20 +111,20 @@ void TestWindow(glimmer::UIConfig& config)
     widgets[ACCORDION] = glimmer::GetNextId(glimmer::WT_Accordion);
 
     auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
-    auto& grid = glimmer::GetWidgetConfig(gridid).state.grid;
+    auto& grid = glimmer::CreateWidgetConfig(gridid).state.grid;
     grid.cellwidget = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) {
         static char buffer[128];
         auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
 
         auto id = glimmer::GetNextId(glimmer::WT_Label);
-        glimmer::GetWidgetConfig(id).state.label.text = std::string_view{ buffer, (size_t)sz };
+        glimmer::CreateWidgetConfig(id).state.label.text = std::string_view{ buffer, (size_t)sz };
         auto result = glimmer::Label(id);
 
         if (col == 1000)
         {
             glimmer::Move(glimmer::FD_Horizontal);
             id = glimmer::GetNextId(glimmer::WT_Checkbox);
-            glimmer::GetWidgetConfig(id);
+            glimmer::CreateWidgetConfig(id);
             result = glimmer::Checkbox(id);
         }
 
@@ -140,17 +140,17 @@ void TestWindow(glimmer::UIConfig& config)
         auto id = glimmer::GetNextId(glimmer::WT_Label);
         if (level == 0)
         {
-            if (col == 0) glimmer::GetWidgetConfig(id).state.label.text = "Header#1";
-            else glimmer::GetWidgetConfig(id).state.label.text = "Header#2";
+            if (col == 0) glimmer::CreateWidgetConfig(id).state.label.text = "Header#1";
+            else glimmer::CreateWidgetConfig(id).state.label.text = "Header#2";
         }
         else
         {
             switch (col)
             {
-            case 0: glimmer::GetWidgetConfig(id).state.label.text = "Header#1.1"; break;
-            case 1: glimmer::GetWidgetConfig(id).state.label.text = "Header#1.2"; break;
-            case 2: glimmer::GetWidgetConfig(id).state.label.text = "Header#2.1"; break;
-            case 3: glimmer::GetWidgetConfig(id).state.label.text = "Header#2.2"; break;
+            case 0: glimmer::CreateWidgetConfig(id).state.label.text = "Header#1.1"; break;
+            case 1: glimmer::CreateWidgetConfig(id).state.label.text = "Header#1.2"; break;
+            case 2: glimmer::CreateWidgetConfig(id).state.label.text = "Header#2.1"; break;
+            case 3: glimmer::CreateWidgetConfig(id).state.label.text = "Header#2.2"; break;
             }
         }
         glimmer::Label(id);
@@ -287,17 +287,18 @@ void TestWindow(glimmer::UIConfig& config)
 
             BeginItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
             BeginItemGridHeader(2);
-            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
-            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h1", .props = COL_Resizable | COL_Sortable, .parent = 0, });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h2", .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h3", .props = COL_Resizable | COL_Sortable, .parent = 0 });
+            AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h4", .props = COL_Resizable | COL_Sortable, .parent = 0 });
 
             CategorizeColumns();
             AddColumnCategory(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 0, 1);
             AddColumnCategory(ItemGridConfig::ColumnConfig{ .props = COL_Resizable | COL_Sortable }, 2, 3);
 
             EndItemGridHeader();
-            PopulateItemGrid(100, ItemGridPopulateMethod::ByColumns);
+            AddFilterRow();
+            PopulateItemGrid(100, ItemGridPopulateMethod::ByRows);
             EndItemGrid();
         }
 

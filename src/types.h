@@ -575,10 +575,12 @@ namespace glimmer
             ImRect extent;
             ImRect content;
             std::string_view name;
+            std::string_view id;
             int32_t props = COL_Resizable;
             int16_t width = 0;
             int16_t parent = -1;
             TextType textType = TextType::PlainText;
+            std::span<char> filterout;
         };
 
         struct Configuration
