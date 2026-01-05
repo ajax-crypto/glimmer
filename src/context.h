@@ -287,6 +287,7 @@ namespace glimmer
         ImVec2 totalsz;
         float cellIndent = 0.f;
         float headerHeight = 0.f;
+        float filterRowHeight = 0.f;
         float maxColWidth = 0.f;
         float btnsz = 0.f;
         int32_t rowcount = 0;

@@ -492,7 +492,7 @@ namespace glimmer
     {
         auto hasHScroll = false;
         float gripExtent = 0.f;
-        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
+        const float opacityRatio = (256.f / Config.scrollbar.animationDuration);
         auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
         const float vwidth = xbounds.has_value() ? xbounds.value().second - xbounds.value().first : viewport.GetWidth();
@@ -536,26 +536,38 @@ namespace glimmer
                 auto sizeOfGrip = (vwidth / width) * pathsz;
                 auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.x;
                 ImRect grip{ { left.Max.x + spos, viewport.Max.y - btnsz },
-                    { left.Max.x + spos + std::max(sizeOfGrip, Config.minScrollGripSz), viewport.Max.y } };
+                    { left.Max.x + spos + std::max(sizeOfGrip, Config.scrollbar.minGripSz), viewport.Max.y } };
 
                 if (showButtons)
                 {
-                    renderer.DrawRect(left.Min, left.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.x), true);
+                    auto leftst = left.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                        WSI_Pressed : left.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                    renderer.DrawRect(left.Min, left.Max, SetAlpha(Config.scrollbar.colors[leftst].buttonbg, (int)scroll.opacity.x), true);
                     renderer.DrawTriangle({ left.Min.x + (btnsz * 0.25f), left.Min.y + (0.5f * btnsz) },
                         { left.Max.x - (0.125f * btnsz), left.Min.y + (0.125f * btnsz) },
-                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.x), true);
+                        { left.Max.x - (0.125f * btnsz), left.Max.y - (0.125f * btnsz) }, 
+                        SetAlpha(Config.scrollbar.colors[leftst].buttonfg, (int)scroll.opacity.x), true);
 
-                    renderer.DrawRect(right.Min, right.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.x), true);
+                    auto rightst = right.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                        WSI_Pressed : right.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                    renderer.DrawRect(right.Min, right.Max, SetAlpha(Config.scrollbar.colors[rightst].buttonbg, (int)scroll.opacity.x), true);
                     renderer.DrawTriangle({ right.Min.x + (btnsz * 0.25f), right.Min.y + (0.125f * btnsz) },
                         { right.Max.x - (0.125f * btnsz), right.Min.y + (0.5f * btnsz) },
-                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.x), true);
+                        { right.Min.x + (btnsz * 0.25f), right.Max.y - (0.125f * btnsz) }, 
+                        SetAlpha(Config.scrollbar.colors[rightst].buttonfg, (int)scroll.opacity.x), true);
                 }
 
                 if (region.type & ST_Always_H)
-                    renderer.DrawRect(path.Min, path.Max, ToRGBA(250, 250, 250), true);
+                {
+                    auto state = path.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                        WSI_Pressed : path.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                    renderer.DrawRect(path.Min, path.Max, Config.scrollbar.colors[state].track, true);
+                }
 
                 if (grip.Contains(mousepos))
                 {
+                    Config.platform->SetMouseCursor(MouseCursor::Grab);
+
                     if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnHGrip)
@@ -572,10 +584,10 @@ namespace glimmer
                             scroll.lastMousePos.x = mousepos.x;
                         }
 
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Pressed].grip, true);
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.x), true);
+                        renderer.DrawRect(grip.Min, grip.Max, SetAlpha(Config.scrollbar.colors[WSI_Hovered].grip, (int)scroll.opacity.x), true);
                 }
                 else
                 {
@@ -589,21 +601,31 @@ namespace glimmer
                             scroll.lastMousePos.x = mousepos.x;
                         }
 
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Pressed].grip, true);
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.x), true);
+                        renderer.DrawRect(grip.Min, grip.Max, SetAlpha(Config.scrollbar.colors[WSI_Default].grip, (int)scroll.opacity.x), true);
 
-                    if (left.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
-                    else if (right.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
+                    if (left.Contains(mousepos))
+                    {
+                        Config.platform->SetMouseCursor(MouseCursor::Grab);
+
+                        if (io.isLeftMouseDown())
+                            scroll.pos.x = ImClamp(scroll.pos.x - 1.f, 0.f, posrange);
+                    }
+                    else if (right.Contains(mousepos))
+                    {
+                        Config.platform->SetMouseCursor(MouseCursor::Grab);
+
+                        if (io.isLeftMouseDown())
+                            scroll.pos.x = ImClamp(scroll.pos.x + 1.f, 0.f, posrange);
+                    }
                 }
 
                 if (!io.isLeftMouseDown() && scroll.mouseDownOnHGrip)
                 {
                     scroll.mouseDownOnHGrip = false;
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                    renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Default].grip, true);
                 }
             }
 
@@ -617,7 +639,7 @@ namespace glimmer
     static bool HandleVScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, 
         bool hasHScroll = false, std::optional<std::pair<float, float>> ybounds = std::nullopt)
     {
-        const float opacityRatio = (256.f / Config.scrollAppearAnimationDuration);
+        const float opacityRatio = (256.f / Config.scrollbar.animationDuration);
         auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
         const auto vheight = ybounds.has_value() ? ybounds.value().second - ybounds.value().first : viewport.GetHeight();
@@ -663,23 +685,35 @@ namespace glimmer
                 auto sizeOfGrip = (vheight / height) * pathsz;
                 auto spos = ((pathsz - sizeOfGrip) / posrange) * scroll.pos.y;
                 ImRect grip{ { viewport.Max.x - btnsz, top.Max.y + spos },
-                    { viewport.Max.x, std::max(sizeOfGrip, Config.minScrollGripSz) + top.Max.y + spos } };
+                    { viewport.Max.x, std::max(sizeOfGrip, Config.scrollbar.minGripSz) + top.Max.y + spos } };
 
-                renderer.DrawRect(top.Min, top.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.y), true);
+                auto topst = top.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                    WSI_Pressed : top.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                renderer.DrawRect(top.Min, top.Max, SetAlpha(Config.scrollbar.colors[topst].buttonbg, (int)scroll.opacity.y), true);
                 renderer.DrawTriangle({ top.Min.x + (btnsz * 0.5f), top.Min.y + (0.25f * btnsz) },
                     { top.Max.x - (0.125f * btnsz), top.Min.y + (0.75f * btnsz) },
-                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.y), true);
+                    { top.Min.x + (0.125f * btnsz), top.Min.y + (0.75f * btnsz) }, 
+                    SetAlpha(Config.scrollbar.colors[topst].buttonfg, (int)scroll.opacity.y), true);
 
-                renderer.DrawRect(bottom.Min, bottom.Max, ToRGBA(175, 175, 175, (int)scroll.opacity.y), true);
+                auto bottomst = bottom.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                    WSI_Pressed : bottom.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                renderer.DrawRect(bottom.Min, bottom.Max, SetAlpha(Config.scrollbar.colors[bottomst].buttonbg, (int)scroll.opacity.y), true);
                 renderer.DrawTriangle({ bottom.Min.x + (btnsz * 0.125f), bottom.Min.y + (0.25f * btnsz) },
                     { bottom.Max.x - (0.125f * btnsz), bottom.Min.y + (0.25f * btnsz) },
-                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, ToRGBA(100, 100, 100, (int)scroll.opacity.y), true);
+                    { bottom.Max.x - (0.5f * btnsz), bottom.Max.y - (0.25f * btnsz) }, 
+                    SetAlpha(Config.scrollbar.colors[bottomst].buttonfg, (int)scroll.opacity.y), true);
 
                 if (region.type & ST_Always_V)
-                    renderer.DrawRect(path.Min, path.Max, ToRGBA(250, 250, 250), true);
+                {
+                    auto state = path.Contains(io.mousepos) && io.isLeftMouseDown() ?
+                        WSI_Pressed : path.Contains(io.mousepos) ? WSI_Hovered : WSI_Default;
+                    renderer.DrawRect(path.Min, path.Max, Config.scrollbar.colors[state].track, true);
+                }
 
                 if (grip.Contains(mousepos))
                 {
+                    Config.platform->SetMouseCursor(MouseCursor::Grab);
+
                     if (io.isLeftMouseDown())
                     {
                         if (!scroll.mouseDownOnVGrip)
@@ -698,10 +732,10 @@ namespace glimmer
                                 scroll.pos.y, step, posrange, pathsz - sizeOfGrip);
                         }
 
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Pressed].grip, true);
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.y), true);
+                        renderer.DrawRect(grip.Min, grip.Max, SetAlpha(Config.scrollbar.colors[WSI_Hovered].grip, (int)scroll.opacity.y), true);
                 }
                 else
                 {
@@ -717,21 +751,31 @@ namespace glimmer
                                 scroll.pos.y, step, posrange, pathsz - sizeOfGrip);
                         }
 
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                        renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Pressed].grip, true);
                     }
                     else
-                        renderer.DrawRect(grip.Min, grip.Max, ToRGBA(150, 150, 150, (int)scroll.opacity.y), true);
+                        renderer.DrawRect(grip.Min, grip.Max, SetAlpha(Config.scrollbar.colors[WSI_Default].grip, (int)scroll.opacity.y), true);
 
-                    if (top.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
-                    else if (bottom.Contains(mousepos) && io.isLeftMouseDown())
-                        scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange); 
+                    if (top.Contains(mousepos))
+                    {
+                        Config.platform->SetMouseCursor(MouseCursor::Grab);
+
+                        if (io.isLeftMouseDown())
+                            scroll.pos.y = ImClamp(scroll.pos.y - 1.f, 0.f, posrange);
+                    }
+                    else if (bottom.Contains(mousepos))
+                    {
+                        Config.platform->SetMouseCursor(MouseCursor::Grab);
+
+                        if (io.isLeftMouseDown())
+                            scroll.pos.y = ImClamp(scroll.pos.y + 1.f, 0.f, posrange);
+                    }
                 }
 
                 if (!io.isLeftMouseDown() && scroll.mouseDownOnVGrip)
                 {
                     scroll.mouseDownOnVGrip = false;
-                    renderer.DrawRect(grip.Min, grip.Max, ToRGBA(100, 100, 100), true);
+                    renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Default].grip, true);
                 }
             }
 
@@ -813,14 +857,14 @@ namespace glimmer
             // Convert absolute max coordinates to size
             hasHScroll = true;
             region.content.x += -region.viewport.Min.x + region.state.pos.x;
-            HandleHScroll(region, renderer, io, Config.scrollbarSz);
+            HandleHScroll(region, renderer, io, Config.scrollbar.width);
         }
 
         if (region.viewport.Max.y < height && (region.type & ST_Vertical))
         {
             // Convert absolute max coordinates to size
             region.content.y += -region.viewport.Min.y + region.state.pos.y;
-            HandleVScroll(region, renderer, io, Config.scrollbarSz, hasHScroll);
+            HandleVScroll(region, renderer, io, Config.scrollbar.width, hasHScroll);
         }
 
         context.containerStack.pop(1, true);
@@ -832,8 +876,8 @@ namespace glimmer
         }
 
         auto res = region.viewport;
-        if (region.type & ST_Always_H) res.Max.y -= Config.scrollbarSz;
-        if (region.type & ST_Always_V) res.Max.x -= Config.scrollbarSz;
+        if (region.type & ST_Always_H) res.Max.y -= Config.scrollbar.width;
+        if (region.type & ST_Always_V) res.Max.x -= Config.scrollbar.width;
         return res;
     }
 
@@ -5462,9 +5506,9 @@ namespace glimmer
                 DrawBorderRect(border.Min, border.Max, accordion.border, accordion.bgcolor, *Config.renderer);
 
                 auto hscroll = (state.scrolls[idx].type & ST_Horizontal) ? HandleHScroll(state.scrolls[accordion.totalRegions], 
-                    renderer, io, Config.scrollbarSz) : false;
+                    renderer, io, Config.scrollbar.width) : false;
                 if (state.scrolls[idx].type & ST_Vertical) HandleVScroll(state.scrolls[accordion.totalRegions], 
-                    renderer, io, Config.scrollbarSz, hscroll);
+                    renderer, io, Config.scrollbar.width, hscroll);
                 offset.y += scsz.y;
             }
 
@@ -5712,12 +5756,12 @@ namespace glimmer
                 state.altscroll.content.x = (config.frozencols - 1) > 0 ? builder.headers[builder.currlevel][config.frozencols - 2].extent.Max.x +
                     builder.maxColWidth : builder.maxColWidth;
                 state.altscroll.type = config.scrollprops;
-                HandleHScroll(state.altscroll, renderer, io, Config.scrollbarSz);
+                HandleHScroll(state.altscroll, renderer, io, Config.scrollbar.width);
             }
             else if (config.scrollprops & ST_Always_H)
             {
                 auto max = builder.origin + builder.size;
-                renderer.DrawRect(ImVec2{ builder.origin.x, max.y - Config.scrollbarSz }, ImVec2{ lastFrozenHeader.extent.Max.x, max.y },
+                renderer.DrawRect(ImVec2{ builder.origin.x, max.y - Config.scrollbar.width }, ImVec2{ lastFrozenHeader.extent.Max.x, max.y },
                     ToRGBA(255, 255, 255), true);
             }
         }
@@ -5726,14 +5770,14 @@ namespace glimmer
         // state.scroll.content is adjusted in y-axis because y-absolute coordinates are
         // shifted by scroll amount in y-direction, whereas x-coordiantes are not
         auto sz = builder.totalsz - builder.origin - ImVec2{ 0.f, builder.headerHeight };
-        if (config.scrollprops & ST_Always_H) viewport.Max.y += Config.scrollbarSz;
-        if (config.scrollprops & ST_Always_V) viewport.Max.x += Config.scrollbarSz;
+        if (config.scrollprops & ST_Always_H) viewport.Max.y += Config.scrollbar.width;
+        if (config.scrollprops & ST_Always_V) viewport.Max.x += Config.scrollbar.width;
         state.scroll.viewport = viewport;
         state.scroll.content = sz + ImVec2{ 0.f,  state.scroll.state.pos.y };
         state.scroll.type = config.scrollprops;
 
-        auto hasHScroll = HandleHScroll(state.scroll, renderer, io, Config.scrollbarSz);
-        HandleVScroll(state.scroll, renderer, io, Config.scrollbarSz, hasHScroll,
+        auto hasHScroll = HandleHScroll(state.scroll, renderer, io, Config.scrollbar.width);
+        HandleVScroll(state.scroll, renderer, io, Config.scrollbar.width, hasHScroll,
             std::make_pair(builder.origin.y, builder.origin.y + builder.size.y));
     }
 
@@ -5755,8 +5799,13 @@ namespace glimmer
                 }
                 else
                 {
-                    grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
-                    grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
+                    if (grid.maxCellExtent != ImVec2{})
+                    {
+                        grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
+                        grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
+                    }
+                    else
+						grid.maxCellExtent = layoutItem.margin.Max;
                 }
             }
         }
@@ -5777,9 +5826,11 @@ namespace glimmer
         builder.nextpos = builder.origin;
 
         LayoutItemDescriptor item;
+        item.wtype = WT_ItemGrid;
+        item.id = id;
         AddExtent(item, style, neighbors);
-        if (config.scrollprops & ST_Always_H) item.content.Max.y -= Config.scrollbarSz;
-        if (config.scrollprops & ST_Always_V) item.content.Max.x -= Config.scrollbarSz;
+        if (config.scrollprops & ST_Always_H) item.content.Max.y -= Config.scrollbar.width;
+        if (config.scrollprops & ST_Always_V) item.content.Max.x -= Config.scrollbar.width;
         builder.size = item.content.GetSize();
 
         context.CurrentItemGridContext = &context;
@@ -6218,9 +6269,10 @@ namespace glimmer
                     }
                 }
             }
-        }
 
-        if (config.frozencols > 0) renderer.ResetClipRect();
+            if (config.frozencols != -1) renderer.ResetClipRect();
+        }
+        
         builder.nextpos.y = ypos - state.scroll.state.pos.y;
         builder.nextpos.x = builder.origin.x;
         builder.startY = builder.nextpos.y;
@@ -6251,7 +6303,7 @@ namespace glimmer
 		builder.phase = ItemGridConstructPhase::FilterRow;
 
         auto coloffset = 1;
-        auto maxh = 0.f;
+        auto maxh = 0.f, starty = builder.nextpos.y;
         builder.currentY = builder.nextpos.y;
         builder.nextpos.y += config.cellpadding.y;
 
@@ -6295,8 +6347,8 @@ namespace glimmer
 				auto& filterstate = CreateWidgetConfig(id).state.input;
                 filterstate.out = Span<char>{ colprops.filterout.data(), (int)colprops.filterout.size() };
 				auto style = ctx.GetStyle(props.disabled ? WS_Disabled : filterstate.state, id);
-				ImRect cellextent{ { bounds.first, builder.nextpos.y },
-                    { bounds.second, builder.nextpos.y + style.font.size } };
+				ImRect cellextent{ { bounds.first, header.extent.Max.y + config.cellpadding.y + config.gridwidth },
+                    { bounds.second, header.extent.Max.y + style.font.size + config.cellpadding.y + config.gridwidth } };
                 cellextent.Min += { config.gridwidth, config.gridwidth };
 				cellextent.Max -= { config.gridwidth, config.gridwidth };
                 LayoutItemDescriptor fitem;
@@ -6311,7 +6363,7 @@ namespace glimmer
                 colprops.content = colprops.extent = cellextent;
                 colprops.offset = cellextent.GetSize();
 
-                auto height = builder.maxCellExtent.y - builder.nextpos.y;
+                auto height = cellextent.GetHeight();
                 maxh = std::max(maxh, height);
                 coloffset = props.colspan;
                 builder.maxCellExtent = ImVec2{};
@@ -6352,6 +6404,7 @@ namespace glimmer
 
         builder.totalsz.y = builder.nextpos.y;
         builder.totalsz.x = builder.headers[builder.currlevel].back().extent.Max.x + config.gridwidth;
+        builder.filterRowHeight = builder.nextpos.y - starty;
 
         return result;
     }
@@ -6961,8 +7014,6 @@ namespace glimmer
         const auto totalw = extent.GetWidth() - (2.f * config.cellpadding.x);
         bounds.first = extent.Min.x + config.cellpadding.x + ((col == 0) ? builder.cellIndent : 0.f);
         bounds.second = extent.Max.x - config.cellpadding.x;
-        auto hshift = (config.frozencols == col + 1) ? -state.altscroll.state.pos.x :
-            (config.frozencols <= col) ? -state.scroll.state.pos.x : 0.f;
 
         for (auto row = 0; row < totalRows; ++row)
         {
@@ -7014,7 +7065,8 @@ namespace glimmer
         auto& ctx = GetContext();
         assert(config.cellwidget != nullptr || config.cellcontent != nullptr);
 
-        if (builder.method == ItemGridPopulateMethod::ByRows) AddRowData(ctx, builder, state, config, result, totalRows);
+        if (builder.method == ItemGridPopulateMethod::ByRows) 
+            AddRowData(ctx, builder, state, config, result, totalRows);
         else
         {
             if (builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].empty())
@@ -7147,7 +7199,8 @@ namespace glimmer
         auto& renderer = context.GetRenderer();
         auto io = Config.platform->CurrentIO();
 
-        ImRect viewport{ builder.origin + ImVec2{ 0.f, builder.headerHeight }, builder.origin + builder.size };
+        ImRect viewport{ builder.origin + ImVec2{ 0.f, builder.headerHeight + builder.filterRowHeight }, 
+            builder.origin + builder.size };
         renderer.SetClipRect(viewport.Min, viewport.Max);
         result = PopulateData(builder.rowcount);
         renderer.ResetClipRect();
@@ -7172,8 +7225,8 @@ namespace glimmer
         }
 
         auto sz = builder.origin + builder.size;
-        if (config.scrollprops & ST_Always_H) sz.y += Config.scrollbarSz;
-        if (config.scrollprops & ST_Always_V) sz.x += Config.scrollbarSz;
+        //if (config.scrollprops & ST_Always_H) sz.y += Config.scrollbar.width;
+        //if (config.scrollprops & ST_Always_V) sz.x += Config.scrollbar.width;
         context.AddItemGeometry(builder.id, { builder.origin, sz });
 
         builder.reset();

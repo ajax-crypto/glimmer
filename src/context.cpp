@@ -923,8 +923,8 @@ namespace glimmer
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x : region.viewport.GetWidth(),
                     (region.type & ST_Vertical) ? region.extent.y : region.viewport.GetHeight() };
-                if (region.type & ST_Always_H) sz.y -= Config.scrollbarSz;
-                if (region.type & ST_Always_V) sz.x -= Config.scrollbarSz;
+                if (region.type & ST_Always_H) sz.y -= Config.scrollbar.width;
+                if (region.type & ST_Always_V) sz.x -= Config.scrollbar.width;
                 return sz;
             }
             else if (wtype == WT_Accordion)
@@ -969,8 +969,8 @@ namespace glimmer
                 auto& region = states[type][index].state.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
                     (region.type & ST_Vertical) ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
-                if (region.type & ST_Always_H) sz.y -= Config.scrollbarSz;
-                if (region.type & ST_Always_V) sz.x -= Config.scrollbarSz;
+                if (region.type & ST_Always_H) sz.y -= Config.scrollbar.width;
+                if (region.type & ST_Always_V) sz.x -= Config.scrollbar.width;
                 return sz;
             }
             else if (wtype == WT_Accordion)
@@ -1086,6 +1086,7 @@ namespace glimmer
             GlobalWidgetTheme theme;
             StyleDescriptor::GlobalThemeProvider(&theme);
             theme.toggle.fontsz *= Config.fontScaling;
+            Config.scrollbar = theme.scrollbar;
 
             for (auto idx = 0; idx < WSI_Total; ++idx)
             {
@@ -1129,6 +1130,10 @@ namespace glimmer
                     tab.closebgcolor = tab.pinbgcolor = ToRGBA(150, 150, 150);
                     tab.pincolor = ToRGBA(0, 0, 0);
                     tab.closecolor = ToRGBA(255, 0, 0);
+                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonbg, 1.5f);
+                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonfg, 1.5f);
+                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Default].track, 1.5f);
+                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Default].grip, 1.5f);
                     [[fallthrough]];
                 case WSI_Checked:
                     toggle.trackColor = ToRGBA(200, 200, 200);
@@ -1136,6 +1141,12 @@ namespace glimmer
                     slider.trackColor = rangeslider.trackColor = ToRGBA(175, 175, 175);
                     slider.fillColor = rangeslider.fillColor = ToRGBA(100, 149, 237);
                     break;
+                case WSI_Pressed:
+                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonbg, 1.2f);
+                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonfg, 1.2f);
+                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Hovered].track, 1.5f);
+                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Hovered].grip, 1.2f);
+                    [[fallthrough]];
                 default:
                     toggle.trackColor = ToRGBA(152, 251, 152);
                     toggle.indicatorTextColor = ToRGBA(0, 100, 0);

@@ -261,6 +261,10 @@ namespace glimmer
         std::vector<DebugRect> debugrects;
         Vector<char, int32_t, 4096> prefetched; // All resource prefetched data is read into this
         ImDrawList* prevlist = nullptr;
+
+#ifdef _DEBUG
+        int clipDepth = 0;
+#endif
     };
 
     ImGuiRenderer::ImGuiRenderer()
@@ -303,11 +307,17 @@ namespace glimmer
     {
         Round(startpos); Round(endpos);
         ImGui::PushClipRect(startpos, endpos, intersect);
+#ifdef _DEBUG
+        ++clipDepth;
+#endif
     }
 
     void ImGuiRenderer::ResetClipRect()
     {
         ImGui::PopClipRect();
+#ifdef _DEBUG
+        --clipDepth;
+#endif
     }
 
     void ImGuiRenderer::DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness)

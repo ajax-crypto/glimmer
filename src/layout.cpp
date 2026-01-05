@@ -430,16 +430,16 @@ namespace glimmer
             auto type = context.GetState(layoutItem.id).state.scroll.type;
             if (type & ST_Always_H)
             {
-                layoutItem.border.Max.x -= Config.scrollbarSz;
-                layoutItem.padding.Max.x -= Config.scrollbarSz;
-                layoutItem.content.Max.x -= Config.scrollbarSz;
+                layoutItem.border.Max.x -= Config.scrollbar.width;
+                layoutItem.padding.Max.x -= Config.scrollbar.width;
+                layoutItem.content.Max.x -= Config.scrollbar.width;
             }
 
             if (type & ST_Always_V)
             {
-                layoutItem.border.Max.y -= Config.scrollbarSz;
-                layoutItem.padding.Max.y -= Config.scrollbarSz;
-                layoutItem.content.Max.y -= Config.scrollbarSz;
+                layoutItem.border.Max.y -= Config.scrollbar.width;
+                layoutItem.padding.Max.y -= Config.scrollbar.width;
+                layoutItem.content.Max.y -= Config.scrollbar.width;
             }
         }
     }

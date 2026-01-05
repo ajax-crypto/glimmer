@@ -74,6 +74,12 @@ namespace glimmer
         return ToRGBA(r, g, b, a);
     }
 
+    [[nodiscard]] inline constexpr uint32_t SetAlpha(uint32_t rgba, int a)
+    {
+        auto [r, g, b, _] = DecomposeColor(rgba);
+        return ToRGBA(r, g, b, a);
+	}
+
     enum Direction
     {
         DIR_Horizontal = 1,
@@ -146,6 +152,29 @@ namespace glimmer
     struct ICustomWidget;
     struct IPlatform;
 
+    enum WidgetStateIndex : int32_t
+    {
+        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
+        WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
+        WSI_Total
+    };
+
+    struct ScrollbarStyleDescriptor
+    {
+        float width = 15.f;
+        float animationDuration = 0.3f;
+        float minGripSz = 20.f;
+        float gripwidth = 15.f;
+		
+        struct Colors
+        {
+            uint32_t track = ToRGBA(240, 240, 240);
+            uint32_t grip = ToRGBA(200, 200, 200);
+            uint32_t buttonbg = ToRGBA(200, 200, 200);
+            uint32_t buttonfg = ToRGBA(150, 150, 150);
+		} colors[WSI_Total];
+    };
+
     struct UIConfig
     {
         uint32_t bgcolor = ToRGBA(255, 255, 255);
@@ -157,11 +186,8 @@ namespace glimmer
         float defaultFontSz = 16.f;
         float fontScaling = 2.f;
         float scaling = 1.f;
-        float scrollbarSz = 15.f;
-        float scrollAppearAnimationDuration = 0.3f;
         float splitterSize = 5.f;
         float sliderSize = 20.f;
-        float minScrollGripSz = 20.f;
         ImVec2 toggleButtonSz{ 100.f, 40.f };
         std::string_view tooltipFontFamily = GLIMMER_DEFAULT_FONTFAMILY;
         std::string_view pinTabsTooltip = "Click to pin tab";
@@ -179,6 +205,7 @@ namespace glimmer
             "scroll", "splitter", "invalid", "accordion", "slider", "rangeslider", "spinner",
             "text", "dropdown", "tab", "itemgrid", "chart", "icon"
         };
+        ScrollbarStyleDescriptor scrollbar;
         ICustomWidget* customWidget = nullptr;
         void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
         void* iconFont = nullptr;
@@ -383,13 +410,6 @@ namespace glimmer
         SymbolIcon suffixIcon = SymbolIcon::None;
         bool isMasked = false;
 		bool isSelectable = true;
-    };
-
-    enum WidgetStateIndex : int32_t
-    {
-        WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
-        WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
-        WSI_Total
     };
 
     struct DropDownState : public CommonWidgetData
@@ -600,7 +620,7 @@ namespace glimmer
         
         int16_t sortedcol = -1;
         int16_t coldrag = -1;
-        int16_t frozencols = 0;
+        int16_t frozencols = -1;
         int32_t highlights = 0;
         int32_t selection = 0;
         int32_t scrollprops = ST_Always_H | ST_Always_V;

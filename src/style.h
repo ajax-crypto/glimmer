@@ -324,6 +324,7 @@ namespace glimmer
         DropDownStyleDescriptor dropdown;
         TabBarStyleDescriptor tabbar;
         NavDrawerStyleDescriptor navdrawer;
+        ScrollbarStyleDescriptor scrollbar;
     };
 
     // TODO: Add other widget style descriptors here and populate in style.cpp
