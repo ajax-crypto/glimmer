@@ -114,7 +114,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_GLFW_PLATFORM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <FloatingPointModel>Fast</FloatingPointModel>
+      <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>

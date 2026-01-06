@@ -1520,7 +1520,7 @@ namespace glimmer
         const ImRect& content, IRenderer& renderer, const IODescriptor& io, int depth)
     {
         auto& context = GetContext();
-        assert((id & WidgetIndexMask) <= (int)context.states[WT_Label].size());
+        assert((id & WidgetIndexMask) <= (int)context.states[WT_Region].size());
 
         WidgetDrawResult result;
 

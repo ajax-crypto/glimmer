@@ -290,7 +290,7 @@ namespace glimmer
         std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
     };
 
-    IPlatform* GetPlatform(ImVec2 size)
+    IPlatform* InitPlatform(ImVec2 size)
     {
         static ImGuiGLFWPlatform platform;
         static bool initialized = false;
@@ -298,6 +298,7 @@ namespace glimmer
         if (!initialized)
         {
             initialized = true;
+            Config.renderer = CreateImGuiRenderer();
             RegisterKeyBindings();
             PushContext(-1);
         }

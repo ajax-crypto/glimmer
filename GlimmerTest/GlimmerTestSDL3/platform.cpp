@@ -132,6 +132,7 @@ namespace glimmer
                 printf("Warning [Unable to create GPU device], falling back to software rendering : %s\n", SDL_GetError());
                 fallback = SDL_CreateRenderer(window, "software");
                 SDL_SetRenderVSync(fallback, 1);
+                Config.renderer = CreateSoftwareRenderer();
 
                 if (fallback == nullptr)
                 {
@@ -148,6 +149,7 @@ namespace glimmer
                     return false;
                 }
 
+                Config.renderer = CreateImGuiRenderer();
                 SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
             }
 
@@ -513,7 +515,7 @@ namespace glimmer
         std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
     };
 
-    IPlatform* GetPlatform(ImVec2 size)
+    IPlatform* InitPlatform(ImVec2 size)
     {
         static ImGuiSDL3Platform platform;
         static bool initialized = false;

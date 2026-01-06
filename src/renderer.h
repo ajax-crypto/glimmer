@@ -86,4 +86,6 @@ namespace glimmer
 
     IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc);
     IRenderer* CreateImGuiRenderer();
+    IRenderer* CreateSoftwareRenderer();
+    IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions);
 }

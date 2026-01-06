@@ -210,6 +210,8 @@ namespace glimmer
         void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
         void* iconFont = nullptr;
         void* userData = nullptr;
+        char* dumpWidgetsAsJson = nullptr;
+		int totalDumpWidgetBufferSz = 0;
     };
 
     inline bool IsColorVisible(uint32_t color)

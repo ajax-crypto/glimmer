@@ -2,6 +2,13 @@
 #include "context.h"
 #include "renderer.h"
 
+#ifdef GLIMMER_TEST_PLATFORM
+#include <string>
+#include <deque>
+#include <thread>
+#include <mutex>
+#endif
+
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 #include "nfd-ext/src/include/nfd.h"
 #endif
@@ -64,6 +71,8 @@ namespace glimmer
         for (auto ks = 0; ks < (GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1); ++ks)
             keyStatus[ks] = ButtonStatus::Default;
     }
+
+#pragma region IPlatform default implementation
 
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 
@@ -319,4 +328,188 @@ namespace glimmer
     {
         return modalDialog;
     }
+
+#pragma endregion
+
+#pragma region TestPlatform implementation
+
+#ifdef GLIMMER_TEST_PLATFORM
+
+    struct TestPlatformData
+    {
+        std::string clipboard;
+        std::deque<TestPlatform::Event> eventQueue;
+        std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
+        WindowParams wparams;
+		std::mutex eventMutex;
+    };
+
+    TestPlatform::TestPlatform(ImVec2 size)
+    {
+        implData = new TestPlatformData{};
+		auto& d = *(TestPlatformData*)implData;
+		d.wparams.size = size;
+        DetermineInitialKeyStates(desc);
+	}
+
+    TestPlatform::~TestPlatform()
+    {
+		delete (TestPlatformData*)implData;
+    }
+
+    bool TestPlatform::CreateWindow(const WindowParams& params)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        d.wparams = params;
+        return true;
+    }
+
+    bool TestPlatform::PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        auto done = false;
+
+		while (!done)
+        {
+            if (d.eventQueue.empty())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            std::lock_guard<std::mutex> lock(d.eventMutex);
+            auto& ev = d.eventQueue.front();
+			auto width = d.wparams.size.x, height = d.wparams.size.y;
+
+            switch (ev.source)
+            {
+            case EventSource::Mouse:
+                desc.mousepos = ev.mouse.pos;
+
+				for (auto idx = 0; idx < (int)MouseButton::Total; ++idx)
+                {
+                    if (idx != (int)ev.mouse.button)
+                        desc.mouseButtonStatus[idx] = ButtonStatus::Default;
+                }
+
+                if (ev.mouse.button != MouseButton::Total)
+                    desc.mouseButtonStatus[(int)ev.mouse.button] = ev.mouse.status;
+
+                desc.mouseWheel = ev.mouse.wheelDelta;
+                break;
+            case EventSource::Keyboard:
+                desc.keyStatus[(int)ev.keyboard.key] = ev.keyboard.status;
+                if (ev.keyboard.status == ButtonStatus::Pressed)
+                {
+                    for (auto idx = 0; idx < GLIMMER_NKEY_ROLLOVER_MAX; ++idx)
+                    {
+                        if (desc.key[idx] == Key_Invalid)
+                        {
+                            desc.key[idx] = ev.keyboard.key;
+                            break;
+                        }
+                    }
+                }
+                break;
+            case EventSource::System:
+                if (ev.system.type == SystemEventType::Resize)
+                {
+					width = (float)ev.system.resize.width;
+					height = (float)ev.system.resize.height;
+                }
+                break;
+            }
+				
+            if (EnterFrame(width, height))
+            {
+                done = !runner(ImVec2{ (float)width, (float)height }, *this, data);
+
+                for (auto [data, handler] : d.handlers)
+                    done = !handler(data, desc) && done;
+            }
+
+            ExitFrame();
+            d.eventQueue.pop_front();
+        }
+    }
+
+    ImTextureID TestPlatform::UploadTexturesToGPU(ImVec2 size, unsigned char* pixels)
+    {
+        return -1;
+    }
+
+    void TestPlatform::SetClipboardText(std::string_view input)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        d.clipboard = input;
+    }
+
+    std::string_view TestPlatform::GetClipboardText()
+    {
+        auto& d = *(TestPlatformData*)implData;
+        return d.clipboard;
+    }
+
+    void TestPlatform::PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        d.handlers.emplace_back(data, callback);
+    }
+
+    // Add test event APIs
+
+    void TestPlatform::PushMouseEvent(ImVec2 pos, MouseButton button, ButtonStatus status, float wheelDelta = 0.f)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        Event ev{};
+        ev.source = EventSource::Mouse;
+        ev.mouse.pos = pos;
+        ev.mouse.button = button;
+        ev.mouse.status = status;
+        ev.mouse.wheelDelta = wheelDelta;
+
+		std::lock_guard<std::mutex> lock(d.eventMutex);
+        d.eventQueue.push_back(ev);
+	}
+
+    void TestPlatform::PushKeyboardEvent(Key key, ButtonStatus status, char character = 0)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        Event ev{};
+        ev.source = EventSource::Keyboard;
+        ev.keyboard.key = key;
+        ev.keyboard.status = status;
+        ev.keyboard.character = character;
+
+        std::lock_guard<std::mutex> lock(d.eventMutex);
+        d.eventQueue.push_back(ev);
+    }
+
+    void TestPlatform::PushWindowResizeEvent(int32_t width, int32_t height)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        Event ev{};
+        ev.source = EventSource::System;
+        ev.system.type = SystemEventType::Resize;
+        ev.system.resize.width = width;
+        ev.system.resize.height = height;
+
+        std::lock_guard<std::mutex> lock(d.eventMutex);
+        d.eventQueue.push_back(ev);
+	}
+
+    void TestPlatform::SetClipboardText(std::string_view text)
+    {
+        auto& d = *(TestPlatformData*)implData;
+        d.clipboard = text;
+	}
+
+    TestPlatform* InitTestPlatform(ImVec2 size)
+    {
+		return new TestPlatform{ size };
+    }
+
+#endif
+
+#pragma endregion
 }

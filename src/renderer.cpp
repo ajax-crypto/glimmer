@@ -25,6 +25,10 @@
 #include <libs/inc/stb_image/stb_image.h>
 #endif
 
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+#include <libs/inc/blend2d/blend2d.h>
+#endif
+
 #ifdef _WIN32
 #undef min
 #undef max
@@ -2424,6 +2428,527 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region Blend2D renderer
+
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+
+    struct Blend2DRenderer final : public IRenderer
+    {
+        BLContext ctx;
+        BLImage renderTarget;
+        BLFont* font = nullptr;
+
+        // Resource cache structures adapted for Blend2D (BLImage instead of ImTextureID)
+        struct ImageLookupKey
+        {
+            int32_t id = -1;
+            std::pair<int, int> prefetched;
+            std::string data;
+            ImVec2 size{};
+            ImRect uvrect{ {0.f, 0.f}, {1.f, 1.f} };
+            bool hasCommonPrefetch = false;
+        };
+
+        struct GifLookupKey
+        {
+            int32_t id = -1;
+            int32_t currframe = 0;
+            int32_t totalframe = 0;
+            long long lastTime = 0;
+            ImVec2 size;
+            int* delays = nullptr;
+            std::pair<int, int> prefetched;
+            std::vector<ImRect> uvmaps; // UV maps for frames within the strip
+            std::string data;
+            bool hasCommonPrefetch = false;
+        };
+
+        struct DebugRect
+        {
+            ImVec2 startpos;
+            ImVec2 endpos;
+            uint32_t color;
+            float thickness;
+        };
+
+        std::vector<std::pair<ImageLookupKey, BLImage>> bitmaps;
+        std::vector<std::pair<GifLookupKey, BLImage>> gifframes;
+        std::vector<DebugRect> debugrects;
+        Vector<char, int32_t, 4096> prefetched;
+
+        Blend2DRenderer()
+        { }
+
+        ~Blend2DRenderer()
+        {
+            ctx.end();
+        }
+
+        bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) override
+        {
+            int w = (int)ceilf(width);
+            int h = (int)ceilf(height);
+
+            // Resize internal buffer if necessary
+            if (renderTarget.width() != w || renderTarget.height() != h)
+            {
+                renderTarget.create(w, h, BL_FORMAT_PRGB32);
+            }
+
+            // Begin rendering context
+            ctx.begin(renderTarget);
+            ctx.set_comp_op(BL_COMP_OP_SRC_OVER);
+
+            // Clear background
+            auto [r, g, b, a] = DecomposeColor(bgcolor);
+            ctx.set_fill_style(BLRgba32(r, g, b, a));
+            ctx.fill_all();
+
+            return true;
+        }
+
+        void FinalizeFrame(int32_t cursor) override
+        {
+            for (const auto& rect : debugrects)
+            {
+                auto [r, g, b, a] = DecomposeColor(rect.color);
+                ctx.set_stroke_style(BLRgba32(r, g, b, a));
+                ctx.set_stroke_width(rect.thickness);
+                ctx.stroke_rect(BLRect(rect.startpos.x, rect.startpos.y,
+                    rect.endpos.x - rect.startpos.x, rect.endpos.y - rect.startpos.y));
+            }
+
+            debugrects.clear();
+            ctx.end();
+        }
+
+        void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect) override
+        {
+            //ctx.save();
+            ctx.clip_to_rect(BLRect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y));
+        }
+
+        void ResetClipRect() override
+        {
+            ctx.restore_clipping();
+            //ctx.restore();
+        }
+
+        void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) override
+        {
+            auto [r, g, b, a] = DecomposeColor(color);
+            ctx.set_stroke_style(BLRgba32(r, g, b, a));
+            ctx.set_stroke_width(thickness);
+            ctx.stroke_line(startpos.x, startpos.y, endpos.x, endpos.y);
+        }
+
+        void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) override
+        {
+            if (sz < 2) return;
+            BLPath path;
+            path.move_to(points[0].x, points[0].y);
+            for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
+
+            auto [r, g, b, a] = DecomposeColor(color);
+            ctx.set_stroke_style(BLRgba32(r, g, b, a));
+            ctx.set_stroke_width(thickness);
+            ctx.stroke_path(path);
+        }
+
+        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            BLPath path;
+            path.move_to(pos1.x, pos1.y);
+            path.line_to(pos2.x, pos2.y);
+            path.line_to(pos3.x, pos3.y);
+            path.close();
+
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+
+            if (filled) 
+            {
+                ctx.set_fill_style(c);
+                ctx.fill_path(path);
+            }
+            else 
+            {
+                ctx.set_stroke_style(c);
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_path(path);
+            }
+        }
+
+        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+            BLRect rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
+
+            if (filled) 
+            {
+                ctx.set_fill_style(c);
+                ctx.fill_rect(rect);
+            }
+            else 
+            {
+                ctx.set_stroke_style(c);
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_rect(rect);
+            }
+        }
+
+        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness = 1.f) override
+        {
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+
+            // Check if uniform radius
+            bool uniform = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr);
+
+            if (uniform)
+            {
+                BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
+                if (filled) 
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_round_rect(rr);
+                }
+                else 
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_round_rect(rr);
+                }
+            }
+            else
+            {
+                // Build complex path for non-uniform corners
+                BLPath path;
+                double w = endpos.x - startpos.x;
+                double h = endpos.y - startpos.y;
+                double x = startpos.x;
+                double y = startpos.y;
+
+				auto start = 0;
+                double startRad = (double)start * (M_PI / 180.0);
+                double sweepRad = M_PI / 2.f;
+
+                path.move_to(x + topleftr, y);
+                path.line_to(x + w - toprightr, y);
+                if (toprightr > 0) path.arc_to(x + w - toprightr, y + toprightr, toprightr, toprightr, startRad, sweepRad);
+                
+                path.line_to(x + w, y + h - bottomrightr);
+				startRad += sweepRad;
+                if (bottomrightr > 0) path.arc_to(x + w - bottomrightr, y + h - bottomrightr, bottomrightr, bottomrightr, startRad, sweepRad);
+                
+                path.line_to(x + bottomleftr, y + h);
+                startRad += sweepRad;
+                if (bottomleftr > 0) path.arc_to(x + bottomleftr, y + h - bottomleftr, bottomleftr, bottomleftr, startRad, sweepRad);
+                
+                path.line_to(x, y + topleftr);
+                startRad += sweepRad;
+                if (topleftr > 0) path.arc_to(x + topleftr, y + topleftr, topleftr, topleftr, startRad, sweepRad);
+                path.close();
+
+                if (filled) 
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_path(path);
+                }
+                else 
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_path(path);
+                }
+            }
+        }
+
+        void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir) override
+        {
+            BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
+
+            if (dir == DIR_Horizontal)
+                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+            else
+                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
+
+            auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
+            auto [r2, g2, b2, a2] = DecomposeColor(colorto);
+
+            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+
+            ctx.set_fill_style(gradient);
+            ctx.fill_rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
+        }
+
+        void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr,
+            uint32_t colorfrom, uint32_t colorto, Direction dir) override
+        {
+            BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
+            if (dir == DIR_Horizontal)
+                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+            else
+                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
+
+            auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
+            auto [r2, g2, b2, a2] = DecomposeColor(colorto);
+            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+
+            // Just use uniform rect for simplicity in this snippet, effectively similar to DrawRectGradient but with rounded primitive
+            // For full non-uniform support, see DrawRoundedRect path logic
+            BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
+            ctx.set_fill_style(gradient);
+            ctx.fill_round_rect(rr);
+        }
+
+        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            if (sz < 3) return;
+            BLPath path;
+            path.move_to(points[0].x, points[0].y);
+            for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
+            path.close();
+
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+
+            if (filled) 
+            {
+                ctx.set_fill_style(c);
+                ctx.fill_path(path);
+            }
+            else 
+            {
+                ctx.set_stroke_style(c);
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_path(path);
+            }
+        }
+
+        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) override 
+        { /* TODO: Complex implementation for Blend2D */ }
+
+        void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+            BLCircle circle(center.x, center.y, radius);
+
+            if (filled) 
+            {
+                ctx.set_fill_style(c);
+                ctx.fill_circle(circle);
+            }
+            else 
+            {
+                ctx.set_stroke_style(c);
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_circle(circle);
+            }
+        }
+
+        void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f) override
+        {
+            BLPath path;
+            double startRad = (double)start * (M_PI / 180.0);
+            double sweepRad = ((double)end - (double)start) * (M_PI / 180.0);
+
+            path.move_to(center.x, center.y);
+            path.arc_to(center.x, center.y, radius, radius, startRad, sweepRad);
+            path.close();
+
+            auto [r, g, b, a] = DecomposeColor(color);
+            BLRgba32 c(r, g, b, a);
+
+            if (filled) 
+            {
+                ctx.set_fill_style(c);
+                ctx.fill_path(path);
+            }
+            else 
+            {
+                ctx.set_stroke_style(c);
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_path(path);
+            }
+        }
+
+        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) override
+        {
+            BLGradient gradient(BL_GRADIENT_TYPE_RADIAL);
+            gradient.set_values(BLRadialGradientValues(center.x, center.y, center.x, center.y, radius));
+
+            auto [r1, g1, b1, a1] = DecomposeColor(in);
+            auto [r2, g2, b2, a2] = DecomposeColor(out);
+
+            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+
+            // Ideally use a sector arc path here, simplified to circle for full loop
+            ctx.set_fill_style(gradient);
+            ctx.fill_circle(center.x, center.y, radius);
+        }
+
+        bool SetCurrentFont(std::string_view family, float sz, FontType type) override
+        {
+            FontExtraInfo extra;
+            font = (BLFont*)GetFont(family, sz, type, extra);
+            return true;
+        }
+
+        bool SetCurrentFont(void* fontptr, float sz) override
+        {
+            if (fontptr) 
+            {
+                font = ((BLFont*)fontptr); 
+                return true;
+            }
+            return false;
+        }
+
+        void ResetFont() override {}
+
+        ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth = -1.f) override
+        {
+            BLTextMetrics tm;
+            BLGlyphBuffer gb;
+            gb.set_utf8_text(text.data(), text.size());
+            auto& font = *(BLFont*)fontptr;
+            font.shape(gb);
+            font.get_text_metrics(gb, tm);
+
+            BLBox bbox = tm.bounding_box;
+            return ImVec2((float)(bbox.x1 - bbox.x0), (float)(bbox.y1 - bbox.y0)); // Rough estimate
+        }
+
+        void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f) override
+        {
+            auto [r, g, b, a] = DecomposeColor(color);
+            ctx.set_fill_style(BLRgba32(r, g, b, a));
+            ctx.fill_utf8_text(BLPoint(pos.x, pos.y + font->metrics().ascent), *font, text.data(), text.size());
+        }
+
+        void DrawTooltip(ImVec2 pos, std::string_view text) override { /* Implementation similar to DrawText with bg rect */ }
+
+        float EllipsisWidth(void* fontptr, float sz) override { return 10.f; }
+
+        bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override
+        {
+            DrawRect(pos, pos + size, color, true);
+            SetClipRect(pos, pos + size, false);
+            return true;
+        }
+
+        void EndOverlay() override { ResetClipRect(); }
+
+        void DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) override
+        {
+            debugrects.push_back({ startpos, endpos, color, thickness });
+        }
+
+        template <typename KeyT>
+        bool MatchKey(KeyT key, int32_t id, std::string_view content)
+        {
+            return key.id == -1 || id == -1 ? key.data == content : key.id == id;
+        }
+
+        // Adapted from ImGuiRenderer to use BLImage
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) override
+        {
+            if (resflags & RT_GENERIC_IMG || resflags & RT_PNG || resflags & RT_JPG)
+            {
+                for (auto& entry : bitmaps)
+                {
+                    if (MatchKey(entry.first, id, content))
+                    {
+                        // Blit the image
+                        // If we are using atlas logic in entry.first.uvrect, we need to blit subsection
+                        BLRectI srcArea(
+                            (int)(entry.first.uvrect.Min.x * entry.second.width()),
+                            (int)(entry.first.uvrect.Min.y * entry.second.height()),
+                            (int)((entry.first.uvrect.Max.x - entry.first.uvrect.Min.x) * entry.second.width()),
+                            (int)((entry.first.uvrect.Max.y - entry.first.uvrect.Min.y) * entry.second.height())
+                        );
+
+                        ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second, srcArea);
+                        return true;
+                    }
+                }
+
+                // Fallback: Load immediately (Simplified)
+                auto contents = GetResourceContents(resflags, content); // reusing static helper
+                if (contents.size > 0)
+                {
+                    // Create and Cache
+                    auto& entry = bitmaps.emplace_back();
+                    entry.first.data = std::string(contents.data, contents.size);
+                    entry.first.id = id;
+                    RecordImage(entry.second, (unsigned char*)contents.data, contents.size);
+
+                    ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second);
+                }
+                FreeResource(contents); // reusing static helper
+            }
+            return true;
+        }
+
+        int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override
+        {
+            // Simplified preload: Just load images into separate BLImages (no atlas packing implemented here)
+            for (auto idx = 0; idx < totalsz; ++idx)
+            {
+                // ... extract content logic ...
+                // auto& entry = bitmaps.emplace_back();
+                // RecordImage(entry.second, data, size);
+            }
+            return 0;
+        }
+
+        // Helper to load STB buffer into BLImage
+        void RecordImage(BLImage& img, unsigned char* data, int size)
+        {
+            int w, h, n;
+            unsigned char* pixels = stbi_load_from_memory(data, size, &w, &h, &n, 4);
+            if (pixels)
+            {
+                img.create(w, h, BL_FORMAT_PRGB32);
+                BLImageData imgData;
+                img.get_data(&imgData);
+
+                // Convert RGBA (stb) to PRGB32 (Blend2D)
+                uint8_t* src = pixels;
+                uint8_t* dst = (uint8_t*)imgData.pixel_data;
+                for (int y = 0; y < h; ++y)
+                {
+                    uint8_t* dline = dst + y * imgData.stride;
+                    uint8_t* sline = src + y * w * 4;
+                    for (int x = 0; x < w; ++x)
+                    {
+                        uint8_t r = sline[x * 4 + 0];
+                        uint8_t g = sline[x * 4 + 1];
+                        uint8_t b = sline[x * 4 + 2];
+                        uint8_t a = sline[x * 4 + 3];
+                        // Pre-multiply
+                        r = (r * a) / 255;
+                        g = (g * a) / 255;
+                        b = (b * a) / 255;
+                        // ARGB/PRGB32 layout
+                        ((uint32_t*)dline)[x] = (a << 24) | (r << 16) | (g << 8) | b;
+                    }
+                }
+                stbi_image_free(pixels);
+            }
+        }
+    };
+
+#endif
+
+#pragma endregion
+
     IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc)
     {
         static thread_local DeferredRenderer renderer{ tmfunc };
@@ -2436,8 +2961,18 @@ namespace glimmer
         return &renderer;
     }
 
-    /*IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
+    IRenderer* CreateSoftwareRenderer()
+    {
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+        static thread_local Blend2DRenderer renderer{};
+#else
+        static thread_local ImGuiRenderer renderer{};
+#endif
+		return &renderer;
+    }
+
+    IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
     {
         return new SVGRenderer(tmfunc, dimensions);
-    }*/
+    }
 }

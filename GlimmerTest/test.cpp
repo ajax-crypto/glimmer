@@ -321,9 +321,8 @@ int main(int argc, char** argv)
 #endif
 {
     auto& config = glimmer::CreateUIConfig(true);
-    config.renderer = glimmer::CreateImGuiRenderer();
     config.defaultFontSz = 24.f;
-    config.platform = glimmer::GetPlatform();
+    config.platform = glimmer::InitPlatform();
     
     if (config.platform->CreateWindow({ .title = "Glimmer Demo" }))
     {

@@ -114,7 +114,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_SDL3GPU_PLATFORM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <FloatingPointModel>Fast</FloatingPointModel>
+      <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
@@ -128,7 +128,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>winmm.lib;Setupapi.lib;version.lib;freetype.lib;plutovg.lib;lunasvg.lib;SDL3.lib;glimmer.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>winmm.lib;Setupapi.lib;version.lib;freetype.lib;plutovg.lib;lunasvg.lib;blend2d.lib;SDL3.lib;glimmer.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LargeAddressAware>true</LargeAddressAware>
     </Link>
   </ItemDefinitionGroup>
@@ -141,7 +141,7 @@
       <PreprocessorDefinitions>NDEBUG;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;WIN32;GLIMMER_SDL3GPU_PLATFORM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <FloatingPointModel>Fast</FloatingPointModel>
+      <FloatingPointModel>Precise</FloatingPointModel>
       <FloatingPointExceptions>false</FloatingPointExceptions>
       <EnforceTypeConversionRules>false</EnforceTypeConversionRules>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>

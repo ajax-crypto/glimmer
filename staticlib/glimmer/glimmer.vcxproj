@@ -198,7 +198,7 @@
     <ClCompile>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;GLIMMER_DISABLE_BLEND2D_RENDERER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;BL_BUILD_OPT_AVX512;ASMJIT_NO_FOREIGN;ASMJIT_NO_STDCXX;ASMJIT_ABI_NAMESPACE=abi_bl;BL_STATIC;ASMJIT_STATIC;ASMJIT_NO_AARCH64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
@@ -216,6 +216,9 @@
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -223,7 +226,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;GLIMMER_DISABLE_BLEND2D_RENDERER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;BL_BUILD_OPT_AVX512;ASMJIT_NO_FOREIGN;ASMJIT_NO_STDCXX;ASMJIT_ABI_NAMESPACE=abi_bl;BL_STATIC;ASMJIT_STATIC;ASMJIT_NO_AARCH64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>
