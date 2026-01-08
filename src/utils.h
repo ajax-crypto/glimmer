@@ -379,6 +379,11 @@ namespace glimmer
             }
         }
 
+        explicit FixedSizeStack(T&& object)
+        {
+            Fill(_storage._data, _storage._data + capacity, object);
+		}
+
         ~FixedSizeStack()
         {
             if constexpr (std::is_destructible_v<T>) 

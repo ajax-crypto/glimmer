@@ -55,6 +55,9 @@
     <Filter Include="Header Files\custom">
       <UniqueIdentifier>{e8a79cfe-32cd-40bf-bbef-381623459c38}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\testing">
+      <UniqueIdentifier>{6f40dc1a-9656-4049-a43b-6a75e7639a6e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -210,6 +213,9 @@
     <ClInclude Include="..\..\src\custom\PathInput.h">
       <Filter>Header Files\custom</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\testing.h">
+      <Filter>Header Files\testing</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\context.cpp">
@@ -322,6 +328,9 @@
     </ClCompile>
     <ClCompile Include="..\..\src\libs\src\imrichtextutils.cpp">
       <Filter>Source Files\richtext</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\testing.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -260,18 +260,18 @@ namespace glimmer
         if (ft == FT_Normal)
         {
             auto& font = family.Fonts[FT_Normal][size];
-            auto res = face.createFromFile(family.Files.Files[FT_Normal].c_str());
-            res = res == BL_SUCCESS ? font.createFromFace(face, size) : res;
+            auto res = face.create_from_file(family.Files.Files[FT_Normal].data());
+            res = res == BL_SUCCESS ? font.create_from_face(face, size) : res;
             assert(res == BL_SUCCESS);
         }
         else
         {
             const auto& fallback = family.Fonts[FT_Normal][size];
 
-            if (!files.Files[ft].empty())
+            if (!family.Files.Files[ft].empty())
             {
-                auto res = face.createFromFile(family.Files.Files[ft].c_str());
-                if (res == BL_SUCCESS) res = family.Fonts[ft][size].createFromFace(face, size);
+                auto res = face.create_from_file(family.Files.Files[ft].data());
+                if (res == BL_SUCCESS) res = family.Fonts[ft][size].create_from_face(face, size);
                 else family.Fonts[ft][size] = fallback;
 
                 if (res != BL_SUCCESS) family.Fonts[ft][size] = fallback;
@@ -290,6 +290,7 @@ namespace glimmer
         CreateFont(ffamily, FT_Bold, size);
         CreateFont(ffamily, FT_Italics, size);
         CreateFont(ffamily, FT_BoldItalics, size);
+        return true;
     }
 #endif
 
@@ -1163,27 +1164,27 @@ namespace glimmer
         PreloadFontLookupInfoImpl(timeoutMs, nullptr, 0);
     }
 
-    void* GetFont(std::string_view family, float size, FontType type, FontExtraInfo extra)
+    void* GetFont(std::string_view family, float size, FontType ft, FontExtraInfo extra)
     {
-        auto famit = FontStore.find(family);
+        auto famit = LookupFontFamily(family);
 
         if (famit != FontStore.end())
         {
-            if (famit->second.Fonts[ft])
+            if (!famit->second.Fonts[ft].empty())
             {
                 auto szit = famit->second.Fonts[ft].find(size);
                 if (szit == famit->second.Fonts[ft].end())
-                    CreateFont(family, ft, sz);
+                    CreateFont(famit->second, ft, size);
             }
-            else CreateFont(family, ft, sz);
+            else CreateFont(famit->second, ft, size);
         }
         else
         {
             auto& ffamily = FontStore[family];
-            ffamily.Files[ft] = extra.mapper != nullptr ? extra.mapper(family) :
-                extra.filepath.empty() ? FindFontFile(family, type) : extra.filepath;
-            assert(!ffamily.Files[ft].empty());
-            CreateFont(ffamily, ft, sz);
+            ffamily.Files.Files[ft] = extra.mapper != nullptr ? extra.mapper(family) :
+                extra.filepath.empty() ? FindFontFile(family, ft) : extra.filepath;
+            assert(!ffamily.Files.Files[ft].empty());
+            CreateFont(ffamily, ft, size);
         }
 
         return &(FontStore.at(family).Fonts[ft].at(size));

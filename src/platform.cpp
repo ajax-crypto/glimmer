@@ -65,6 +65,8 @@ namespace glimmer
             keyStatus[ks] = ButtonStatus::Default;
     }
 
+#pragma region IPlatform default implementation
+
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 
     static int32_t ExtractPaths(std::string_view* out, int32_t outsz, const nfdpathset_t* outPaths)
@@ -319,4 +321,6 @@ namespace glimmer
     {
         return modalDialog;
     }
+
+#pragma endregion
 }

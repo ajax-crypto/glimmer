@@ -155,7 +155,7 @@ namespace glimmer
     // Get the closest matching font based on provided parameters. The return type is
     // BLFont* cast to void* to better fit overall library.
     // NOTE: The FontExtraInfo::mapper can be assigned to a function which loads fonts based
-    //       con content codepoints and can perform better fallback.
+    //       on content codepoints and can perform better fallback.
     [[nodiscard]] void* GetFont(std::string_view family, float size, FontType type, FontExtraInfo extra);
 #endif
 }

@@ -313,6 +313,7 @@ namespace glimmer
         Vector<RowYToIndexMapping, int32_t> rowYs{ false };
         ItemGridPersistentState::ItemId clickedItem;
 
+        Vector<std::pair<std::string_view, ItemDescendentVisualState>, int16_t, 32> cellvals{ false };
         std::pair<ItemDescendentVisualState, int16_t> childState;
         float headerHeights[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL] = { 0.f, 0.f, 0.f, 0.f };
         int32_t currRow = 0, currCol = 0;
@@ -564,6 +565,7 @@ namespace glimmer
         int16_t opened = -1;
         Vector<ScrollableRegion, int16_t, 8> scrolls;
         Vector<int32_t, int16_t, 8> hstates;
+		IWidgetLogger* logger = nullptr;
     };
 
 #pragma endregion

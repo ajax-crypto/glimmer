@@ -248,7 +248,7 @@ namespace glimmer
         bool modalDialog = false;
     };
 
-    IPlatform* GetPlatform(ImVec2 size = { -1.f, -1.f });
+    IPlatform* InitPlatform(ImVec2 size = { -1.f, -1.f });
     int64_t FramesRendered();
 
 #define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)

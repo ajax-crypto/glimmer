@@ -361,6 +361,7 @@ namespace glimmer
         if (!initialized)
         {
             initialized = true;
+            Config.renderer = CreateSoftwareRenderer();
             RegisterKeyBindings();
             PushContext(-1);
         }
