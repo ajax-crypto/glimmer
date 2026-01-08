@@ -67,6 +67,7 @@
     <ClInclude Include="..\..\src\platform.h" />
     <ClInclude Include="..\..\src\renderer.h" />
     <ClInclude Include="..\..\src\style.h" />
+    <ClInclude Include="..\..\src\testing.h" />
     <ClInclude Include="..\..\src\types.h" />
     <ClInclude Include="..\..\src\utils.h" />
     <ClInclude Include="..\..\src\widgets.h" />
@@ -108,6 +109,7 @@
     <ClCompile Include="..\..\src\platform.cpp" />
     <ClCompile Include="..\..\src\renderer.cpp" />
     <ClCompile Include="..\..\src\style.cpp" />
+    <ClCompile Include="..\..\src\testing.cpp" />
     <ClCompile Include="..\..\src\widgets.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -198,7 +200,7 @@
     <ClCompile>
       <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;BL_BUILD_OPT_AVX512;ASMJIT_NO_FOREIGN;ASMJIT_NO_STDCXX;ASMJIT_ABI_NAMESPACE=abi_bl;BL_STATIC;ASMJIT_STATIC;ASMJIT_NO_AARCH64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;IM_RICHTEXT_TARGET_IMGUI;LUNASVG_BUILD_STATIC;GLIMMER_ENABLE_ICON_FONT;GLIMMER_ENABLE_TESTING;BL_BUILD_OPT_AVX512;ASMJIT_NO_FOREIGN;ASMJIT_NO_STDCXX;ASMJIT_ABI_NAMESPACE=abi_bl;BL_STATIC;ASMJIT_STATIC;ASMJIT_NO_AARCH64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>

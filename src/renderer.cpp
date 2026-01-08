@@ -2458,7 +2458,6 @@ namespace glimmer
             ImVec2 size;
             int* delays = nullptr;
             std::pair<int, int> prefetched;
-            std::vector<ImRect> uvmaps; // UV maps for frames within the strip
             std::string data;
             bool hasCommonPrefetch = false;
         };
@@ -2472,9 +2471,10 @@ namespace glimmer
         };
 
         std::vector<std::pair<ImageLookupKey, BLImage>> bitmaps;
-        std::vector<std::pair<GifLookupKey, BLImage>> gifframes;
+        std::vector<std::pair<GifLookupKey, std::vector<BLImage>>> gifframes;
         std::vector<DebugRect> debugrects;
         Vector<char, int32_t, 4096> prefetched;
+        float _currentFontSz = 0;
 
         Blend2DRenderer()
         { }
@@ -2797,6 +2797,7 @@ namespace glimmer
         {
             FontExtraInfo extra;
             font = (BLFont*)GetFont(family, sz, type, extra);
+            _currentFontSz = sz;
             return true;
         }
 
@@ -2805,6 +2806,7 @@ namespace glimmer
             if (fontptr) 
             {
                 font = ((BLFont*)fontptr); 
+                _currentFontSz = sz;
                 return true;
             }
             return false;
@@ -2856,68 +2858,19 @@ namespace glimmer
             return key.id == -1 || id == -1 ? key.data == content : key.id == id;
         }
 
-        // Adapted from ImGuiRenderer to use BLImage
-        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) override
-        {
-            if (resflags & RT_GENERIC_IMG || resflags & RT_PNG || resflags & RT_JPG)
-            {
-                for (auto& entry : bitmaps)
-                {
-                    if (MatchKey(entry.first, id, content))
-                    {
-                        // Blit the image
-                        // If we are using atlas logic in entry.first.uvrect, we need to blit subsection
-                        BLRectI srcArea(
-                            (int)(entry.first.uvrect.Min.x * entry.second.width()),
-                            (int)(entry.first.uvrect.Min.y * entry.second.height()),
-                            (int)((entry.first.uvrect.Max.x - entry.first.uvrect.Min.x) * entry.second.width()),
-                            (int)((entry.first.uvrect.Max.y - entry.first.uvrect.Min.y) * entry.second.height())
-                        );
-
-                        ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second, srcArea);
-                        return true;
-                    }
-                }
-
-                // Fallback: Load immediately (Simplified)
-                auto contents = GetResourceContents(resflags, content); // reusing static helper
-                if (contents.size > 0)
-                {
-                    // Create and Cache
-                    auto& entry = bitmaps.emplace_back();
-                    entry.first.data = std::string(contents.data, contents.size);
-                    entry.first.id = id;
-                    RecordImage(entry.second, (unsigned char*)contents.data, contents.size);
-
-                    ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second);
-                }
-                FreeResource(contents); // reusing static helper
-            }
-            return true;
-        }
-
-        int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override
-        {
-            // Simplified preload: Just load images into separate BLImages (no atlas packing implemented here)
-            for (auto idx = 0; idx < totalsz; ++idx)
-            {
-                // ... extract content logic ...
-                // auto& entry = bitmaps.emplace_back();
-                // RecordImage(entry.second, data, size);
-            }
-            return 0;
-        }
-
-        // Helper to load STB buffer into BLImage
-        void RecordImage(BLImage& img, unsigned char* data, int size)
+        int64_t RecordImage(std::pair<ImageLookupKey, BLImage>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
         {
             int w, h, n;
-            unsigned char* pixels = stbi_load_from_memory(data, size, &w, &h, &n, 4);
-            if (pixels)
+            unsigned char* pixels = stbi_load_from_memory(data, bufsz, &w, &h, &n, 4);
+            entry.first.data = std::string((char*)data, bufsz);
+            entry.first.id = id;
+            entry.first.size = size;
+
+            if (pixels && (w > 0) && (h > 0))
             {
-                img.create(w, h, BL_FORMAT_PRGB32);
+                entry.second.create(w, h, BL_FORMAT_PRGB32);
                 BLImageData imgData;
-                img.get_data(&imgData);
+                entry.second.get_data(&imgData);
 
                 // Convert RGBA (stb) to PRGB32 (Blend2D)
                 uint8_t* src = pixels;
@@ -2942,6 +2895,327 @@ namespace glimmer
                 }
                 stbi_image_free(pixels);
             }
+
+            if (draw)
+            {
+                ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second);
+            }
+
+            return w * h * 4;
+        }
+        
+        int64_t RecordGif(std::pair<GifLookupKey, std::vector<BLImage>>& entry, int32_t id, ImVec2 pos, ImVec2 size, stbi_uc* data, int bufsz, bool draw)
+        {
+            using namespace std::chrono;
+
+            int width, height, frames, channels;
+            int* delays = nullptr;
+            auto pixels = stbi_load_gif_from_memory(data, bufsz, &delays, &width, &height, &frames, &channels, 4);
+            int64_t bytes = 0;
+
+            if (pixels != nullptr && width > 0 && height > 0 && frames > 0)
+            {
+                entry.first.id = id;
+                entry.first.data.assign((char*)data, bufsz);
+                entry.first.totalframe = frames;
+                entry.first.delays = delays;
+                entry.first.lastTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                entry.first.size = ImVec2{ (float)width, (float)height };
+                entry.second.reserve(frames);
+
+                auto relw = 1.f / (float)frames;
+                auto currx = 0.f;
+
+                for (auto fidx = 0; fidx < frames; ++fidx)
+                {
+                    auto& image = entry.second.emplace_back();
+                    BLImageData imgData;
+                    image.get_data(&imgData);
+
+                    // Convert RGBA (stb) to PRGB32 (Blend2D)
+                    uint8_t* src = pixels;
+                    uint8_t* dst = (uint8_t*)imgData.pixel_data;
+                    for (int y = 0; y < height; ++y)
+                    {
+                        uint8_t* dline = dst + y * imgData.stride;
+                        uint8_t* sline = src + y * width * 4;
+                        for (int x = 0; x < width; ++x)
+                        {
+                            uint8_t r = sline[x * 4 + 0];
+                            uint8_t g = sline[x * 4 + 1];
+                            uint8_t b = sline[x * 4 + 2];
+                            uint8_t a = sline[x * 4 + 3];
+                            // Pre-multiply
+                            r = (r * a) / 255;
+                            g = (g * a) / 255;
+                            b = (b * a) / 255;
+                            // ARGB/PRGB32 layout
+                            ((uint32_t*)dline)[x] = (a << 24) | (r << 16) | (g << 8) | b;
+                        }
+                    }
+                }
+
+                if (draw)
+                {
+                    ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second[entry.first.currframe]);
+                }
+
+                bytes = frames * width * height * 4;
+            }
+
+            stbi_image_free(pixels);
+            return bytes;
+        }
+        
+        int64_t RecordSVG(std::pair<ImageLookupKey, BLImage>& entry, int32_t id, ImVec2 pos, ImVec2 size, uint32_t color, lunasvg::Document& document, bool draw)
+        {
+            entry.first.id = id;
+            entry.first.size = size;
+            int64_t bytes = 0;
+
+            auto bitmap = document.renderToBitmap((int)size.x, (int)size.y, color);
+            bitmap.convertToRGBA();
+
+            auto pixels = bitmap.data();
+            BLImageData imgData;
+            entry.second.get_data(&imgData);
+
+            // Convert RGBA (stb) to PRGB32 (Blend2D)
+            uint8_t* src = pixels;
+            uint8_t* dst = (uint8_t*)imgData.pixel_data;
+            for (int y = 0; y < bitmap.height(); ++y)
+            {
+                uint8_t* dline = dst + y * imgData.stride;
+                uint8_t* sline = src + y * bitmap.width() * 4;
+                for (int x = 0; x < bitmap.width(); ++x)
+                {
+                    uint8_t r = sline[x * 4 + 0];
+                    uint8_t g = sline[x * 4 + 1];
+                    uint8_t b = sline[x * 4 + 2];
+                    uint8_t a = sline[x * 4 + 3];
+                    // Pre-multiply
+                    r = (r * a) / 255;
+                    g = (g * a) / 255;
+                    b = (b * a) / 255;
+                    // ARGB/PRGB32 layout
+                    ((uint32_t*)dline)[x] = (a << 24) | (r << 16) | (g << 8) | b;
+                }
+            }
+
+            if (draw)
+            {
+                ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), entry.second);
+            }
+
+            bytes = (int64_t)size.x * (int64_t)size.y * 4;
+            return bytes;
+        }
+
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) override
+        {
+            BLImage* image = nullptr;
+
+            if (resflags & RT_SYMBOL)
+            {
+                Round(pos); Round(size);
+                auto icon = GetSymbolIcon(content);
+                DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
+            }
+            else if (resflags & RT_ICON_FONT)
+            {
+#ifdef GLIMMER_ENABLE_ICON_FONT
+                Round(pos); Round(size);
+                SetCurrentFont(Config.iconFont, _currentFontSz);
+                DrawText(content, pos, color);
+                ResetFont();
+#else
+                assert(false);
+#endif
+            }
+            else if (resflags & RT_SVG)
+            {
+#ifndef GLIMMER_DISABLE_SVG
+                Round(pos); Round(size);
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
+
+                for (auto& entry : bitmaps)
+                {
+                    auto& [key, texid] = entry;
+                    if (MatchKey(key, id, content) && (key.size == size))
+                    {
+                        if (key.prefetched.second > key.prefetched.first)
+                        {
+                            auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first,
+                                key.prefetched.second - key.prefetched.first);
+                            if (document)
+                                RecordSVG(entry, id, pos, size, color, *document, false);
+                            else
+                                std::fprintf(stderr, "Failed to load SVG [%.*s]\n",
+                                    key.prefetched.second - key.prefetched.first,
+                                    prefetched.data() + key.prefetched.first);
+                            key.prefetched.second = key.prefetched.first = 0;
+                        }
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                    {
+                        auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
+                        if (document)
+                            RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
+                        else
+                            std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
+                    }
+                    FreeResource(contents);
+                }
+#else
+                assert(false); // Unsupported
+#endif
+            }
+            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                (resflags & RT_GENERIC_IMG))
+            {
+#ifndef GLIMMER_DISABLE_IMAGES
+                Round(pos); Round(size);
+
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
+
+                for (auto& entry : bitmaps)
+                {
+                    auto& [key, texid] = entry;
+                    if (MatchKey(key, id, content))
+                    {
+                        if (key.prefetched.second > key.prefetched.first)
+                        {
+                            auto data = prefetched.data() + key.prefetched.first;
+                            auto sz = key.prefetched.second - key.prefetched.first;
+                            RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                            key.prefetched.second = key.prefetched.first = 0;
+                        }
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                        RecordImage(bitmaps.emplace_back(), id, pos, size,
+                            (stbi_uc*)contents.data, (int)contents.size, true);
+                    FreeResource(contents);
+                }
+#else
+                assert(false); // Unsupported
+#endif
+            }
+            else if (resflags & RT_GIF)
+            {
+#ifndef GLIMMER_DISABLE_GIF
+                using namespace std::chrono;
+                Round(pos); Round(size);
+
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
+
+                for (auto& entry : gifframes)
+                {
+                    auto& [key, images] = entry;
+                    if (MatchKey(key, id, content))
+                    {
+                        if (key.prefetched.second > key.prefetched.first)
+                        {
+                            auto data = prefetched.data() + key.prefetched.first;
+                            auto sz = key.prefetched.second - key.prefetched.first;
+                            RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                            key.prefetched.second = key.prefetched.first = 0;
+                        }
+
+                        if (!images.empty())
+                        {
+                            auto currts = system_clock::now().time_since_epoch();
+                            auto ms = duration_cast<milliseconds>(currts).count();
+                            if (key.delays[key.currframe] <= (ms - key.lastTime))
+                            {
+                                key.currframe = (key.currframe + 1) % key.totalframe;
+                                key.lastTime = ms;
+                            }
+
+                            ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), images[key.currframe]);
+                        }
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                        RecordGif(gifframes.emplace_back(), id, pos, size,
+                            (stbi_uc*)contents.data, (int)contents.size, true);
+                    FreeResource(contents);
+                }
+#else
+                assert(false); // Unsupported
+#endif
+            }
+
+            // TODO: return correct status
+            return true;
+        }
+
+        int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override
+        {
+            int64_t totalBytes = 0;
+
+            for (auto idx = 0; idx < totalsz; ++idx)
+            {
+                auto contents = GetResourceContents(resources[idx].resflags, resources[idx].content);
+
+                if (resources[idx].resflags & RT_GIF)
+                {
+                    auto contents = GetResourceContents(resources[idx].resflags, resources[idx].content);
+                    if (contents.size > 0)
+                        totalBytes += RecordGif(gifframes.emplace_back(), resources[idx].id, {}, {},
+                            (stbi_uc*)contents.data, (int)contents.size, false);
+                    FreeResource(contents);
+                }
+                else if (resources[idx].resflags & RT_SVG)
+                {
+                    auto contents = GetResourceContents(resources[idx].resflags, resources[idx].content);
+                    if (contents.size > 0)
+                    {
+                        auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
+                        if (document)
+                            totalBytes += RecordSVG(bitmaps.emplace_back(), resources[idx].id, {}, {},
+                                resources[idx].bgcolor, *document, false);
+                        else
+                            std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
+                    }
+                    FreeResource(contents);
+                }
+                else
+                {
+                    auto contents = GetResourceContents(resources[idx].resflags, resources[idx].content);
+                    if (contents.size > 0)
+                        totalBytes += RecordImage(bitmaps.emplace_back(), resources[idx].id, {}, {},
+                            (stbi_uc*)contents.data, (int)contents.size, false);
+                    FreeResource(contents);
+                }
+            }
+
+            return totalBytes;
         }
     };
 

@@ -12,12 +12,15 @@
 #include "im_font_manager.h"
 #include "imrichtext.h"
 
+#include "testing.h"
+
 #ifndef GLIMMER_DISABLE_PLOTS
 #include "libs/inc/implot/implot.h"
 #endif
 
 #include <unordered_map>
 #include <string>
+#include <stdint.h>
 
 #ifndef GLIMMER_TOTAL_ID_SIZE
 #define GLIMMER_TOTAL_ID_SIZE (1 << 16)
@@ -100,6 +103,7 @@ namespace glimmer
             it = NamedIds[type].emplace(idClasses.id, GetNextId(type)).first;
             GetContext().RegisterWidgetIdClass(type, it->second, idClasses);
             if (Config.RecordWidgetId) (*Config.RecordWidgetId)(key, it->second);
+            if (Config.logger) Config.logger->RegisterId(it->second, id);
             initial = true;
         }
         return { it->second, initial };
@@ -112,6 +116,7 @@ namespace glimmer
         if (it == OutPtrIds[type].end())
         {
             auto id = GetNextId(type);
+            if (Config.logger) Config.logger->RegisterId(id, ptr);
             return { OutPtrIds[type].emplace(ptr, id).first->second, true };
         }
         return { it->second, false };
@@ -627,6 +632,9 @@ namespace glimmer
                     scroll.mouseDownOnHGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Default].grip, true);
                 }
+
+                WITH_WIDGET_LOG(WT_Scrollable, -1, ImRect{ left.Min, right.Max });
+                LOG_RECT(path); LOG_RECT(grip); LOG_RECT(viewport);
             }
 
             hasHScroll = true;
@@ -777,6 +785,9 @@ namespace glimmer
                     scroll.mouseDownOnVGrip = false;
                     renderer.DrawRect(grip.Min, grip.Max, Config.scrollbar.colors[WSI_Default].grip, true);
                 }
+
+                WITH_WIDGET_LOG(WT_Scrollable, -1, ImRect{ top.Min, bottom.Max });
+                LOG_RECT(path); LOG_RECT(grip); LOG_RECT(viewport);
             }
 
             if (viewport.Contains(mousepos) && !(region.type & ST_NoMouseWheel_V))
@@ -1465,6 +1476,11 @@ namespace glimmer
                 ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
                 HandleContextMenu(id, content, io);
             }
+
+            WITH_WIDGET_LOG(id, margin);
+            LOG_STATE(state.state);
+            LOG_RECT(padding);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForRegion(id, margin, border, padding, content));
     }
@@ -1481,6 +1497,11 @@ namespace glimmer
             if (ismouseover) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             HandleContextMenu(id, content, io);
+
+            WITH_WIDGET_LOG(id, margin);
+            LOG_STATE(state.state);
+            LOG_RECT(padding); if (state.type == TextType::PlainText) LOG_TEXT(state.text);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForLabel(id, margin, border, padding, content, text));
     }
@@ -1512,6 +1533,11 @@ namespace glimmer
             }
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             HandleContextMenu(id, content, io);
+
+            WITH_WIDGET_LOG(id, margin);
+            LOG_STATE(state.state);
+            LOG_RECT(padding); if (state.type == TextType::PlainText) LOG_TEXT(state.text);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForButton(id, margin, border, padding, content, text));
     }
@@ -1966,6 +1992,11 @@ namespace glimmer
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.checked);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForToggleButton(id, extent, center));
     }
@@ -2088,6 +2119,11 @@ namespace glimmer
             if (state.out) *state.out = state.checked;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.checked);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForRadioButton(id, extent, maxrad));
     }
@@ -2181,8 +2217,11 @@ namespace glimmer
             if (state.out) *state.out = state.check;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
-            fprintf(stdout, "Mouse at (%f, %f) | Extent is (%f, %f) -> (%f, %f)\n", io.mousepos.x, io.mousepos.y,
-                extent.Min.x, extent.Min.y, extent.Max.x, extent.Max.y);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.check);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForCheckbox(id, extent));
     }
@@ -2379,6 +2418,11 @@ namespace glimmer
             if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.data); LOG_NUM(state.min); LOG_NUM(state.max);
+            LOG_STYLE2(state.state, id);
         }
         else
             context.deferedEvents.emplace_back(EventDeferInfo::ForSpinner(id, extent, incbtn, decbtn));
@@ -2641,6 +2685,11 @@ namespace glimmer
             if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.data); LOG_NUM(state.min); LOG_NUM(state.max);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForSlider(id, extent, thumb));
     }
@@ -2849,6 +2898,11 @@ namespace glimmer
             if (extent.Contains(io.mousepos)) WidgetContextData::CurrentWidgetId = id;
             ShowTooltip(state._hoverDuration, extent, state.tooltip, io);
             HandleContextMenu(id, extent, io);
+
+            WITH_WIDGET_LOG(id, extent);
+            LOG_STATE(state.state);
+            LOG_NUM(state.min_val); LOG_NUM(state.max_val); LOG_NUM(state.min_range); LOG_NUM(state.max_range);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForRangeSlider(id, extent, thumbMin, thumbMax));
     }
@@ -3544,6 +3598,11 @@ namespace glimmer
             }
 
             HandleContextMenu(id, content, io);
+
+            WITH_WIDGET_LOG(id, content);
+            LOG_STATE(state.state);
+            LOG_TEXT(state.text);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForTextInput(id, content, suffix));
     }
@@ -4037,6 +4096,11 @@ namespace glimmer
                 ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
                 HandleContextMenu(id, content, io);
             }
+
+            WITH_WIDGET_LOG(id, margin);
+            LOG_STATE(state.state);
+            LOG_TEXT(state.text); LOG_NUM(state.opened); LOG_NUM(state.selected);
+            LOG_STYLE2(state.state, id);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForDropDown(id, margin, border, padding, content));
     }
@@ -4523,6 +4587,9 @@ namespace glimmer
                 }
             }
 
+            WITH_WIDGET_LOG(id, content);
+            BEGIN_LOG_ARRAY("items");
+
             for (auto& tab : state.tabs)
             {
                 auto& rect = tab.extent;
@@ -4574,8 +4641,16 @@ namespace glimmer
                 if (HandleContextMenu(id, rect, io))
                     WidgetContextData::RightClickContext.tabidx = tabidx;
 
+                BEGIN_LOG_OBJECT("item");
+                LOG_STATE(tab.state);
+                LOG_TEXT(tab.descriptor.name); 
+                LOG_NUM(tab.pinned);
+                LOG_STYLE(style);
+                END_LOG_OBJECT();
                 ++tabidx;
             }
+
+            END_LOG_ARRAY();
 
             if (content.Contains(io.mousepos) && io.isLeftMouseDown() && state.tabBeingDragged != -1)
             {
@@ -4667,6 +4742,8 @@ namespace glimmer
                 state.scroll.content.x = width + content.Min.x;
                 HandleHScroll(state.scroll, renderer, io, 5.f, false);
             }
+
+            LOG_NUM(state.current);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForTabBar(id, content));
     }
@@ -5036,6 +5113,9 @@ namespace glimmer
             navstate.current = -1;
             auto idx = 0;
 
+            WITH_WIDGET_LOG(nav.id, navstate.extent);
+            BEGIN_LOG_ARRAY("nav-items");
+
             for (auto& item : navstate.items)
             {
                 item.border.Translate(offset);
@@ -5064,9 +5144,17 @@ namespace glimmer
                 }
                 else
                     item.state = WS_Default;
+
+                BEGIN_LOG_OBJECT("nav-item");
+                LOG_STATE(item.state);
+                LOG_TEXT(nav.items[idx].text);
+                LOG_STYLE(nav.items[idx].style);
+                END_LOG_OBJECT();
+
                 ++idx;
             }
 
+            END_LOG_ARRAY();
             navstate.state = navstate.extent.Contains(io.mousepos) ? WS_Hovered : WS_Default;
 
             if (navstate.state != WS_Hovered)
@@ -5076,6 +5164,9 @@ namespace glimmer
             }
             else
                 navstate.isOpen = true;
+
+            LOG_NUM(navstate.selected); LOG_NUM(navstate.current);
+            LOG_NUM(navstate.isOpen);
         }
         else
             GetContext().deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
@@ -5273,6 +5364,8 @@ namespace glimmer
 
         context.ToggleDeferedRendering(true, false);
         context.deferEvents = true;
+        BEGIN_WIDGET_LOG(id, accordion.content);
+        BEGIN_LOG_ARRAY("accordion-section");
 
         return true;
     }
@@ -5293,6 +5386,7 @@ namespace glimmer
         context.RecordDeferRange(accordion.regions[accordion.totalRegions].hrange, true);
         accordion.border = style.border;
         accordion.bgcolor = style.bgcolor;
+        BEGIN_LOG_OBJECT("accordion-header");
         return true;
     }
 
@@ -5324,6 +5418,7 @@ namespace glimmer
         accordion.headerHeight = accordion.textsz.y;
         accordion.text = content;
         accordion.textType = textType;
+        LOG_TEXT(accordion.text);
     }
 
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result)
@@ -5392,6 +5487,8 @@ namespace glimmer
 
         accordion.regions[accordion.totalRegions].header = bg.GetSize();
         accordion.totalsz.y += bg.GetHeight();
+        LOG_RECT2("header-size", bg);
+        END_LOG_OBJECT();
     }
 
     bool BeginAccordionContent(float height, int32_t scrollflags, ImVec2 maxsz)
@@ -5418,6 +5515,8 @@ namespace glimmer
                 context.adhocLayout.top().insideContainer = true;
         }
 
+        BEGIN_LOG_OBJECT("accordion-content");
+        LOG_POS(maxsz); LOG_NUM(height); LOG_NUM(scrollflags);
         return isOpen;
     }
 
@@ -5442,6 +5541,7 @@ namespace glimmer
         }
 
         accordion.totalRegions++;
+        END_LOG_OBJECT();
     }
 
     WidgetDrawResult EndAccordion()
@@ -5523,6 +5623,9 @@ namespace glimmer
         context.AddItemGeometry(accordion.id, content);
         context.accordions.pop(1, false);
         accordion.reset();
+        END_LOG_ARRAY();
+        LOG_NUM(state.opened);
+        END_WIDGET_LOG();
         return res;
     }
 
@@ -6105,6 +6208,7 @@ namespace glimmer
 
         CategorizeColumns();
         assert(builder.currlevel < 0);
+        ImRect hextent{ { FLT_MAX, FLT_MAX }, {} };
 
         // Center align header contents
         auto ypos = builder.origin.y + config.gridwidth;
@@ -6140,6 +6244,8 @@ namespace glimmer
 
                 header.offset.x = header.content.Min.x - header.offset.x;
                 header.offset.y = header.content.Min.y - header.offset.y;
+                hextent.Min = ImMin(hextent.Min, header.extent.Min);
+                hextent.Max = ImMax(hextent.Max, header.extent.Max);
             }
 
             ypos += builder.headerHeights[level] + config.gridwidth;
@@ -6153,6 +6259,8 @@ namespace glimmer
         std::pair<int16_t, int16_t> movingColRange = { INT16_MAX, -1 }, nextMovingRange = { INT16_MAX, -1 };
         ctx.ToggleDeferedRendering(false, false);
         ctx.deferEvents = false;
+        BEGIN_WIDGET_LOG(builder.id, hextent);
+        BEGIN_LOG_ARRAY("itemgrid-headers");
 
         for (auto level = 0; level < builder.levels; ++level)
         {
@@ -6268,11 +6376,20 @@ namespace glimmer
                         }
                     }
                 }
+
+                BEGIN_LOG_OBJECT("itemgrid-header");
+                LOG_TEXT(hdr.name); LOG_TEXT(hdr.id);
+                LOG_COLOR(hdr.bgcolor);
+                LOG_COLOR(hdr.fgcolor);
+                LOG_NUM(hdr.highlighted);
+                LOG_NUM(hdr.selected);
+                END_LOG_OBJECT();
             }
 
             if (config.frozencols != -1) renderer.ResetClipRect();
         }
         
+        END_LOG_ARRAY();
         builder.nextpos.y = ypos - state.scroll.state.pos.y;
         builder.nextpos.x = builder.origin.x;
         builder.startY = builder.nextpos.y;
@@ -6340,9 +6457,16 @@ namespace glimmer
                     {
                         static char buffer[256] = { 0 };
                         auto sz = std::snprintf(buffer, 255, "[itemgrid-%d][filter-%d]", builder.id, col);
-                        return GetIdFromString(std::string_view{ buffer, (std::size_t)sz }, WT_TextInput).first;
+                        auto id = GetIdFromString(std::string_view{ buffer, (std::size_t)sz }, WT_TextInput).first;
+                        header.genid = id;
+                        return id;
                     }
-                    else return GetIdFromString(header.id, WT_TextInput).first;
+                    else
+                    {
+                        auto id = GetIdFromString(header.id, WT_TextInput).first;
+                        header.genid = id;
+                        return id;
+                    }
                 }();
 				auto& filterstate = CreateWidgetConfig(id).state.input;
                 filterstate.out = Span<char>{ colprops.filterout.data(), (int)colprops.filterout.size() };
@@ -6372,6 +6496,7 @@ namespace glimmer
 
         ctx.ToggleDeferedRendering(false, false);
         ctx.deferEvents = false;
+        BEGIN_LOG_ARRAY("itemgrid-filters");
 
         // Draw frozen columns first
         ImVec2 frozensz;
@@ -6396,6 +6521,7 @@ namespace glimmer
                 RenderItemGridFilterCell(ctx, builder, state, config, maxh, col, result);
         }
 
+        END_LOG_ARRAY();
         Config.renderer->ResetClipRect();
         builder.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
         builder.nextpos.x = startx;
@@ -6561,12 +6687,13 @@ namespace glimmer
         }
     }
 
-    static void InvokeItemGridCellContent(WidgetContextData& context, ItemGridBuilder& builder,
+    static std::string_view InvokeItemGridCellContent(WidgetContextData& context, ItemGridBuilder& builder,
         const ItemGridPersistentState& state, const ItemGridConfig& config, const ItemGridItemProps& props,
         ColumnProps& colprops, const std::pair<float, float>& bounds, int16_t col, int32_t row)
     {
         assert(config.cellwidget || config.cellcontent);
         assert(!props.isContentWidget || (props.isContentWidget && config.cellwidget));
+        std::string_view result;
 
         if (props.isContentWidget || (!config.cellcontent && config.cellwidget))
             config.cellwidget(bounds, row, col, builder.depth);
@@ -6583,10 +6710,13 @@ namespace glimmer
             textrect.Max = ImMax(textrect.Max, textend);
             style.fgcolor = colprops.fgcolor;
             DrawText(builder.nextpos, textend, textrect, text, props.disabled, style, *context.deferedRenderer);
+            result = text;
         }
 
         if (config.frozencols == col + 1)
             builder.maxColWidth = std::max(builder.maxColWidth, builder.maxCellExtent.x - builder.nextpos.x);
+    
+        return result;
     }
 
     static void UpdateSingleSelection(ItemGridPersistentState& state, const ItemGridConfig& config, int32_t col, int32_t row, int32_t depth)
@@ -6709,6 +6839,8 @@ namespace glimmer
         {
             state.lastSelection = -1.f;
         }
+
+        LOG_NUM2("selected-row-count", state.selections.size());
     }
 
     static int32_t GetRowId(const ItemGridBuilder& builder, const ItemGridConfig& config, int32_t row)
@@ -6746,6 +6878,7 @@ namespace glimmer
         Config.renderer->ResetClipRect();
 
         auto res = context.HandleEvents(ImVec2{ hdiff + hshift, vdiff }, range.events.first, range.events.second);
+        cellGeometry.extent.TranslateX(hshift); cellGeometry.content.TranslateX(hshift);
         if (res.event != WidgetEvent::None) result = res;
         else
         {
@@ -6770,7 +6903,6 @@ namespace glimmer
                     }
                 }
 
-                cellGeometry.extent.TranslateX(hshift);
                 if (cellGeometry.extent.Contains(io.mousepos) && !itemToggled)
                 {
                     if (isClicked && !state.scroll.state.mouseDownOnVGrip && !state.scroll.state.mouseDownOnHGrip)
@@ -6799,6 +6931,13 @@ namespace glimmer
             }
         }
 
+        BEGIN_LOG_OBJECT("itemgrid-cell");
+        LOG_NUM(row); LOG_NUM(col);
+        LOG_TEXT2("cell-text", builder.cellvals[col].first);
+        LOG_RECT(cellGeometry.extent); LOG_RECT(cellGeometry.content);
+        LOG_COLOR(cellGeometry.bgcolor); LOG_COLOR(cellGeometry.fgcolor);
+        LOG_NUM2("descendant", builder.cellvals[col].second);
+        END_LOG_OBJECT();
         return cellGeometry.extent.GetSize();
     }
 
@@ -6832,14 +6971,13 @@ namespace glimmer
         Config.renderer->ResetClipRect();
 
         auto res = context.HandleEvents(ImVec2{ hdiff + hshift, vdiff }, range.events.first, range.events.second);
+        cellGeometry.extent.TranslateX(hshift); cellGeometry.content.TranslateX(hshift);
         if (res.event != WidgetEvent::None) result = res;
         else
         {
             auto io = Config.platform->CurrentIO();
             if (ImRect{ builder.origin, builder.origin + builder.size }.Contains(io.mousepos))
             {
-                cellGeometry.extent.TranslateX(hshift);
-
                 if (HandleContextMenu(builder.id, cellGeometry.content, io))
                 {
                     WidgetContextData::RightClickContext.row = -1;
@@ -6848,6 +6986,13 @@ namespace glimmer
             }
         }
 
+        BEGIN_LOG_OBJECT("itemgrid-filter-cell");
+        LOG_NUM(col);
+        const auto& filtertext = context.GetState(header.genid).state.input.text;
+        LOG_TEXT(filtertext);
+        LOG_RECT(cellGeometry.extent); LOG_RECT(cellGeometry.content);
+        LOG_COLOR(cellGeometry.bgcolor); LOG_COLOR(cellGeometry.fgcolor);
+        END_LOG_OBJECT();
         return cellGeometry.extent.GetSize();
     }
 
@@ -6892,6 +7037,9 @@ namespace glimmer
             builder.perDepthRowCount[builder.depth] = 0;
         }
 
+        builder.cellvals.resize(builder.headers[builder.levels - 1].size(), true);
+        BEGIN_LOG_ARRAY("itemgrid-rows");
+
         while (totalRows > 0)
         {
             auto coloffset = 1;
@@ -6935,7 +7083,8 @@ namespace glimmer
                         builder.nextpos.x += config.cellpadding.x;
                     }
 
-                    InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
+                    auto text = InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
+                    builder.cellvals.emplace_back(text, props.vstate);
                     context.RecordDeferRange(header.range, false);
 
                     auto height = builder.maxCellExtent.y - builder.nextpos.y;
@@ -6952,6 +7101,7 @@ namespace glimmer
 
             context.ToggleDeferedRendering(false, false);
             context.deferEvents = false;
+            BEGIN_LOG_ARRAY("itemgrid-columns");
 
             // Draw frozen columns first
             ImVec2 frozensz;
@@ -6975,7 +7125,8 @@ namespace glimmer
                 if (col < builder.movingCols.first || col > builder.movingCols.second)
                     RenderItemGridCell(context, builder, state, config, maxh, col, row, result);
             }
-
+            
+            END_LOG_ARRAY();
             Config.renderer->ResetClipRect();
             builder.nextpos.y += maxh + config.cellpadding.y + config.gridwidth;
             builder.nextpos.x = startx;
@@ -7000,6 +7151,7 @@ namespace glimmer
             ++row;
         }
 
+        END_LOG_ARRAY();
         builder.totalsz.y = builder.nextpos.y;
         builder.totalsz.x = builder.headers[builder.currlevel].back().extent.Max.x + config.gridwidth;
     }
@@ -7014,6 +7166,7 @@ namespace glimmer
         const auto totalw = extent.GetWidth() - (2.f * config.cellpadding.x);
         bounds.first = extent.Min.x + config.cellpadding.x + ((col == 0) ? builder.cellIndent : 0.f);
         bounds.second = extent.Max.x - config.cellpadding.x;
+        BEGIN_LOG_ARRAY("itemgrid-column");
 
         for (auto row = 0; row < totalRows; ++row)
         {
@@ -7050,6 +7203,7 @@ namespace glimmer
             builder.maxCellExtent = ImVec2{};
         }
 
+        END_LOG_ARRAY();
         builder.totalsz.y = builder.nextpos.y;
     }
 
@@ -7076,6 +7230,7 @@ namespace glimmer
             builder.nextpos.x += config.cellpadding.x + config.gridwidth;
             Config.renderer->SetClipRect({ builder.origin.x, builder.origin.y + builder.headerHeight },
                 builder.origin + builder.size);
+            BEGIN_LOG_ARRAY("itemgrid-columns");
 
             auto vcol = 0;
             float frozenWidth = 0.f;
@@ -7117,6 +7272,7 @@ namespace glimmer
 
             builder.totalsz.x = builder.nextpos.x;
             Config.renderer->ResetClipRect();
+            END_LOG_ARRAY();
         }
 
         // Fix column dragging
@@ -7204,6 +7360,7 @@ namespace glimmer
         renderer.SetClipRect(viewport.Min, viewport.Max);
         result = PopulateData(builder.rowcount);
         renderer.ResetClipRect();
+        END_WIDGET_LOG();
 
         builder.phase = ItemGridConstructPhase::None;
         AddItemGridScrollBars(builder, state, config, renderer, viewport, io);
@@ -7392,6 +7549,18 @@ namespace glimmer
         layout.nextpos = state.viewport[state.current].Min;
         context.containerStack.push() = state.containers[state.current];
         renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+
+        BEGIN_WIDGET_LOG(id, state.viewport[state.current]);
+        LOG_NUM2("direction", dir);
+        BEGIN_LOG_ARRAY("split-ratios");
+        for (auto split : splits)
+        {
+            BEGIN_LOG_OBJECT("split");
+            LOG_NUM(split.initial); LOG_NUM(split.min); LOG_NUM(split.max);
+            END_LOG_OBJECT();
+        }
+        END_LOG_ARRAY();
+        BEGIN_LOG_ARRAY("split-panes");
     }
 
     void NextSplitRegion()
@@ -7491,6 +7660,10 @@ namespace glimmer
         layout.nextpos = state.viewport[state.current].Min;
         context.containerStack.push() = state.containers[state.current];
         renderer.SetClipRect(state.viewport[state.current].Min, state.viewport[state.current].Max);
+
+        BEGIN_LOG_OBJECT("split-pane");
+        LOG_RECT2("current-viewport", state.viewport[state.current]); LOG_NUM(state.current);
+        END_LOG_OBJECT();
     }
 
     void EndSplitRegion()
@@ -7505,6 +7678,9 @@ namespace glimmer
         context.splitterStack.pop(1, true);
         context.AddItemGeometry(el.id, el.extent);
         renderer.ResetClipRect();
+
+        END_LOG_ARRAY();
+        END_WIDGET_LOG();
     }
 
 #pragma endregion
@@ -7730,6 +7906,9 @@ namespace glimmer
             }
             ShowTooltip(state._hoverDuration, padding, state.tooltip, io);
             HandleContextMenu(id, content, io);
+
+            WITH_WIDGET_LOG(id, content);
+            LOG_NUM(state.resflags);
         }
         else context.deferedEvents.emplace_back(EventDeferInfo::ForMediaResource(id, padding, content));
     }
@@ -7903,7 +8082,7 @@ namespace glimmer
         return Config;
     }
 
-    UIConfig& CreateUIConfig(bool needsRichText)
+    UIConfig& CreateUIConfig(bool needsRichText, IWidgetLogger* logger)
     {
 #ifndef GLIMMER_DISABLE_RICHTEXT
         if (needsRichText && Config.richTextConfig == nullptr)
@@ -7921,12 +8100,23 @@ namespace glimmer
             Config.richTextConfig->RTRenderer = new ImRichText::IRenderer{};
             Config.richTextConfig->RTRenderer->UserData = Config.renderer;
             Config.richTextConfig->Platform = new RichTextPlatformSupport{};
+            Config.logger = logger;
         }
 #endif
 
         Config.implicitInheritedProps = ~(StyleBackground | StyleHeight | StyleWidth | StyleMaxWidth |
             StyleMaxHeight | StyleMinWidth | StyleMinHeight);
         return Config;
+    }
+
+    IWidgetLogger* CreateJSONLogger(std::string_view path, bool separateFrames)
+    {
+#ifdef GLIMMER_ENABLE_TESTING
+        static WidgetLogger logger{ path, separateFrames };
+        return &logger;
+#else
+        return nullptr;
+#endif
     }
 
     // Widget rendering are of three types:

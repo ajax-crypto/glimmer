@@ -130,6 +130,7 @@ namespace glimmer
         movingCols = std::make_pair<int16_t, int16_t>(-1, -1);
         phase = ItemGridConstructPhase::None;
         perDepthRowCount.clear(true);
+        cellvals.clear(true);
         rowYs.clear(true);
         clickedItem.row = clickedItem.col = clickedItem.depth = -1;
         resizecol = -1;
@@ -236,6 +237,8 @@ namespace glimmer
 
         if (Config.platform->desc.isRightClicked())
             WidgetContextData::RightClickContext.pos = Config.platform->desc.mousepos;
+
+        if (Config.logger) Config.logger->EnterFrame({});
     }
 
     void ResetFrameData()
@@ -287,6 +290,8 @@ namespace glimmer
             WidgetContextData::RightClickContext.pos = ImVec2{};
             WidgetContextData::PopupContext = nullptr;
         }
+
+        if (Config.logger) Config.logger->ExitFrame();
     }
 
     void WidgetContextData::RecordForReplay(int64_t data, LayoutOps ops)
@@ -1212,6 +1217,7 @@ namespace glimmer
     void Cleanup()
     {
         ImPlot::DestroyContext(ChartsContext);
+        if (Config.logger) Config.logger->Finish();
     }
 
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state)

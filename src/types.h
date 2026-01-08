@@ -175,6 +175,30 @@ namespace glimmer
 		} colors[WSI_Total];
     };
 
+    struct StyleDescriptor;
+
+    struct IWidgetLogger
+    {
+        virtual void EnterFrame(ImVec2 size) = 0;
+		virtual void ExitFrame() = 0;
+        virtual void Finish() = 0;
+
+        virtual void StartWidget(int32_t id, ImRect extent) = 0;
+        virtual void StartWidget(WidgetType type, int16_t index, ImRect extent) = 0;
+        virtual void Log(std::string_view fmt, ...) = 0;
+        virtual void LogStyle(const StyleDescriptor& style) = 0;
+		virtual void EndWidget() = 0;
+
+		virtual void StartObject(std::string_view name) = 0;
+		virtual void EndObject() = 0;
+        
+		virtual void StartArray(std::string_view name) = 0;
+		virtual void EndArray() = 0;
+
+        virtual void RegisterId(int32_t id, std::string_view name) {}
+        virtual void RegisterId(int32_t id, void* ptr) {}
+    };
+
     struct UIConfig
     {
         uint32_t bgcolor = ToRGBA(255, 255, 255);
@@ -208,10 +232,9 @@ namespace glimmer
         ScrollbarStyleDescriptor scrollbar;
         ICustomWidget* customWidget = nullptr;
         void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
+		IWidgetLogger* logger = nullptr;
         void* iconFont = nullptr;
         void* userData = nullptr;
-        char* dumpWidgetsAsJson = nullptr;
-		int totalDumpWidgetBufferSz = 0;
     };
 
     inline bool IsColorVisible(uint32_t color)
@@ -599,6 +622,7 @@ namespace glimmer
             std::string_view name;
             std::string_view id;
             int32_t props = COL_Resizable;
+            int32_t genid = -1;
             int16_t width = 0;
             int16_t parent = -1;
             TextType textType = TextType::PlainText;

@@ -6,7 +6,8 @@
 namespace glimmer
 {
     UIConfig& GetUIConfig();
-    UIConfig& CreateUIConfig(bool needRichText);
+    UIConfig& CreateUIConfig(bool needRichText, IWidgetLogger* logger = nullptr);
+    IWidgetLogger* CreateJSONLogger(std::string_view path, bool separateFrames);
     int32_t GetNextId(WidgetType type);
     int16_t GetNextCount(WidgetType type);
 
