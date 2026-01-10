@@ -19,6 +19,14 @@
 #include <fstream>
 #include <deque>
 #include <cassert>
+#include <algorithm>
+
+#ifndef _WIN32
+#include <limits.h>
+#ifndef _MAX_PATH
+#define _MAX_PATH PATH_MAX
+#endif
+#endif
 
 #include "imrichtext.h"
 #include "context.h"
@@ -427,8 +435,12 @@ namespace glimmer
                 {
                     auto baseFontPath = BaseFontPaths[idx];
                     memset(baseFontPath, 0, _MAX_PATH);
-                    auto sz = std::min((int)names->BasePath.size(), _MAX_PATH);
+                    auto sz = std::min((int)names->BasePath.size(), _MAX_PATH - 1);
+#ifdef _WIN32
                     strncpy_s(baseFontPath, _MAX_PATH - 1, names->BasePath.data(), sz);
+#else
+                    strncpy(baseFontPath, names->BasePath.data(), sz);
+#endif
                     baseFontPath[sz] = '\0';
                 }
             }

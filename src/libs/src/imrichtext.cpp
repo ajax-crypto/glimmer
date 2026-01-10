@@ -2321,7 +2321,6 @@ namespace ImRichText
 
             for (auto& segment : line.Segments)
             {
-                auto& segment = line.Segments.front();
                 auto& style = _result.StyleDescriptors[segment.StyleIdx + 1];
 
                 // If complete text is already clipped, do not apply alignment

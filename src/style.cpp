@@ -2,6 +2,8 @@
 #include "context.h"
 
 #include <cctype>
+#include <cstring>
+#include <cstdio>
 #include <unordered_map>
 #include <variant>
 #include "style.h"

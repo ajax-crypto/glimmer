@@ -9,6 +9,7 @@
 #include <string_view>
 #include <optional>
 #include <vector>
+#include <tuple>
 
 #ifndef GLIMMER_DEFAULT_FONTFAMILY
 #define GLIMMER_DEFAULT_FONTFAMILY "default-font-family"
@@ -429,7 +430,7 @@ namespace glimmer
         std::pair<int, int> selection{ -1, -1 };
         std::string_view prefix, suffix;
         int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
-		std::string_view maskchar = "•";
+		std::string_view maskchar = "ï¿½";
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
         SymbolIcon suffixIcon = SymbolIcon::None;

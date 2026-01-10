@@ -2,6 +2,9 @@
 #include "context.h"
 #include "renderer.h"
 
+#include <string>
+#include <stdexcept>
+
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 #include "nfd-ext/src/include/nfd.h"
 #endif
@@ -19,7 +22,7 @@ static void DetermineKeyStatus(glimmer::IODescriptor& desc)
     desc.insert = GetAsyncKeyState(VK_INSERT) < 0;
 }
 #elif __linux__
-#include <ctsdio>
+#include <cstdio>
 #include <unistd.h>
 
 static std::string exec(const char* cmd)
@@ -90,7 +93,7 @@ namespace glimmer
 
     int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
-        int totalFilters, const DialogProperties& props)
+        int totalFilters, const DialogProperties* props)
     {
         assert(out != nullptr && outsz >= 1);
         static Vector<nfdu8filteritem_t, int16_t, 16> filterItems{ false };
@@ -174,7 +177,7 @@ namespace glimmer
 
     int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
-        int totalFilters, const DialogProperties& props)
+        int totalFilters, const DialogProperties* props)
     {
         return 0;
     }
