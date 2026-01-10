@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <charconv>
 #include <limits>
+#include <algorithm>
 
 #ifndef GLIMMER_DISABLE_GIF
 #include <chrono>

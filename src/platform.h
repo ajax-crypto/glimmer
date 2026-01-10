@@ -202,9 +202,9 @@ namespace glimmer
 
         struct DialogProperties
         {
-            std::string_view title;
-            std::string_view confirmBtnText = "OK";
-            std::string_view cancelBtnText = "Cancel";
+            std::string_view title{};
+            std::string_view confirmBtnText{"OK"};
+            std::string_view cancelBtnText{"Cancel"};
         };
 
         friend int64_t FramesRendered();
@@ -219,7 +219,7 @@ namespace glimmer
         virtual void GetWindowHandle(void*);
         virtual int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
-            int totalFilters = 0, const DialogProperties& props = DialogProperties{});
+            int totalFilters = 0, const DialogProperties* props = nullptr);
 
         void SetMouseCursor(MouseCursor cursor);
 
