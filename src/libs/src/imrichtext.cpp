@@ -1306,7 +1306,7 @@ namespace ImRichText
             std::fill(animation.xoffsets.begin(), animation.xoffsets.end(), 0.f);
         }
 
-        auto currFrameTime = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        auto currFrameTime = config->Platform->DeltaTime();
 
         config->Renderer->SetClipRect(pos, endpos);
         config->Renderer->DrawRect(pos, endpos, config->DefaultBgColor, true);

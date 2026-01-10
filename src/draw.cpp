@@ -359,14 +359,15 @@ namespace glimmer
                 !disabled && style.index.animation != InvalidIdx)
             {
                 auto& context = GetContext();
-                auto& animation = context.animations[style.index.animation];
+                // TODO: Pass animation context here
+                //auto& animation = context.animations[style.index.animation];
                 ImVec2 textsz = textrect.GetWidth() == 0.f ? renderer.GetTextSize(text, style.font.font, style.font.size) :
                     textrect.GetSize();
 
                 if (textsz.x > content.GetWidth())
                 {
-                    animation.moveByPixel(1.f, content.GetWidth(), -textsz.x);
-                    content.Min.x += animation.offset;
+                    //animation.moveByPixel(1.f, content.GetWidth(), -textsz.x);
+                    //content.Min.x += animation.offset;
                     renderer.DrawText(text, content.Min, style.fgcolor, style.dimension.x > 0 ? style.dimension.x : -1.f);
                 }
                 else

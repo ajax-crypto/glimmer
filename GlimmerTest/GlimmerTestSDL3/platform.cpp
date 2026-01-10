@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <list>
+#include <deque>
 
 #include "libs/inc/SDL3/SDL.h"
 #include "libs/inc/SDL3/SDL_gpu.h"
@@ -18,6 +19,7 @@
 #endif
 
 #ifdef _WIN32
+#include <Windows.h>
 #undef CreateWindow
 #endif
 
@@ -51,6 +53,29 @@ namespace glimmer
     }
 
     static std::list<SDL_GPUTextureSamplerBinding> SamplerBindings;
+
+    bool SDLCALL SDL_CustomWindowsMessageHook(void* userdata, MSG* msg)
+    {
+        if (msg->message == WM_HOTKEY)
+        {
+            auto& data = ((std::deque<CustomEventData>*)userdata)->emplace_back();
+            data.data.hotkey.key = GetGlimmerKey(HIWORD(msg->wParam));
+
+            auto modifiers = LOWORD(msg->wParam);
+            if (modifiers & MOD_CONTROL) data.data.hotkey.modifiers |= CtrlKeyMod;
+            if (modifiers & MOD_SHIFT) data.data.hotkey.modifiers |= ShiftKeyMod;
+            if (modifiers & MOD_ALT) data.data.hotkey.modifiers |= AltKeyMod;
+            if (modifiers & MOD_WIN) data.data.hotkey.modifiers |= SuperKeyMod;
+
+            SDL_Event event;
+            event.type = SDL_EVENT_USER;
+            event.user.data1 = userdata;
+            SDL_PushEvent(&event);
+            return false;
+        }
+
+        return true;
+    }
 
     struct ImGuiSDL3Platform final : public IPlatform
     {
@@ -114,6 +139,9 @@ namespace glimmer
             if (params.size.x == -1.f || params.size.y == -1.f) SDL_MaximizeWindow(window);
             SDL_ShowWindow(window);
 
+            if (totalCustomEvents > 0)
+                SDL_SetWindowsMessageHook(&SDL_CustomWindowsMessageHook, &custom);
+
             // Create GPU Device
 #ifdef _DEBUG
             auto enableDeviceDebugging = true;
@@ -131,7 +159,15 @@ namespace glimmer
             {
                 printf("Warning [Unable to create GPU device], falling back to software rendering : %s\n", SDL_GetError());
                 fallback = SDL_CreateRenderer(window, "software");
-                SDL_SetRenderVSync(fallback, 1);
+                targetFPS = params.targetFPS;
+
+                if (params.targetFPS == -1)
+                {
+                    SDL_SetRenderVSync(fallback, 1);
+                    auto display = SDL_GetDisplayForWindow(window);
+                    auto mode = SDL_GetCurrentDisplayMode(display);
+                    targetFPS = (int)mode->refresh_rate;
+                }
                 Config.renderer = CreateSoftwareRenderer();
 
                 if (fallback == nullptr)
@@ -149,8 +185,19 @@ namespace glimmer
                     return false;
                 }
 
+                targetFPS = params.targetFPS;
+
+                if (params.targetFPS == -1)
+                {
+                    auto display = SDL_GetDisplayForWindow(window);
+                    auto mode = SDL_GetCurrentDisplayMode(display);
+                    targetFPS = (int)mode->refresh_rate;
+                    SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
+                }
+                else
+                    SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
+
                 Config.renderer = CreateImGuiRenderer();
-                SDL_SetGPUSwapchainParameters(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
             }
 
 
@@ -169,6 +216,7 @@ namespace glimmer
 #endif //  _DEBUG
 
             device ? ImGui_ImplSDL3_InitForSDLGPU(window) : ImGui_ImplSDL3_InitForSDLRenderer(window, fallback);
+            return true;
         }
 
         void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) override
@@ -192,6 +240,7 @@ namespace glimmer
             bool done = false;
             while (!done)
             {
+                auto resetCustom = false;
                 int width = 0, height = 0;
                 SDL_GetWindowSize(window, &width, &height);
 
@@ -205,6 +254,8 @@ namespace glimmer
                         done = true;
                     else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED)
                         InvalidateLayout();
+                    else if (event.type == SDL_EVENT_USER)
+                        resetCustom = true;
                 }
 
                 if (done) break;
@@ -220,7 +271,7 @@ namespace glimmer
                 device ? ImGui_ImplSDLGPU3_NewFrame() : ImGui_ImplSDLRenderer3_NewFrame();
                 ImGui_ImplSDL3_NewFrame();
 
-                if (EnterFrame(width, height))
+                if (EnterFrame(width, height, custom.empty() ? CustomEventData{} : custom.front()))
                 {
                     done = !runner(ImVec2{ (float)width, (float)height }, *this, data);
 
@@ -274,6 +325,8 @@ namespace glimmer
                     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), fallback);
                     SDL_RenderPresent(fallback);
                 }
+
+                if (resetCustom) custom.clear();
             }
 
             if (device)
@@ -513,6 +566,7 @@ namespace glimmer
 #endif
 
         std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
+        std::deque<CustomEventData> custom;
     };
 
     IPlatform* InitPlatform(ImVec2 size)

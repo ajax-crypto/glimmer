@@ -122,9 +122,39 @@ namespace glimmer
         Key_Total
     };
 
+#ifdef _WIN32
+    int GetWin32VirtualKey(Key key);
+    Key GetGlimmerKey(int vkCode);
+#endif
+
     enum class ButtonStatus : int16_t
     {
         Default, Pressed, Released, DoubleClicked
+    };
+
+    enum class CustomEventType
+    {
+        INVALID, HOTKEY
+    };
+
+    struct HotKeyEvent
+    {
+        Key key;
+        int32_t modifiers = 0;
+    };
+
+    struct CustomEventData
+    {
+        CustomEventType type = CustomEventType::INVALID;
+
+        union Data
+        {
+            HotKeyEvent hotkey;
+
+            Data() {}
+        } data;
+
+        CustomEventData() {}
     };
 
     struct IODescriptor
@@ -138,6 +168,7 @@ namespace glimmer
         int32_t modifiers = 0;
         Key key[GLIMMER_NKEY_ROLLOVER_MAX + 1];
         ButtonStatus keyStatus[GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1];
+        CustomEventData custom;
         bool capslock = false;
         bool insert = false;
 
@@ -185,6 +216,7 @@ namespace glimmer
         std::string_view icon;
         int32_t iconType = RT_PATH | RT_PNG;
         uint8_t bgcolor[4] = { 255, 255, 255, 255 };
+        int targetFPS = -1; // -1 implies vsync rate
         bool softwareCursor = false;
     };
 
@@ -221,6 +253,8 @@ namespace glimmer
             std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
             int totalFilters = 0, const DialogProperties& props = DialogProperties{});
 
+        virtual bool RegisterHotkey(const HotKeyEvent& hotkey);
+
         void SetMouseCursor(MouseCursor cursor);
 
         IODescriptor CurrentIO() const;
@@ -232,13 +266,15 @@ namespace glimmer
 
     protected:
 
-        bool EnterFrame(float w, float h);
+        bool EnterFrame(float w, float h, const CustomEventData& event);
         void ExitFrame();
 
         static bool DetermineInitialKeyStates(IODescriptor& desc);
 
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;
+        int32_t totalCustomEvents = 0;
+        int32_t targetFPS = -1;
         float totalTime = 0.f;
         float totalDeltaTime = 0.f;
         float maxFrameTime = 0.f;

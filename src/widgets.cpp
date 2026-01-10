@@ -8073,6 +8073,8 @@ namespace glimmer
         void HandleHyperlink(std::string_view) {}
         void RequestFrame() {}
         void HandleHover(bool) {}
+
+        float DeltaTime() { return Config.platform->CurrentIO().deltaTime; }
     };
 
 #endif

@@ -206,6 +206,7 @@ namespace ImRichText
         virtual void HandleHyperlink(std::string_view) = 0;
         virtual void RequestFrame() = 0;
         virtual void HandleHover(bool) = 0;
+        virtual float DeltaTime() = 0;
     };
 
     struct IntOrFloat

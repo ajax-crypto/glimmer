@@ -63,17 +63,6 @@ namespace glimmer
 {
     extern UIConfig Config;
 
-    struct AnimationData
-    {
-        int32_t elements = 0;
-        int32_t types = 0;
-        ImGuiDir direction = ImGuiDir::ImGuiDir_Right;
-        float offset = 0.f;
-        float timestamp = 0; // TODO: Make stepping common
-
-        void moveByPixel(float amount, float max, float reset);
-    };
-
     constexpr int AnimationsPreallocSz = 32;
     constexpr int ShadowsPreallocSz = 64;
     constexpr int FontStylePreallocSz = 64;
@@ -831,9 +820,6 @@ namespace glimmer
 
         // Resolved styles, after applying widget, class(es) and id specific styles
         Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
-
-        // This has to persistent
-        std::vector<AnimationData> animations{ AnimationsPreallocSz, AnimationData{} };
 
         // Layout related members
         Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
