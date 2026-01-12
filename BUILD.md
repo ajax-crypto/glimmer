@@ -64,7 +64,7 @@ sudo yum install libX11-devel libXext-devel libXi-devel libXfixes-devel
 Before building Glimmer, you must build the required static libraries:
 
 ```bash
-cd /home/amd/glimmer
+cd glimmer  # Navigate to your glimmer directory
 ./build_dependencies.sh
 ```
 
@@ -138,7 +138,7 @@ If you prefer to use CMake directly:
 ### 1. Create Build Directory
 
 ```bash
-cd /home/amd/glimmer
+cd glimmer  # Your glimmer directory
 mkdir -p build
 cd build
 ```
@@ -215,18 +215,21 @@ staticlib/
 In your project's CMakeLists.txt:
 
 ```cmake
+# Set your Glimmer installation path
+set(GLIMMER_ROOT "/path/to/glimmer")  # Update this to your glimmer location
+
 # Add Glimmer include directories
-include_directories(/home/amd/glimmer)
-include_directories(/home/amd/glimmer/src)
-include_directories(/home/amd/glimmer/src/libs/inc)
+include_directories(${GLIMMER_ROOT})
+include_directories(${GLIMMER_ROOT}/src)
+include_directories(${GLIMMER_ROOT}/src/libs/inc)
 
 # Link against the static library and all dependencies
 add_executable(myapp main.cpp)
 
 # Glimmer and its dependencies
-set(GLIMMER_LIB_DIR /home/amd/glimmer/src/libs/lib/linux/release)
+set(GLIMMER_LIB_DIR ${GLIMMER_ROOT}/src/libs/lib/linux/release)
 target_link_libraries(myapp 
-    /home/amd/glimmer/staticlib/libglimmer.a
+    ${GLIMMER_ROOT}/staticlib/libglimmer.a
     ${GLIMMER_LIB_DIR}/libimgui.a
     ${GLIMMER_LIB_DIR}/libimplot.a
     ${GLIMMER_LIB_DIR}/libyogacore.a
@@ -251,7 +254,8 @@ target_link_libraries(myapp
 ### 2. Using with GCC/Clang Directly
 
 ```bash
-GLIMMER_DIR=/home/amd/glimmer
+# Set your Glimmer directory
+GLIMMER_DIR=/path/to/glimmer  # Update this to your glimmer location
 LIB_DIR=$GLIMMER_DIR/src/libs/lib/linux/release
 
 g++ -std=c++20 main.cpp \
@@ -329,20 +333,20 @@ make -j$(nproc)
 Check that the library was created:
 
 ```bash
-ls -lh /home/amd/glimmer/staticlib/libglimmer.a
+ls -lh staticlib/libglimmer.a
 ```
 
 Check symbols in the library:
 
 ```bash
-nm /home/amd/glimmer/staticlib/libglimmer.a | grep glimmer
+nm staticlib/libglimmer.a | grep glimmer
 ```
 
 Check library information:
 
 ```bash
-file /home/amd/glimmer/staticlib/libglimmer.a
-ar -t /home/amd/glimmer/staticlib/libglimmer.a
+file staticlib/libglimmer.a
+ar -t staticlib/libglimmer.a
 ```
 
 ## Platform Notes
@@ -359,8 +363,8 @@ The library is built with position-independent code (`-fPIC`) and links against 
 
 - See `README.md` for library usage and API documentation
 - See `GlimmerTest/test.cpp` for example code
-- Library source: `/home/amd/glimmer/src/`
-- Dependencies: `/home/amd/glimmer/src/libs/`
+- Library source: `src/` directory
+- Dependencies: `src/libs/` directory
 
 
 
