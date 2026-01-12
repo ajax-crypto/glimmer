@@ -55,18 +55,6 @@ namespace glimmer
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
     void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
 
-    void AnimationData::moveByPixel(float amount, float max, float reset)
-    {
-        timestamp += Config.platform->desc.deltaTime;
-
-        if (timestamp >= GLIMMER_GLOBAL_ANIMATION_FRAMETIME)
-        {
-            offset += amount;
-            if (offset >= max) offset = reset;
-            timestamp = 0.f;
-        }
-    }
-
     void LayoutBuilder::reset()
     {
         type = Layout::Invalid;

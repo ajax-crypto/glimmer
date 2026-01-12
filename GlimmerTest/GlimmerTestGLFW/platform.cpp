@@ -215,7 +215,7 @@ namespace glimmer
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplGlfw_NewFrame();
 
-                if (EnterFrame(width, height))
+                if (EnterFrame(width, height, CustomEventData{}))
                 {
                     close = !runner(ImVec2{ width, height }, *this, data);
 

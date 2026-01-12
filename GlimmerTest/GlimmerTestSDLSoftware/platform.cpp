@@ -1,9 +1,11 @@
 #include "platform.h"
 #include "context.h"
 #include "renderer.h"
+#include "layout.h"
 
 #include <cstring>
 #include <list>
+#include <deque>
 
 #include "libs/inc/SDL3/SDL.h"
 #include "libs/inc/imguisdl3/imgui_impl_sdl3.h"
@@ -19,6 +21,7 @@
 #endif
 
 #ifdef _WIN32
+#include <Windows.h>
 #undef CreateWindow
 #endif
 
@@ -52,6 +55,29 @@ namespace glimmer
     }
 
     static std::list<SDL_GPUTextureSamplerBinding> SamplerBindings;
+
+    bool SDLCALL SDL_CustomWindowsMessageHook(void* userdata, MSG* msg)
+    {
+        if (msg->message == WM_HOTKEY)
+        {
+            auto& data = ((std::deque<CustomEventData>*)userdata)->emplace_back();
+            data.data.hotkey.key = GetGlimmerKey(HIWORD(msg->wParam));
+            
+            auto modifiers = LOWORD(msg->wParam);
+            if (modifiers & MOD_CONTROL) data.data.hotkey.modifiers |= CtrlKeyMod;
+            if (modifiers & MOD_SHIFT) data.data.hotkey.modifiers |= ShiftKeyMod;
+            if (modifiers & MOD_ALT) data.data.hotkey.modifiers |= AltKeyMod;
+            if (modifiers & MOD_WIN) data.data.hotkey.modifiers |= SuperKeyMod;
+
+            SDL_Event event;
+            event.type = SDL_EVENT_USER;
+            event.user.data1 = userdata;
+            SDL_PushEvent(&event);
+            return false;
+        }
+
+        return true;
+    }
 
     struct ImGuiSDL3SoftwarePlatform final : public IPlatform
     {
@@ -89,7 +115,16 @@ namespace glimmer
             }
 
             renderer = SDL_CreateRenderer(window, "software");
-            SDL_SetRenderVSync(renderer, 1);
+            targetFPS = params.targetFPS;
+
+            if (params.targetFPS == -1)
+            {
+                SDL_SetRenderVSync(renderer, 1);
+                auto display = SDL_GetDisplayForWindow(window);
+                auto mode = SDL_GetCurrentDisplayMode(display);
+                targetFPS = (int)mode->refresh_rate;
+            }
+
             if (renderer == nullptr)
             {
                 SDL_Log("Error: SDL_CreateRenderer(): %s\n", SDL_GetError());
@@ -115,6 +150,9 @@ namespace glimmer
             SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
             if (params.size.x == -1.f || params.size.y == -1.f) SDL_MaximizeWindow(window);
             SDL_ShowWindow(window);
+
+            if (totalCustomEvents > 0)
+                SDL_SetWindowsMessageHook(&SDL_CustomWindowsMessageHook, &custom);
             
             ImGui::CreateContext();
             ImGuiIO& io = ImGui::GetIO();
@@ -131,6 +169,7 @@ namespace glimmer
 #endif //  _DEBUG
 
             ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
+            return true;
         }
 
         bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
@@ -147,17 +186,23 @@ namespace glimmer
             while (!done)
 #endif
             {
+                auto resetCustom = false;
                 int width = 0, height = 0;
                 SDL_GetWindowSize(window, &width, &height);
 
                 SDL_Event event;
+                
                 while (SDL_PollEvent(&event))
                 {
                     ImGui_ImplSDL3_ProcessEvent(&event);
                     if (event.type == SDL_EVENT_QUIT)
                         done = true;
-                    if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
+                    else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
                         done = true;
+                    else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED)
+                        InvalidateLayout();
+                    else if (event.type == SDL_EVENT_USER)
+                        resetCustom = true;
                 }
 
                 if (done) break;
@@ -173,7 +218,7 @@ namespace glimmer
                 ImGui_ImplSDLRenderer3_NewFrame();
                 ImGui_ImplSDL3_NewFrame();
 
-                if (EnterFrame(width, height))
+                if (EnterFrame(width, height, custom.empty() ? CustomEventData{} : custom.front()))
                 {
                     done = !runner(ImVec2{ width, height }, *this, data);
 
@@ -189,6 +234,8 @@ namespace glimmer
                 SDL_RenderClear(renderer);
                 ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
                 SDL_RenderPresent(renderer);
+
+                if (resetCustom) custom.clear();
             }
 #ifdef __EMSCRIPTEN__
             EMSCRIPTEN_MAINLOOP_END;
@@ -351,6 +398,7 @@ namespace glimmer
         SDL_Window* window = nullptr;
         SDL_Renderer* renderer = nullptr;
         std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
+        std::deque<CustomEventData> custom;
     };
 
     IPlatform* GetPlatform(ImVec2 size)

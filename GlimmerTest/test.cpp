@@ -323,7 +323,6 @@ int main(int argc, char** argv)
     auto& config = glimmer::CreateUIConfig(true);
     config.defaultFontSz = 24.f;
     config.platform = glimmer::InitPlatform();
-	config.logger = glimmer::CreateJSONLogger("C:\\Dev\\glimmer\\staticlib\\glimmer\\x64", true);
     
     if (config.platform->CreateWindow({ .title = "Glimmer Demo" }))
     {
