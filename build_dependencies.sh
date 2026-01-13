@@ -220,11 +220,11 @@ else
     cmake .. \
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DBUILD_SHARED_LIBS=OFF \
-        -DFT_DISABLE_ZLIB=OFF \
-        -DFT_DISABLE_BZIP2=OFF \
+        -DFT_DISABLE_ZLIB=ON \
+        -DFT_DISABLE_BZIP2=ON \
         -DFT_DISABLE_PNG=OFF \
         -DFT_DISABLE_HARFBUZZ=ON \
-        -DFT_DISABLE_BROTLI=OFF
+        -DFT_DISABLE_BROTLI=ON
     make -j$(nproc)
     # Debug builds create libfreetyped.a, release creates libfreetype.a
     if [ "$BUILD_TYPE" = "Debug" ]; then
