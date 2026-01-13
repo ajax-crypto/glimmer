@@ -2,6 +2,19 @@
 
 # Build script for Glimmer Linux dependencies
 # This builds plutovg, lunasvg, SDL3, and blend2d as static libraries
+#
+# SYSTEM DEPENDENCIES REQUIRED:
+# - libXrandr-devel (for SDL3 XRANDR multi-monitor support)
+# - libXrender-devel (dependency of libXrandr-devel)
+# - gcc-toolset-12 (for C++20 support in Yoga)
+#
+# Install on Rocky Linux/RHEL 8:
+#   sudo yum install -y libXrender-devel libXrandr-devel gcc-toolset-12
+#
+# Or download manually from Rocky Linux repos if subscription issues:
+#   wget https://dl.rockylinux.org/pub/rocky/8/AppStream/x86_64/os/Packages/l/libXrender-devel-0.9.10-7.el8.x86_64.rpm
+#   wget https://dl.rockylinux.org/pub/rocky/8/AppStream/x86_64/os/Packages/l/libXrandr-devel-1.5.2-1.el8.x86_64.rpm
+#   sudo rpm -ivh libXrender-devel-*.rpm libXrandr-devel-*.rpm
 
 set -e  # Exit on error
 
@@ -171,7 +184,7 @@ else
         -DSDL_TEST=OFF \
         -DSDL_X11_XCURSOR=OFF \
         -DSDL_X11_XINERAMA=OFF \
-        -DSDL_X11_XRANDR=OFF \
+        -DSDL_X11_XRANDR=ON \
         -DSDL_X11_XSCRNSAVER=OFF \
         -DSDL_X11_XSHAPE=OFF \
         -DSDL_X11_XTEST=OFF && \
@@ -211,7 +224,7 @@ else
         -DFT_DISABLE_BZIP2=OFF \
         -DFT_DISABLE_PNG=OFF \
         -DFT_DISABLE_HARFBUZZ=ON \
-        -DFT_DISABLE_BROTLI=ON
+        -DFT_DISABLE_BROTLI=OFF
     make -j$(nproc)
     # Debug builds create libfreetyped.a, release creates libfreetype.a
     if [ "$BUILD_TYPE" = "Debug" ]; then
@@ -327,7 +340,13 @@ else
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DBUILD_SHARED_LIBS=OFF \
         -DBLEND2D_STATIC=ON \
-        -DBLEND2D_TEST=OFF
+        -DBLEND2D_TEST=OFF \
+        -DBL_BUILD_OPT_AVX512=ON \
+        -DASMJIT_NO_FOREIGN=ON \
+        -DASMJIT_NO_STDCXX=ON \
+        -DASMJIT_ABI_NAMESPACE=abi_bl \
+        -DASMJIT_STATIC=ON \
+        -DASMJIT_NO_AARCH64=ON
     make -j$(nproc)
     cp libblend2d.a "$LIB_OUTPUT_DIR/"
     echo -e "${GREEN}✓ blend2d built successfully${NC}"
@@ -355,4 +374,3 @@ if [ "$BUILD_TYPE" = "Debug" ]; then
 else
     echo -e "${YELLOW}Next step: cd $PROJECT_ROOT && ./build.sh${NC}"
 fi
-
