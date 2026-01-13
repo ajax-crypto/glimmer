@@ -439,7 +439,8 @@ namespace glimmer
         {
         }
 
-        template <typename Ty>
+        template <typename Ty,
+            typename = std::enable_if_t<!std::is_pointer_v<Ty>>>
         DynamicStack(Ty param)
             : _data{ param }
         {

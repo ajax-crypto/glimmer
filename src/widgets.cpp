@@ -8594,7 +8594,7 @@ namespace glimmer
         case WT_Custom: {
             if (Config.customWidget != nullptr)
             {
-                const auto style = Config.customWidget->GetStyle(wid, WidgetContextData::StyleStack);
+                const auto style = Config.customWidget->GetStyle(wid, WidgetContextData::StyleStack[WSI_Default]);
 
                 if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
                 {

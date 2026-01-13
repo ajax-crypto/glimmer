@@ -1836,7 +1836,7 @@ namespace glimmer
         case WT_Custom: {
             if (Config.customWidget != nullptr)
             {
-                const auto style = Config.customWidget->GetStyle(item.id, StyleStack);
+                const auto style = Config.customWidget->GetStyle(item.id, StyleStack[WSI_Default]);
                 UpdateGeometry(item, bbox, style);
 
                 if (render)

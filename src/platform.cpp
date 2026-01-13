@@ -316,7 +316,7 @@ namespace glimmer
 
     int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
-        int totalFilters, const DialogProperties* props)
+        int totalFilters, const DialogProperties& props)
     {
         assert(out != nullptr && outsz >= 1);
         static Vector<nfdu8filteritem_t, int16_t, 16> filterItems{ false };
@@ -400,7 +400,7 @@ namespace glimmer
 
     int32_t IPlatform::ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters,
-        int totalFilters, const DialogProperties* props)
+        int totalFilters, const DialogProperties& props)
     {
         return 0;
     }
