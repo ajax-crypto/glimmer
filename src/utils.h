@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdint.h>
 #include <assert.h>
+#include <cstdlib>
 
 #ifdef _DEBUG
 #include <cstdio>
@@ -160,7 +161,7 @@ namespace glimmer
         }
 
         template <typename IntegralT,
-            typename = std::enable_if<!std::is_same_v<IntegralT, bool>, void>::type>
+            typename = std::enable_if_t<std::is_integral_v<IntegralT> && !std::is_same_v<IntegralT, bool>>>
         explicit Vector(IntegralT initialsz)
             : _capacity{ (Sz)initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * (Sz)initialsz) }
         {
@@ -438,7 +439,8 @@ namespace glimmer
         {
         }
 
-        template <typename Ty>
+        template <typename Ty,
+            typename = std::enable_if_t<!std::is_pointer_v<Ty>>>
         DynamicStack(Ty param)
             : _data{ param }
         {

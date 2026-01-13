@@ -235,8 +235,8 @@ namespace glimmer
         struct DialogProperties
         {
             std::string_view title;
-            std::string_view confirmBtnText = "OK";
-            std::string_view cancelBtnText = "Cancel";
+            std::string_view confirmBtnText;
+            std::string_view cancelBtnText;
         };
 
         friend int64_t FramesRendered();

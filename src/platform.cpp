@@ -2,6 +2,9 @@
 #include "context.h"
 #include "renderer.h"
 
+#include <string>
+#include <stdexcept>
+
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 #include "nfd-ext/src/include/nfd.h"
 #endif
@@ -242,7 +245,7 @@ static void DetermineKeyStatus(glimmer::IODescriptor& desc)
     desc.insert = GetAsyncKeyState(VK_INSERT) < 0;
 }
 #elif __linux__
-#include <ctsdio>
+#include <cstdio>
 #include <unistd.h>
 
 static std::string exec(const char* cmd)

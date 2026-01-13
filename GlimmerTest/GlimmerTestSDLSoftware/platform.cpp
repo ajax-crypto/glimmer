@@ -218,9 +218,9 @@ namespace glimmer
                 ImGui_ImplSDLRenderer3_NewFrame();
                 ImGui_ImplSDL3_NewFrame();
 
-                if (EnterFrame(width, height, custom.empty() ? CustomEventData{} : custom.front()))
+                if (EnterFrame(static_cast<float>(width), static_cast<float>(height), custom.empty() ? CustomEventData{} : custom.front()))
                 {
-                    done = !runner(ImVec2{ width, height }, *this, data);
+                    done = !runner(ImVec2{ static_cast<float>(width), static_cast<float>(height) }, *this, data);
 
                     for (auto [data, handler] : handlers)
                         done = !handler(data, desc) && done;
@@ -340,7 +340,6 @@ namespace glimmer
                 }
 
                 auto allowMany = (target & MultipleFiles) != 0;
-                auto allowMany = (target & MultipleFiles) != 0;
                 auto pset = SDL_CreateProperties();
                 SDL_SetPointerProperty(pset, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, sdlfilters.data());
                 SDL_SetNumberProperty(pset, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, totalFilters);
@@ -401,7 +400,7 @@ namespace glimmer
         std::deque<CustomEventData> custom;
     };
 
-    IPlatform* GetPlatform(ImVec2 size)
+    IPlatform* InitPlatform(ImVec2 size)
     {
         static ImGuiSDL3SoftwarePlatform platform;
         static bool initialized = false;

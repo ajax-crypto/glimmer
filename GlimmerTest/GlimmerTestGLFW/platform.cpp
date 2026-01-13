@@ -215,9 +215,9 @@ namespace glimmer
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplGlfw_NewFrame();
 
-                if (EnterFrame(width, height, CustomEventData{}))
+                if (EnterFrame(static_cast<float>(width), static_cast<float>(height), CustomEventData{}))
                 {
-                    close = !runner(ImVec2{ width, height }, *this, data);
+                    close = !runner(ImVec2{ static_cast<float>(width), static_cast<float>(height) }, *this, data);
 
                     for (auto [data, handler] : handlers)
                         close = !handler(data, desc) && close;

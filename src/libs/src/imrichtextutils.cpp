@@ -2,6 +2,7 @@
 #include "imrichtextutils.h"
 
 #include <cctype>
+#include <cstring>
 #include <unordered_map>
 
 #include "renderer.h"

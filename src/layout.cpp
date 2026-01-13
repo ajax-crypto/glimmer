@@ -9,6 +9,7 @@
 #include "widgets.h"
 
 #include <limits>
+#include <cstdint>
 
 #define GLIMMER_FLAT_ENGINE 0
 #define GLIMMER_CLAY_ENGINE 1
@@ -1835,7 +1836,7 @@ namespace glimmer
         case WT_Custom: {
             if (Config.customWidget != nullptr)
             {
-                const auto style = Config.customWidget->GetStyle(item.id, StyleStack);
+                const auto style = Config.customWidget->GetStyle(item.id, StyleStack[WSI_Default]);
                 UpdateGeometry(item, bbox, style);
 
                 if (render)
@@ -2227,7 +2228,7 @@ namespace glimmer
         {
             auto sz = layout.geometry.GetSize();
             auto itemidx = layout.itemidx;
-            auto gridItemIdx = reinterpret_cast<int>(context.layoutItems[itemidx].implData);
+            auto gridItemIdx = reinterpret_cast<intptr_t>(context.layoutItems[itemidx].implData);
             auto& item = GridLayoutItems[gridItemIdx];
             item.maxdim = sz;
         }
@@ -2430,7 +2431,7 @@ namespace glimmer
                 }
                 else if (layout.type == Layout::Grid)
                 {
-                    auto idx = reinterpret_cast<int16_t>(item.implData);
+                    auto idx = static_cast<int16_t>(reinterpret_cast<intptr_t>(item.implData));
                     auto bbox = GridLayoutItems[idx].bbox;
                     UpdateItemGeometry(context, bbox, item, layout);
                 }
