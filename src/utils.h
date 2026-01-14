@@ -3,7 +3,6 @@
 #include <type_traits>
 #include <span>
 #include <optional>
-#include <stdint.h>
 #include <assert.h>
 #include <cstdlib>
 

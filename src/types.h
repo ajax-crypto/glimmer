@@ -2,8 +2,6 @@
 
 #include "config.h"
 #include "utils.h"
-#include "libs/inc/imgui/imgui.h"
-#include "libs/inc/imgui/imgui_internal.h"
 
 #include <string_view>
 #include <optional>

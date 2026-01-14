@@ -1,26 +1,14 @@
 #pragma once
 
-#include "libs/inc/imgui/imgui.h"
-#include "libs/inc/imgui/imgui_internal.h"
-#define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
-#define GLIMMER_KEY_ENUM_END ImGuiKey_NamedKey_END
-
 #include "types.h"
 
-inline bool operator==(const ImRect& lhs, const ImRect& rhs)
-{
-    return lhs.Min == rhs.Min && lhs.Max == rhs.Max;
-}
-
-inline bool operator!=(const ImRect& lhs, const ImRect& rhs)
-{
-    return lhs.Min != rhs.Min || lhs.Max != rhs.Max;
-}
-
-inline bool operator>(ImVec2 lhs, ImVec2 rhs)
-{
-    return lhs.x > rhs.x || lhs.y > rhs.y;
-}
+#ifndef GLIMMER_HIDE_IMGUI_DEPENDENCY
+#define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
+#define GLIMMER_KEY_ENUM_END ImGuiKey_NamedKey_END
+#else
+#define GLIMMER_KEY_ENUM_START 512
+#define GLIMMER_KEY_ENUM_END 667
+#endif
 
 #include <string_view>
 #include <vector>
@@ -28,6 +16,8 @@ inline bool operator>(ImVec2 lhs, ImVec2 rhs)
 
 namespace glimmer
 {
+#ifndef GLIMMER_HIDE_IMGUI_DEPENDENCY
+
     enum class MouseButton
     {
         LeftMouseButton = ImGuiMouseButton_Left,
@@ -55,9 +45,48 @@ namespace glimmer
         ResizeTopRight = ImGuiMouseCursor_ResizeNESW,
         ResizeTopLeft = ImGuiMouseCursor_ResizeNWSE,
         Grab = ImGuiMouseCursor_Hand,
+        Waiting = ImGuiMouseCursor_Wait,
+        Progress = ImGuiMouseCursor_Progress,
         NotAllowed = ImGuiMouseCursor_NotAllowed,
         TotalCursors
     };
+
+#else
+
+    enum class MouseButton
+    {
+        LeftMouseButton = 0,
+        RightMouseButton,
+        MiddleMouseButton,
+        Total
+    };
+
+    enum KeyModifiers : int32_t
+    {
+        CtrlKeyMod = 4096,
+        ShiftKeyMod = 8192,
+        AltKeyMod = 16384,
+        SuperKeyMod = 32768,
+    };
+
+    enum class MouseCursor
+    {
+        None = -1,
+        Arrow,
+        TextInput,
+        ResizeAll,
+        ResizeVertical,
+        ResizeHorizontal,
+        ResizeTopRight,
+        ResizeTopLeft,
+        Grab,
+        Waiting,
+        Progress,
+        NotAllowed,
+        TotalCursors
+    };
+
+#endif
 
     enum Key : int16_t
     {
@@ -205,6 +234,11 @@ namespace glimmer
 
     inline std::vector<std::pair<char, char>> KeyMappings;
 
+    enum class GraphicsAdapter
+    {
+        Software, Integrated, Dedicated
+    };
+
     struct WindowParams
     {
         ImVec2 size{ FLT_MAX, FLT_MAX };
@@ -213,6 +247,8 @@ namespace glimmer
         int32_t iconType = RT_PATH | RT_PNG;
         uint8_t bgcolor[4] = { 255, 255, 255, 255 };
         int targetFPS = -1; // -1 implies vsync rate
+        GraphicsAdapter adapter = GraphicsAdapter::Integrated;
+        bool fallbackSoftwareAdapter = true;
         bool softwareCursor = false;
     };
 

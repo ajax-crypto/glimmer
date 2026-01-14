@@ -1,7 +1,10 @@
+#include <stdint.h>
+
 #define GLIMMER_PLATFORM_TEST -1
 #define GLIMMER_PLATFORM_PDCURSES 0
 #define GLIMMER_PLATFORM_SDL3 1
 #define GLIMMER_PLATFORM_GLFW 2
+#define GLIMMER_PLATFORM_WASM 3 // Not implemented yet
 // Keep adding new platforms here...
 
 using ImWchar = unsigned int;
@@ -186,6 +189,34 @@ using ImWchar = unsigned int;
 
 #ifndef IM_RICHTEXT_MAX_COLORSTOPS
 #define IM_RICHTEXT_MAX_COLORSTOPS 4
+#endif
+
+#ifdef GLIMMER_HIDE_IMGUI_DEPENDENCY
+struct ImVec2 
+{ 
+    float x = 0.f, y = 0.f; 
+    ImVec2& operator+=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
+    ImVec2& operator-=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
+};
+bool operator==(const ImVec2& lhs, const ImVec2& rhs) { return lhs.x == rhs.x && lhs.y == rhs.y; }
+bool operator!=(const ImVec2& lhs, const ImVec2& rhs) { return lhs.x != rhs.x || lhs.y != rhs.y; }
+ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2{ lhs.x + rhs.x, lhs.y + rhs.y }; }
+ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2{ lhs.x - rhs.x, lhs.y - rhs.y }; }
+struct ImRect
+{
+    ImVec2 Min{}, Max{};
+    float GetWidth() const { return Max.x - Min.x; }
+    float GetHeight() const { return Max.y - Min.y; }
+    float GetArea() const { return GetWidth() * GetHeight(); }
+    bool Contains(const ImVec2& pos) const 
+    { return pos.x >= Min.x && pos.x <= Max.x && pos.y >= Min.y && pos.y <= Max.y; }
+    ImRect& Translate(const ImVec2& pos) { Min.x += pos.x; Max.x += pos.x; Min.y += pos.y; Max.y += pos.y; return *this; }
+    ImRect& TranslateX(float x) { Min.x += x; Max.x += x; return *this; }
+    ImRect& TranslateY(float y) { Min.y += y; Max.y += y; return *this; }
+};
+#else
+#include "libs/inc/imgui/imgui.h"
+#include "libs/inc/imgui/imgui_internal.h"
 #endif
 
 #ifdef _DEBUG

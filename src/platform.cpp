@@ -898,6 +898,28 @@ namespace glimmer
         KeyMappings[Key_GraveAccent] = { '`', '~' };
     }
 
+    static void SetPlatformDeviceProperties(SDL_PropertiesID props)
+    {
+#if defined(SDL_PLATFORM_WINDOWS)
+
+        // Prefer Direct3D 12 on Windows
+        SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, "direct3d12"); 
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXBC_BOOLEAN, true);
+
+#elif defined(SDL_PLATFORM_APPLE)
+
+        // Prefer Metal on macOS/iOS
+        SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, "metal"); 
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_METALLIB_BOOLEAN, true);
+
+#elif defined(SDL_PLATFORM_LINUX) || defined(SDL_PLATFORM_ANDROID)
+
+        // Prefer Vulkan on Linux/Android
+        SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, "vulkan"); 
+        SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+#endif
+    }
+
     static std::list<SDL_GPUTextureSamplerBinding> SamplerBindings;
 
     bool SDLCALL SDL_CustomWindowsMessageHook(void* userdata, MSG* msg)
@@ -989,19 +1011,25 @@ namespace glimmer
                 SDL_SetWindowsMessageHook(&SDL_CustomWindowsMessageHook, &custom);
 
             // Create GPU Device
+            if (params.adapter != GraphicsAdapter::Software)
+            {
+                SDL_PropertiesID props = SDL_CreateProperties();
+                SetPlatformDeviceProperties(props);
+
 #ifdef _DEBUG
-            auto enableDeviceDebugging = true;
+                SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, true);
 #else
-            auto enableDeviceDebugging = false;
+                SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, false);
 #endif
-#ifdef _WIN32
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXBC, enableDeviceDebugging, "direct3d12");
-#elif __linux__
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, enableDeviceDebugging, "vulkan");
-#elif __APPLE__
-            device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_METALLIB, enableDeviceDebugging, "metal");
-#endif
-            if (device == nullptr)
+
+                SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, 
+                    params.adapter == GraphicsAdapter::Integrated);
+                device = SDL_CreateGPUDeviceWithProperties(props);
+                SDL_DestroyProperties(props);
+            }
+
+            if ((device == nullptr && params.fallbackSoftwareAdapter) || 
+                (params.adapter == GraphicsAdapter::Software))
             {
                 printf("Warning [Unable to create GPU device], falling back to software rendering : %s\n", SDL_GetError());
                 fallback = SDL_CreateRenderer(window, "software");
