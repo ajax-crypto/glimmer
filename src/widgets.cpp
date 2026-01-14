@@ -11,7 +11,6 @@
 #include "layout.h"
 #include "im_font_manager.h"
 #include "imrichtext.h"
-
 #include "testing.h"
 
 #ifndef GLIMMER_DISABLE_PLOTS
@@ -21,10 +20,6 @@
 #include <unordered_map>
 #include <string>
 #include <stdint.h>
-
-#ifndef GLIMMER_TOTAL_ID_SIZE
-#define GLIMMER_TOTAL_ID_SIZE (1 << 16)
-#endif
 
 namespace glimmer
 {

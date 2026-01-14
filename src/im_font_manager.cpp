@@ -35,69 +35,11 @@
 #include <iostream>
 #endif
 
-#ifdef _WIN32
-#define WINDOWS_DEFAULT_FONT \
-    "c:\\Windows\\Fonts\\segoeui.ttf", \
-    "c:\\Windows\\Fonts\\segoeuil.ttf",\
-    "c:\\Windows\\Fonts\\segoeuib.ttf",\
-    "c:\\Windows\\Fonts\\segoeuii.ttf",\
-    "c:\\Windows\\Fonts\\segoeuiz.ttf"
-
-#define WINDOWS_DEFAULT_MONOFONT \
-    "c:\\Windows\\Fonts\\consola.ttf",\
-    "",\
-    "c:\\Windows\\Fonts\\consolab.ttf",\
-    "c:\\Windows\\Fonts\\consolai.ttf",\
-    "c:\\Windows\\Fonts\\consolaz.ttf"
-
-#elif __linux__
-#define FEDORA_DEFAULT_FONT \
-    "/usr/share/fonts/open-sans/OpenSans-Regular.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Light.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Bold.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-Italic.ttf",\
-    "/usr/share/fonts/open-sans/OpenSans-BoldItalic.ttf"
-
-#define FEDORA_DEFAULT_MONOFONT \
-    "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",\
-    "",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-Bold.ttf",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-Italic.ttf",\
-    "/usr/share/fonts/liberation-mono/LiberationMono-BoldItalic.ttf"
-
-#define POPOS_DEFAULT_FONT \
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",\
-    "",\
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf"
-
-#define POPOS_DEFAULT_MONOFONT \
-    "/usr/share/fonts/truetype/freefont/FreeMono.ttf",\
-    "",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoOblique.ttf",\
-    "/usr/share/fonts/truetype/freefont/FreeMonoBoldOblique.ttf"
-
-#define MANJARO_DEFAULT_FONT \
-    "/usr/share/fonts/noto/NotoSans-Regular.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Light.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Bold.ttf",\
-    "/usr/share/fonts/noto/NotoSans-Italic.ttf",\
-    "/usr/share/fonts/noto/NotoSans-BoldItalic.ttf"
-
-#define MANJARO_DEFAULT_MONOFONT \
-    "/usr/share/fonts/TTF/Hack-Regular.ttf",\
-    "",\
-    "/usr/share/fonts/TTF/Hack-Bold.ttf",\
-    "/usr/share/fonts/TTF/Hack-Italic.ttf",\
-    "/usr/share/fonts/TTF/Hack-BoldItalic.ttf",
-
+#if __linux__
 #include <sstream>
 #include <cstdio>
 #include <memory>
 #include <array>
-
 #endif
 
 namespace glimmer
@@ -562,6 +504,7 @@ namespace glimmer
 
     bool LoadDefaultFonts(const FontDescriptor* descriptors, int total, bool needRichText)
     {
+#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
         assert(descriptors != nullptr);
 
         std::vector<bool> iconFontIndices;
@@ -627,7 +570,7 @@ namespace glimmer
                     LoadDefaultFonts(descriptors[idx].sizes, descriptors[idx].flags, descriptors[idx].charset, names);
             }
         }
-
+#endif
         return true;
     }
 
@@ -1133,6 +1076,7 @@ namespace glimmer
 
     void* GetFont(std::string_view family, float size, FontType ft)
     {
+#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
         auto famit = LookupFontFamily(family);
         const auto& fonts = famit->second.FontPtrs[ft];
         auto szit = fonts.find(size);
@@ -1157,6 +1101,9 @@ namespace glimmer
         }
 
         return szit->second;
+#else
+        return nullptr;
+#endif
     }
 
     bool IsFontMonospace(void* font)
@@ -1166,18 +1113,27 @@ namespace glimmer
 
     bool IsFontLoaded()
     {
+#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
         return ImGui::GetIO().Fonts->IsBuilt();
+#else
+        return true;
+#endif
     }
 
 #endif
 #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
     void PreloadFontLookupInfo(int timeoutMs)
     {
+#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
         PreloadFontLookupInfoImpl(timeoutMs, nullptr, 0);
+#else
+        // Nothing to do...
+#endif
     }
 
     void* GetFont(std::string_view family, float size, FontType ft, FontExtraInfo extra)
     {
+#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
         auto famit = LookupFontFamily(family);
 
         if (famit != FontStore.end())
@@ -1200,6 +1156,9 @@ namespace glimmer
         }
 
         return &(FontStore.at(family).Fonts[ft].at(size));
+#else
+        return nullptr;
+#endif
     }
 #endif
 }

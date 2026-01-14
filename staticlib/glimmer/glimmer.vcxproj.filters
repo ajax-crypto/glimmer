@@ -58,6 +58,15 @@
     <Filter Include="Header Files\testing">
       <UniqueIdentifier>{6f40dc1a-9656-4049-a43b-6a75e7639a6e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\testing">
+      <UniqueIdentifier>{e71477af-e0c3-445e-9f42-57214c754906}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\platform">
+      <UniqueIdentifier>{421a0889-7def-4a69-b404-754fea123cac}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\platform">
+      <UniqueIdentifier>{aa11e83c-f276-426a-9493-52aee0038f0b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\context.h">
@@ -216,6 +225,21 @@
     <ClInclude Include="..\..\src\testing.h">
       <Filter>Header Files\testing</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdl3.h">
+      <Filter>Header Files\platform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3.h">
+      <Filter>Header Files\platform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3_shaders.h">
+      <Filter>Header Files\platform</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlrenderer3.h">
+      <Filter>Header Files\platform</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\context.cpp">
@@ -330,7 +354,16 @@
       <Filter>Source Files\richtext</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\testing.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\testing</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdl3.cpp">
+      <Filter>Source Files\platform</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3.cpp">
+      <Filter>Source Files\platform</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlrenderer3.cpp">
+      <Filter>Source Files\platform</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

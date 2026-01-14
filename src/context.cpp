@@ -6,14 +6,6 @@
 #include "libs/inc/implot/implot.h"
 #include <list>
 
-#ifndef GLIMMER_MAX_OVERLAYS
-#define GLIMMER_MAX_OVERLAYS 32
-#endif
-
-#ifndef GLIMMER_GLOBAL_ANIMATION_FRAMETIME
-#define GLIMMER_GLOBAL_ANIMATION_FRAMETIME 18
-#endif
-
 #include "draw.h"
 
 namespace glimmer

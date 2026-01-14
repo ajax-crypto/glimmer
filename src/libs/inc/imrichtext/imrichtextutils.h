@@ -19,62 +19,7 @@ namespace ImRichText
 {
 	using FontType = glimmer::FontType;
 	using TextContentCharset = glimmer::TextContentCharset;
-}
 
-#ifndef IM_RICHTEXT_MAX_COLORSTOPS
-#define IM_RICHTEXT_MAX_COLORSTOPS 4
-#endif
-
-#ifndef IM_RICHTEXT_TARGET_IMGUI
-#define IM_COL32_BLACK       ImRichText::ToRGBA(0, 0, 0, 255)
-#define IM_COL32_BLACK_TRANS ImRichText::ToRGBA(0, 0, 0, 0)
-
-struct ImVec2
-{
-    float x = 0.f, y = 0.f;
-};
-
-struct ImRect
-{
-    ImVec2 min, max;
-
-    bool Contains(const ImRect& other) const
-    {
-        return min.x <= other.min.x && min.y <= other.min.y &&
-            max.x >= other.max.x && max.y >= other.max.y;
-    }
-
-    void Expand(const float amount) 
-    { 
-        Min.x -= amount;   Min.y -= amount;   Max.x += amount;   Max.y += amount; 
-    }
-
-    void Translate(const ImVec2& d) 
-    { 
-        Min.x += d.x; Min.y += d.y; Max.x += d.x; Max.y += d.y; 
-    }
-};
-
-enum ImGuiDir : int
-{
-    ImGuiDir_None = -1,
-    ImGuiDir_Left = 0,
-    ImGuiDir_Right = 1,
-    ImGuiDir_Up = 2,
-    ImGuiDir_Down = 3,
-    ImGuiDir_COUNT
-};
-
-#endif
-
-#if !defined(IMGUI_DEFINE_MATH_OPERATORS)
-[[nodiscard]] ImVec2 operator+(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ lhs.x + rhs.x, lhs.y + rhs.y }; }
-[[nodiscard]] ImVec2 operator*(ImVec2 lhs, float rhs) { return ImVec2{ lhs.x * rhs, lhs.y * rhs }; }
-[[nodiscard]] ImVec2 operator-(ImVec2 lhs, ImVec2 rhs) { return ImVec2{ lhs.x - rhs.x, lhs.y - rhs.y }; }
-#endif
-
-namespace ImRichText
-{
     enum class BulletType
     {
         Circle,

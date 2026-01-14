@@ -11,17 +11,6 @@
 #include <limits>
 #include <cstdint>
 
-#define GLIMMER_FLAT_ENGINE 0
-#define GLIMMER_CLAY_ENGINE 1
-#define GLIMMER_YOGA_ENGINE 2
-#define GLIMMER_SIMPLE_FLEX_ENGINE 3
-
-#ifndef GLIMMER_FLEXBOX_ENGINE
-#define GLIMMER_FLEXBOX_ENGINE GLIMMER_YOGA_ENGINE
-#elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_CLAY_ENGINE
-#error "Clay Layout Engine integration requires fixes to work correctly"
-#endif
-
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_CLAY_ENGINE
 #define CLAY_IMPLEMENTATION
 #include "libs/inc/clay/clay.h"

@@ -1,7 +1,6 @@
 #pragma once
 
-#define GLIMMER_MAX_COLORSTOPS 4
-
+#include "config.h"
 #include "utils.h"
 #include "libs/inc/imgui/imgui.h"
 #include "libs/inc/imgui/imgui_internal.h"
@@ -10,13 +9,6 @@
 #include <optional>
 #include <vector>
 #include <tuple>
-
-#ifndef GLIMMER_DEFAULT_FONTFAMILY
-#define GLIMMER_DEFAULT_FONTFAMILY "default-font-family"
-#endif
-#ifndef GLIMMER_MONOSPACE_FONTFAMILY
-#define GLIMMER_MONOSPACE_FONTFAMILY "monospace-family"
-#endif
 
 namespace ImRichText
 {
@@ -814,7 +806,4 @@ namespace glimmer
         int16_t from = -1, to = -1;
         void* implData = nullptr;
     };
-
-#define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f);
-#define DEBUG_RECT2(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 2.f);
 }

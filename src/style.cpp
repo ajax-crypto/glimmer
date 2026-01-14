@@ -8,10 +8,6 @@
 #include <variant>
 #include "style.h"
 
-#ifndef GLIMMER_STYLE_BUFSZ 
-#define GLIMMER_STYLE_BUFSZ 4096
-#endif
-
 namespace glimmer
 {
     // This maps the styles to classes/ids which do not follow the style stack.

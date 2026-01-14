@@ -4,10 +4,6 @@
 
 #include <cstring>
 
-#ifndef GLIMMER_MAX_CLIPBOARD_TEXTSZ
-#define GLIMMER_MAX_CLIPBOARD_TEXTSZ 4096
-#endif
-
 #include "libs/inc/imgui/imgui_impl_glfw.h"
 #include "libs/inc/imgui/imgui_impl_opengl3.h"
 #include "libs/inc/imgui/imgui_impl_opengl3_loader.h"

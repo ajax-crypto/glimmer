@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef GLIMMER_NKEY_ROLLOVER_MAX
-#define GLIMMER_NKEY_ROLLOVER_MAX 8
-#endif
-
 #include "libs/inc/imgui/imgui.h"
 #include "libs/inc/imgui/imgui_internal.h"
 #define GLIMMER_KEY_ENUM_START ImGuiKey_NamedKey_BEGIN
@@ -240,7 +236,8 @@ namespace glimmer
         };
 
         friend int64_t FramesRendered();
-
+        
+        virtual void PopulateIODescriptor(const CustomEventData& custom);
         virtual void SetClipboardText(std::string_view input) = 0;
         virtual std::string_view GetClipboardText() = 0;
         virtual bool CreateWindow(const WindowParams& params) = 0;
@@ -286,7 +283,4 @@ namespace glimmer
 
     IPlatform* InitPlatform(ImVec2 size = { -1.f, -1.f });
     int64_t FramesRendered();
-
-#define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
-#define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 }

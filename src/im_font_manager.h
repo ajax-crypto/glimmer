@@ -4,14 +4,7 @@
 #include <optional>
 #include <vector>
 
-#ifndef GLIMMER_DEFAULT_FONTFAMILY
-#define GLIMMER_DEFAULT_FONTFAMILY "default-font-family"
-#endif
-#ifndef GLIMMER_MONOSPACE_FONTFAMILY
-#define GLIMMER_MONOSPACE_FONTFAMILY "monospace-family"
-#endif
-
-using ImWchar = unsigned int;
+#include "config.h"
 
 namespace glimmer
 {

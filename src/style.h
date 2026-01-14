@@ -2,10 +2,6 @@
 
 #include "types.h"
 
-#ifndef GLIMMER_MAX_STYLE_STACKSZ
-#define GLIMMER_MAX_STYLE_STACKSZ 16
-#endif
-
 namespace glimmer
 {
     struct LayoutBuilder;

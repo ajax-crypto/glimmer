@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\config.h" />
     <ClInclude Include="..\..\src\context.h" />
     <ClInclude Include="..\..\src\custom\PathInput.h" />
     <ClInclude Include="..\..\src\draw.h" />
@@ -37,6 +38,10 @@
     <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesign.h" />
     <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialDesignIcons.h" />
     <ClInclude Include="..\..\src\libs\inc\iconfonts\IconsMaterialSymbols.h" />
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdl3.h" />
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3.h" />
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3_shaders.h" />
+    <ClInclude Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlrenderer3.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imconfig.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui.h" />
     <ClInclude Include="..\..\src\libs\inc\imgui\imgui_impl_glfw.h" />
@@ -77,6 +82,9 @@
     <ClCompile Include="..\..\src\draw.cpp" />
     <ClCompile Include="..\..\src\im_font_manager.cpp" />
     <ClCompile Include="..\..\src\layout.cpp" />
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdl3.cpp" />
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3.cpp" />
+    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlrenderer3.cpp" />
     <ClCompile Include="..\..\src\libs\inc\imgui\misc\freetype\imgui_freetype.cpp" />
     <ClCompile Include="..\..\src\libs\inc\implot\implot.cpp" />
     <ClCompile Include="..\..\src\libs\inc\implot\implot_items.cpp" />

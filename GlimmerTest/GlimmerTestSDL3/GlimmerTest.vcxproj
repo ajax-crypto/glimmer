@@ -161,11 +161,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdl3.cpp" />
-    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlgpu3.cpp" />
-    <ClCompile Include="..\..\src\libs\inc\imguisdl3\imgui_impl_sdlrenderer3.cpp" />
     <ClCompile Include="..\test.cpp" />
-    <ClCompile Include="platform.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\staticlib\glimmer\glimmer.vcxproj">

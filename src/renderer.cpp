@@ -1,4 +1,4 @@
-#include "renderer.h"
+﻿#include "renderer.h"
 #include "context.h"
 #include "draw.h"
 #include "platform.h"
@@ -26,6 +26,11 @@
 #include <libs/inc/stb_image/stb_image.h>
 #endif
 
+#if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_PDCURSES
+#include <curses.h>
+#include <panel.h>
+#endif
+
 #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
 #include <libs/inc/blend2d/blend2d.h>
 #endif
@@ -34,12 +39,6 @@
 #undef min
 #undef max
 #undef DrawText
-#endif
-
-#define GLIMMER_MAX_STATIC_MEDIA_SZ 4096
-
-#ifndef GLIMMER_IMGUI_MAINWINDOW_NAME
-#define GLIMMER_IMGUI_MAINWINDOW_NAME "main-window"
 #endif
 
 // TODO: Test out pluto svg
@@ -3224,6 +3223,621 @@ namespace glimmer
 
 #pragma endregion
 
+#pragma region TUI Renderer (using pdcurses)
+
+#if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_PDCURSES
+
+    short GetAnsiColor(uint32_t c)
+    {
+        auto [r, g, b, a] = DecomposeColor(c);
+
+        bool R = r > 127;
+        bool G = g > 127;
+        bool B = b > 127;
+
+        if (R && G && B) return COLOR_WHITE;
+        if (R && G) return COLOR_YELLOW;
+        if (R && B) return COLOR_MAGENTA;
+        if (G && B) return COLOR_CYAN;
+        if (R) return COLOR_RED;
+        if (G) return COLOR_GREEN;
+        if (B) return COLOR_BLUE;
+        return COLOR_BLACK;
+    }
+
+    // Interpolate between two colors
+    uint32_t LerpColor(uint32_t c1, uint32_t c2, float t)
+    {
+        auto [r1, g1, b1, a1] = DecomposeColor(c1);
+        auto [r2, g2, b2, a2] = DecomposeColor(c2);
+
+        uint8_t r = (uint8_t)(r1 + (r2 - r1) * t);
+        uint8_t g = (uint8_t)(g1 + (g2 - g1) * t);
+        uint8_t b = (uint8_t)(b1 + (b2 - b1) * t);
+        uint8_t a = (uint8_t)(a1 + (a2 - a1) * t);
+
+        // Reconstruct (Assuming ARGB/ABGR based on platform, using generic pack here)
+        return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+    }
+
+    struct PDCursesRenderer : public IRenderer
+    {
+        struct ClipRect { int x, y, w, h; };
+
+        // Configuration
+        bool useExtendedAscii;
+
+        // Frame State
+        WINDOW* mainWin = nullptr;
+        PANEL* mainPanel = nullptr;
+
+        // Overlay Management
+        struct OverlayContext 
+        {
+            WINDOW* win;
+            PANEL* pan;
+        };
+        std::vector<OverlayContext> overlayStack;
+
+        // Current Drawing Context
+        WINDOW* currentWin = nullptr;
+        std::vector<ClipRect> clipStack;
+        ClipRect currentClip;
+
+        // Color Management
+        std::map<uint32_t, int> colorPairs;
+        int nextPairId = 1;
+
+        // Debug
+        struct DebugRectInfo 
+        {
+            ImVec2 start;
+            ImVec2 end;
+            uint32_t color;
+            float thickness;
+        };
+        std::vector<DebugRectInfo> debugRects;
+
+        PDCursesRenderer(bool extendedAscii = true)
+            : useExtendedAscii(extendedAscii)
+        {
+            initscr();
+            cbreak();
+            noecho();
+            keypad(stdscr, TRUE);
+            curs_set(0); // Hide cursor
+            start_color();
+            use_default_colors();
+
+            // Initialize main window
+            mainWin = newwin(LINES, COLS, 0, 0);
+            mainPanel = new_panel(mainWin);
+            currentWin = mainWin;
+
+            currentClip = { 0, 0, COLS, LINES };
+        }
+
+        ~PDCursesRenderer()
+        {
+            endwin();
+        }
+
+        bool ClipPoint(int x, int y)
+        {
+            int wx, wy;
+            getbegyx(currentWin, wy, wx);
+
+            if (x < currentClip.x || x >= currentClip.x + currentClip.w ||
+                y < currentClip.y || y >= currentClip.y + currentClip.h)
+                return false;
+
+            int maxy, maxx;
+            getmaxyx(currentWin, maxy, maxx);
+            int relX = x - wx;
+            int relY = y - wy;
+
+            if (relX < 0 || relX >= maxx || relY < 0 || relY >= maxy)
+                return false;
+
+            return true;
+        }
+
+        void DrawPoint(int x, int y, chtype c)
+        {
+            if (ClipPoint(x, y)) 
+            {
+                int wx, wy;
+                getbegyx(currentWin, wy, wx);
+                mvwaddch(currentWin, y - wy, x - wx, c);
+            }
+        }
+
+        // Overload for utf-8 strings (rounded corners)
+        void DrawPointStr(int x, int y, const char* str)
+        {
+            if (ClipPoint(x, y)) 
+            {
+                int wx, wy;
+                getbegyx(currentWin, wy, wx);
+                mvwaddstr(currentWin, y - wy, x - wx, str);
+            }
+        }
+
+        int GetColorPair(uint32_t color, bool isBackground)
+        {
+            // Quantize color to ANSI for keying to avoid excessive pairs
+            short ansi = GetAnsiColor(color);
+
+            // Combine ANSI color + mode into a unique key
+            // (Using 8-bit color index to form key)
+            uint32_t key = (uint32_t)ansi | (isBackground ? 0x1000 : 0);
+
+            if (colorPairs.find(key) != colorPairs.end())
+                return colorPairs[key];
+
+            if (nextPairId >= COLOR_PAIRS) return 0;
+
+            if (isBackground)
+                init_pair(nextPairId, COLOR_BLACK, ansi);
+            else
+                init_pair(nextPairId, ansi, -1);
+
+            colorPairs[key] = nextPairId;
+            return nextPairId++;
+        }
+
+        // --- Frame Lifecycle ---
+
+        bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) override
+        {
+            currentWin = mainWin;
+            clipStack.clear();
+            currentClip = { 0, 0, COLS, LINES };
+
+            // Clear main window
+            wbkgd(mainWin, COLOR_PAIR(GetColorPair(bgcolor, true)));
+            werase(mainWin);
+
+            return true;
+        }
+
+        void FinalizeFrame(int32_t cursor) override
+        {
+            // Draw debug rects
+            for (auto& dr : debugRects)
+            {
+                ClipRect old = currentClip;
+                currentClip = { 0, 0, COLS, LINES };
+                DrawRect(dr.start, dr.end, dr.color, false, dr.thickness);
+                currentClip = old;
+            }
+            debugRects.clear();
+
+            update_panels();
+            doupdate();
+
+            for (auto& ov : overlayStack) 
+            {
+                del_panel(ov.pan);
+                delwin(ov.win);
+            }
+            overlayStack.clear();
+        }
+
+        // --- Clipping ---
+
+        void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect) override
+        {
+            int x = (int)startpos.x;
+            int y = (int)startpos.y;
+            int w = (int)(endpos.x - startpos.x);
+            int h = (int)(endpos.y - startpos.y);
+
+            if (intersect)
+            {
+                int ox = currentClip.x;
+                int oy = currentClip.y;
+                int ox2 = ox + currentClip.w;
+                int oy2 = oy + currentClip.h;
+
+                int nx = std::max(x, ox);
+                int ny = std::max(y, oy);
+                int nx2 = std::min(x + w, ox2);
+                int ny2 = std::min(y + h, oy2);
+
+                x = nx;
+                y = ny;
+                w = std::max(0, nx2 - nx);
+                h = std::max(0, ny2 - ny);
+            }
+
+            clipStack.push_back(currentClip);
+            currentClip = { x, y, w, h };
+        }
+
+        void ResetClipRect() override
+        {
+            if (!clipStack.empty()) 
+            {
+                currentClip = clipStack.back();
+                clipStack.pop_back();
+            }
+            else 
+            {
+                currentClip = { 0, 0, COLS, LINES };
+            }
+        }
+
+        // --- Primitives ---
+
+        void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) override
+        {
+            int x0 = (int)startpos.x;
+            int y0 = (int)startpos.y;
+            int x1 = (int)endpos.x;
+            int y1 = (int)endpos.y;
+
+            int wx, wy, ww, wh;
+            getbegyx(currentWin, wy, wx);
+            getmaxyx(currentWin, wh, ww);
+
+            int ecx = std::max(currentClip.x, wx);
+            int ecy = std::max(currentClip.y, wy);
+            int ecw = std::min(currentClip.x + currentClip.w, wx + ww) - ecx;
+            int ech = std::min(currentClip.y + currentClip.h, wy + wh) - ecy;
+
+            if (ecw <= 0 || ech <= 0) return;
+
+            auto set_color = [&](bool on) {
+                int pair = GetColorPair(color, false);
+                if (on) wattron(currentWin, COLOR_PAIR(pair));
+                else wattroff(currentWin, COLOR_PAIR(pair));
+            };
+
+            // Horizontal
+            if (y0 == y1)
+            {
+                if (x0 > x1) std::swap(x0, x1);
+                if (y0 < ecy || y0 >= ecy + ech) return;
+
+                int dx0 = std::max(x0, ecx);
+                int dx1 = std::min(x1, ecx + ecw - 1);
+
+                if (dx0 <= dx1)
+                {
+                    set_color(true);
+                    mvwhline(currentWin, y0 - wy, dx0 - wx, useExtendedAscii ? ACS_HLINE : '-', dx1 - dx0 + 1);
+                    set_color(false);
+                }
+                return;
+            }
+
+            // Vertical
+            if (x0 == x1)
+            {
+                if (y0 > y1) std::swap(y0, y1);
+                if (x0 < ecx || x0 >= ecx + ecw) return;
+
+                int dy0 = std::max(y0, ecy);
+                int dy1 = std::min(y1, ecy + ech - 1);
+
+                if (dy0 <= dy1)
+                {
+                    set_color(true);
+                    mvwvline(currentWin, dy0 - wy, x0 - wx, useExtendedAscii ? ACS_VLINE : '|', dy1 - dy0 + 1);
+                    set_color(false);
+                }
+                return;
+            }
+
+            // Bresenham
+            set_color(true);
+            int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+            int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+            int err = dx + dy, e2;
+
+            while (true) 
+            {
+                DrawPoint(x0, y0, useExtendedAscii ? ACS_CKBOARD : '*');
+                if (x0 == x1 && y0 == y1) break;
+                e2 = 2 * err;
+                if (e2 >= dy) { err += dy; x0 += sx; }
+                if (e2 <= dx) { err += dx; y0 += sy; }
+            }
+            set_color(false);
+        }
+
+        void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) override
+        {
+            if (sz < 2) return;
+            for (int i = 0; i < sz - 1; ++i) DrawLine(points[i], points[i + 1], color, thickness);
+        }
+
+        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness) override { /* Ignored */ }
+
+        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness) override
+        {
+            int x1 = (int)startpos.x;
+            int y1 = (int)startpos.y;
+            int x2 = (int)endpos.x;
+            int y2 = (int)endpos.y;
+
+            if (filled)
+            {
+                int pair = GetColorPair(color, true);
+                wattron(currentWin, COLOR_PAIR(pair));
+                for (int y = y1; y < y2; ++y)
+                    for (int x = x1; x < x2; ++x)
+                        DrawPoint(x, y, ' ');
+                wattroff(currentWin, COLOR_PAIR(pair));
+            }
+            else
+            {
+                // Draw Outline
+                if (useExtendedAscii)
+                {
+                    int w = x2 - x1;
+                    int h = y2 - y1;
+                    if (w <= 0 || h <= 0) return;
+
+                    wattron(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+
+                    // Draw Corners
+                    DrawPoint(x1, y1, ACS_ULCORNER);
+                    DrawPoint(x2 - 1, y1, ACS_URCORNER);
+                    DrawPoint(x1, y2 - 1, ACS_LLCORNER);
+                    DrawPoint(x2 - 1, y2 - 1, ACS_LRCORNER);
+
+                    // Draw Sides (Inset from corners)
+                    if (w > 2) 
+                    {
+                        DrawLine({ (float)x1 + 1, (float)y1 }, { (float)x2 - 2, (float)y1 }, color, thickness); // Top
+                        DrawLine({ (float)x1 + 1, (float)y2 - 1 }, { (float)x2 - 2, (float)y2 - 1 }, color, thickness); // Bottom
+                    }
+                    if (h > 2) 
+                    {
+                        DrawLine({ (float)x1, (float)y1 + 1 }, { (float)x1, (float)y2 - 2 }, color, thickness); // Left
+                        DrawLine({ (float)x2 - 1, (float)y1 + 1 }, { (float)x2 - 1, (float)y2 - 2 }, color, thickness); // Right
+                    }
+
+                    wattroff(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+                }
+                else
+                {
+                    // Fallback to simple lines
+                    DrawLine({ (float)x1, (float)y1 }, { (float)x2 - 1, (float)y1 }, color, thickness);
+                    DrawLine({ (float)x1, (float)y2 - 1 }, { (float)x2 - 1, (float)y2 - 1 }, color, thickness);
+                    DrawLine({ (float)x1, (float)y1 }, { (float)x1, (float)y2 - 1 }, color, thickness);
+                    DrawLine({ (float)x2 - 1, (float)y1 }, { (float)x2 - 1, (float)y2 - 1 }, color, thickness);
+                }
+            }
+        }
+
+        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness) override
+        {
+            if (filled || !useExtendedAscii)
+            {
+                // Fill not supported for rounded, fallback to standard rect
+                DrawRect(startpos, endpos, color, filled, thickness);
+                return;
+            }
+
+            int x1 = (int)startpos.x;
+            int y1 = (int)startpos.y;
+            int x2 = (int)endpos.x;
+            int y2 = (int)endpos.y;
+            int w = x2 - x1;
+            int h = y2 - y1;
+
+            if (w <= 0 || h <= 0) return;
+
+            wattron(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+
+            // Draw UTF-8 Corners
+            DrawPointStr(x1, y1, "\u256D"); // ╭
+            DrawPointStr(x2 - 1, y1, "\u256E"); // ╮
+            DrawPointStr(x1, y2 - 1, "\u2570"); // ╰
+            DrawPointStr(x2 - 1, y2 - 1, "\u256F"); // ╯
+
+            wattroff(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+
+            // Connect with lines (same as DrawRect)
+            if (w > 2) 
+            {
+                DrawLine({ (float)x1 + 1, (float)y1 }, { (float)x2 - 2, (float)y1 }, color, thickness);
+                DrawLine({ (float)x1 + 1, (float)y2 - 1 }, { (float)x2 - 2, (float)y2 - 1 }, color, thickness);
+            }
+            if (h > 2) 
+            {
+                DrawLine({ (float)x1, (float)y1 + 1 }, { (float)x1, (float)y2 - 2 }, color, thickness);
+                DrawLine({ (float)x2 - 1, (float)y1 + 1 }, { (float)x2 - 1, (float)y2 - 2 }, color, thickness);
+            }
+        }
+
+        void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir) override
+        {
+            int x1 = (int)startpos.x;
+            int y1 = (int)startpos.y;
+            int x2 = (int)endpos.x;
+            int y2 = (int)endpos.y;
+
+            int w = x2 - x1;
+            int h = y2 - y1;
+            if (w <= 0 || h <= 0) return;
+
+            for (int y = y1; y < y2; ++y)
+            {
+                for (int x = x1; x < x2; ++x)
+                {
+                    float t = 0.0f;
+                    if (dir == DIR_Horizontal)
+                        t = (float)(x - x1) / (float)w;
+                    else
+                        t = (float)(y - y1) / (float)h;
+
+                    // Clamp t
+                    if (t < 0.0f) t = 0.0f;
+                    if (t > 1.0f) t = 1.0f;
+
+                    uint32_t c = LerpColor(colorfrom, colorto, t);
+                    int pair = GetColorPair(c, true);
+
+                    wattron(currentWin, COLOR_PAIR(pair));
+                    DrawPoint(x, y, ' ');
+                    wattroff(currentWin, COLOR_PAIR(pair));
+                }
+            }
+        }
+
+        void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr, uint32_t colorfrom, uint32_t colorto, Direction dir) override
+        {
+            // Fallback to rect gradient
+            DrawRectGradient(startpos, endpos, colorfrom, colorto, dir);
+        }
+
+        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness) override
+        {
+            // ignored...
+        }
+
+        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) override {}
+        void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness) override { /* Ignored */ }
+        void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness) override { /* Ignored */ }
+        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) override { /* Ignored */ }
+
+        // --- Text ---
+
+        bool SetCurrentFont(std::string_view family, float sz, FontType type) override { return true; }
+        bool SetCurrentFont(void* fontptr, float sz) override { return true; }
+        void ResetFont() override {}
+
+        ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth) override
+        {
+            return ImVec2((float)text.size(), 1.0f);
+        }
+
+        void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth) override
+        {
+            int x = (int)pos.x;
+            int y = (int)pos.y;
+
+            // Text Clipping
+            // Check vertical bounds
+            if (y < currentClip.y || y >= currentClip.y + currentClip.h) return;
+
+            // Calculate visible substring
+            int startX = x;
+            int endX = x + (int)text.size();
+
+            int clipMinX = currentClip.x;
+            int clipMaxX = currentClip.x + currentClip.w;
+
+            if (endX <= clipMinX || startX >= clipMaxX) return;
+
+            int visibleStart = std::max(startX, clipMinX);
+            int visibleEnd = std::min(endX, clipMaxX);
+            int offset = visibleStart - startX;
+            int len = visibleEnd - visibleStart;
+
+            if (len <= 0) return;
+
+            // Prepare substring
+            auto sub = text.substr(offset, len);
+
+            // Draw
+            int wx, wy;
+            getbegyx(currentWin, wy, wx); // Window abs pos
+
+            // Note: mvwaddnstr takes relative coords
+            int relY = y - wy;
+            int relX = visibleStart - wx;
+
+            // Bounds check relative to window
+            int maxy, maxx;
+            getmaxyx(currentWin, maxy, maxx);
+            if (relY < 0 || relY >= maxy || relX >= maxx) return; // Should be handled by ClipPoint logic basically
+
+            wattron(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+            mvwaddnstr(currentWin, relY, relX, sub.c_str(), len);
+            wattroff(currentWin, COLOR_PAIR(GetColorPair(color, false)));
+        }
+
+        void DrawTooltip(ImVec2 pos, std::string_view text) override
+        {
+            // Tooltip is effectively an overlay in this TUI context
+            // Approximate size
+            ImVec2 size = { (float)text.size() + 2, 3.0f };
+            StartOverlay(-1, pos, size, 0xFFFFFFFF); // White bg?
+            // Draw Box
+            DrawRect(pos, { pos.x + size.x, pos.y + size.y }, 0xFF000000, false, 1.f);
+            DrawText(text, { pos.x + 1, pos.y + 1 }, 0xFF000000);
+            EndOverlay();
+        }
+
+        float EllipsisWidth(void* fontptr, float sz) override { return 3.0f; }
+
+        // --- Overlays & Panels ---
+
+        bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override
+        {
+            int h = (int)size.y;
+            int w = (int)size.x;
+            int y = (int)pos.y;
+            int x = (int)pos.x;
+
+            // Create new window and panel
+            WINDOW* win = newwin(h, w, y, x);
+            if (!win) return false;
+
+            PANEL* pan = new_panel(win);
+
+            // Set background for this overlay
+            wbkgd(win, COLOR_PAIR(GetColorPair(color, true)));
+            werase(win); // Apply bg
+
+            overlayStack.push_back({ win, pan });
+            currentWin = win; // Switch context
+
+            return true;
+        }
+
+        void EndOverlay() override
+        {
+            // Context reverts to main or previous overlay
+            // Note: We do NOT destroy the panel here, it must persist until update_panels() in FinalizeFrame
+            if (overlayStack.size() > 1) 
+            {
+                // If we have nested overlays, go back to previous
+                // But wait, overlayStack stores all overlays created this frame.
+                // We need to know which one was "active" before this one.
+                // Assuming strict stack usage:
+                currentWin = overlayStack[overlayStack.size() - 2].win;
+            }
+            else 
+            {
+                currentWin = mainWin;
+            }
+        }
+
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override { return false; }
+        int64_t PreloadResources(int32_t loadflags, ResourceData* resources, int totalsz) override { return 0; }
+
+        void DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) override
+        {
+            debugRects.push_back({ startpos, endpos, color, thickness });
+        }
+    };
+
+    IRenderer* CreatePDCursesRenderer()
+    {
+        static thread_local PDCursesRenderer renderer{ true };
+        return &renderer;
+    }
+
+#endif
+
+#pragma endregion
+
     IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc)
     {
         static thread_local DeferredRenderer renderer{ tmfunc };
@@ -3248,6 +3862,7 @@ namespace glimmer
 
     IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions)
     {
-        return new SVGRenderer(tmfunc, dimensions);
+        static thread_local SVGRenderer renderer(tmfunc, dimensions);
+        return &renderer;
     }
 }

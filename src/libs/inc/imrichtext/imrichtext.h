@@ -14,32 +14,6 @@
 
 #include "im_font_manager.h"
 
-#ifndef IM_RICHTEXT_MAXDEPTH
-#define IM_RICHTEXT_MAXDEPTH 32
-#endif
-
-#ifndef IM_RICHTEXT_MAX_LISTDEPTH
-#define IM_RICHTEXT_MAX_LISTDEPTH 16
-#endif
-
-#ifndef IM_RICHTEXT_MAX_LISTITEM
-#define IM_RICHTEXT_MAX_LISTITEM 128
-#endif
-
-#ifndef IM_RICHTEXT_MAXTABSTOP
-#define IM_RICHTEXT_MAXTABSTOP 32
-#endif
-
-#ifndef IM_RICHTEXT_BLINK_ANIMATION_INTERVAL
-#define IM_RICHTEXT_BLINK_ANIMATION_INTERVAL 500
-#endif
-
-#ifndef IM_RICHTEXT_MARQUEE_ANIMATION_INTERVAL
-#define IM_RICHTEXT_MARQUEE_ANIMATION_INTERVAL 18
-#endif
-
-#define IM_RICHTEXT_NESTED_ITEMCOUNT_STRSZ 64
-
 namespace ImRichText
 {
 	using TextContentCharset = glimmer::TextContentCharset;

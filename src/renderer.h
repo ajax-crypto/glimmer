@@ -1,7 +1,6 @@
 #pragma once
 
 #include "types.h"
-
 #include "im_font_manager.h"
 
 namespace glimmer
