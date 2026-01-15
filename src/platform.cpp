@@ -247,37 +247,26 @@ static void DetermineKeyStatus(glimmer::IODescriptor& desc)
     desc.capslock = GetAsyncKeyState(VK_CAPITAL) < 0;
     desc.insert = GetAsyncKeyState(VK_INSERT) < 0;
 }
-#elif __linux__
-#include <cstdio>
-#include <unistd.h>
 
-static std::string exec(const char* cmd)
-{
-    char buffer[128];
-    std::string result = "";
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) throw std::runtime_error("popen() failed!");
-
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-        result += buffer;
-
-    pclose(pipe);
-    return result;
+#if (GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_GLFW) && defined(GLIMMER_FORCE_DEDICATED_GPU)
+#ifdef __cplusplus
+extern "C" {
+#endif
+    __declspec(dllexport) DWORD NvOptimusEnablement = 1;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+#ifdef __cplusplus
 }
-
-static void DetermineKeyStatus(glimmer::IODescriptor& desc)
-{
-    std::string xset_output = exec("xset -q | grep Caps | sed -n 's/^.*Caps Lock:\\s*\\(\\S*\\).*$/\\1/p'");
-    desc.capslock = xset_output.find("on") != std::string::npos;
-    desc.insert = false;
-}
+#endif
+#endif
 #elif __APPLE__
 #include <CoreGraphics/CGEventSource.h>
+
 static void DetermineKeyStatus(glimmer::IODescriptor& desc)
 {
     desc.capslock = ((CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift) != 0);
     desc.insert = false;
 }
+
 #endif
 
 #if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_PDCURSES
@@ -342,6 +331,11 @@ namespace glimmer
         for (auto k = 0; k <= GLIMMER_NKEY_ROLLOVER_MAX; ++k) key[k] = Key_Invalid;
         for (auto ks = 0; ks < (GLIMMER_KEY_ENUM_END - GLIMMER_KEY_ENUM_START + 1); ++ks)
             keyStatus[ks] = ButtonStatus::Default;
+    }
+
+    IPlatform::IPlatform()
+    {
+        DetermineInitialKeyStates(desc);
     }
 
     void IPlatform::PopulateIODescriptor(const CustomEventData& custom)
@@ -544,9 +538,10 @@ namespace glimmer
         cursor = _cursor;
     }
 
-    void IPlatform::GetWindowHandle(void* out)
+    void* IPlatform::GetWindowHandle(void* out)
     {
         out = nullptr;
+        return nullptr;
     }
 
     bool IPlatform::EnterFrame(float width, float height, const CustomEventData& custom)
@@ -560,7 +555,7 @@ namespace glimmer
             cursor = MouseCursor::Arrow;
             return true;
         }
-        
+
         return false;
     }
 
@@ -597,12 +592,6 @@ namespace glimmer
         Config.renderer->FinalizeFrame((int32_t)cursor);
     }
 
-    bool IPlatform::DetermineInitialKeyStates(IODescriptor& desc)
-    {
-        DetermineKeyStatus(desc);
-        return true;
-    }
-
     float IPlatform::fps() const
     {
         return (float)frameCount / totalTime;
@@ -622,6 +611,24 @@ namespace glimmer
 
 #pragma region TUI platform
 #if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_PDCURSES
+
+#ifdef __linux__
+}
+
+#include <sys/ioctl.h>
+#include <linux/kd.h>
+#include <unistd.h>
+
+static bool IsLinuxCapsLockOn() 
+{
+    char flags = 0;
+    if (ioctl(STDIN_FILENO, KDGKBLED, &flags) == 0) 
+        return (flags & K_CAPSLOCK);
+    return false;
+}
+
+namespace glimmer {
+#endif
 
     static Key MapPDCursesKey(int ch)
     {
@@ -844,6 +851,18 @@ namespace glimmer
         {
             return 0; // Not implemented
         }
+
+        bool DetermineInitialKeyStates(IODescriptor& desc) override
+        {
+#ifdef __linux__
+            desc.capslock = IsLinuxCapsLockOn();
+#else
+            DetermineKeyStatus(desc);
+#endif
+            return true;
+        }
+
+        bool RegisterHotkey(const HotKeyEvent& hotkey) override {}
     };
 
     IPlatform* InitPlatform(ImVec2 size)
@@ -870,6 +889,30 @@ namespace glimmer
 
 #pragma region SDL3 platform
 #if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_SDL3
+
+#ifdef __linux__
+}
+
+#if !defined(GLIMMER_NO_X11) || !defined(__EMSCRIPTEN__)
+#include <X11/XKBlib.h>
+
+static bool IsCapsLockOn(Display* display)
+{
+    XkbStateRec state;
+    if (XkbGetState(display, XkbUseCoreKbd, &state) == Success)
+        return (state.locked_mods & LockMask);
+    return false;
+}
+
+static void DetermineKeyStatus(Display* display, glimmer::IODescriptor& desc)
+{
+    desc.capslock = IsCapsLockOn(display);
+    desc.insert = false; // Unlike Windows, there is no gloabl "insert" state in Linux
+}
+#endif
+
+namespace glimmer {
+#endif
 
     static void RegisterKeyBindings()
     {
@@ -948,9 +991,7 @@ namespace glimmer
     struct ImGuiSDL3Platform final : public IPlatform
     {
         ImGuiSDL3Platform()
-        {
-            DetermineInitialKeyStates(desc);
-        }
+        { }
 
         void SetClipboardText(std::string_view input)
         {
@@ -970,7 +1011,14 @@ namespace glimmer
                 return false;
             }
 
-            SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_MAXIMIZED;
+            SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+            if (params.size.x == FLT_MAX && params.size.y == FLT_MAX) window_flags |= SDL_WINDOW_MAXIMIZED;
+
+#if defined(SDL_PLATFORM_LINUX) || defined(SDL_PLATFORM_ANDROID)
+            window_flags |= SDL_WINDOW_VULKAN;
+#elif defined(SDL_PLATFORM_APPLE)
+            window_flags |= SDL_WINDOW_METAL;
+#endif
 
             window = SDL_CreateWindow(params.title.data(), (int)params.size.x, (int)params.size.y, window_flags);
             if (window == nullptr)
@@ -1003,8 +1051,9 @@ namespace glimmer
                 }
             }
 
-            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-            if (params.size.x == -1.f || params.size.y == -1.f) SDL_MaximizeWindow(window);
+            if (!(window_flags & SDL_WINDOW_MAXIMIZED))
+                SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
             SDL_ShowWindow(window);
 
             if (totalCustomEvents > 0)
@@ -1320,28 +1369,66 @@ namespace glimmer
             }
         }
 
+#if !defined(__EMSCRIPTEN__)
+
 #ifdef GLIMMER_ENABLE_NFDEXT
 
-        void GetWindowHandle(void* out) override
+        void* GetWindowHandle(void* out) override
         {
+            void* retptr = nullptr;
             std::call_once(nfdInitialized, [] { NFD_Init(); });
             auto nativeWindow = (nfdwindowhandle_t*)out;
-#if defined(__WIN32__)
+
+#if defined(SDL_PLATFORM_WINDOWS)
+            
             nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_WINDOWS;
-            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
-#elif defined(__MACOSX__)
+            nativeWindow->handle = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+            retptr = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+
+#elif defined(SDL_PLATFORM_APPLE)
+            
             nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_COCOA;
-            nativeWindow->handle = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
-#elif defined(__LINUX__)
+            nativeWindow->handle = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+            retptr = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+
+#elif defined(SDL_PLATFORM_LINUX)
+            
             if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
             {
                 nativeWindow->type = NFD_WINDOW_HANDLE_TYPE_X11;
-                nativeWindow->handle = SDL_GetNumberProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
+                nativeWindow->handle = (void*)SDL_GetNumberProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, NULL);
+                retptr = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
             }
+            else
+                retptr = (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
 #endif
+            return retptr;
         }
 
 #else
+
+        void* GetWindowHandle(void* out) override
+        {
+#if defined(SDL_PLATFORM_WINDOWS)
+
+            return (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), 
+                SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+
+#elif defined(SDL_PLATFORM_APPLE)
+
+            return (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), 
+                SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
+
+#elif defined(SDL_PLATFORM_LINUX)
+
+            if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
+                (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+                    SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+            else
+                return (void*)SDL_GetPointerProperty(SDL_GetWindowProperties(window), 
+                    SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
+#endif
+        }
 
         int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters,
@@ -1436,6 +1523,19 @@ namespace glimmer
 
 #endif
 
+        bool DetermineInitialKeyStates(IODescriptor& desc) override
+        {
+#if defined(SDL_PLATFORM_LINUX)
+            if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
+                DetermineKeyStatus((Display*)GetWindowHandle(), desc);
+#else
+            DetermineKeyStatus(desc);
+#endif
+            return true;
+        }
+
+#endif
+
         SDL_Window* window = nullptr;
         SDL_GPUDevice* device = nullptr;
         SDL_Renderer* fallback = nullptr;
@@ -1467,6 +1567,47 @@ namespace glimmer
 
 #pragma region GLFW platform
 #if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_GLFW
+
+#ifdef __linux__
+}
+
+#if !defined(GLIMMER_NO_X11) || !defined(__EMSCRIPTEN__)
+#include <X11/XKBlib.h>
+
+#define GLFW_EXPOSE_NATIVE_X11
+#include <libs/inc/GLFW/glfw3native.h>
+
+static bool IsCapsLockOn(Display* display)
+{
+    XkbStateRec state;
+    if (XkbGetState(display, XkbUseCoreKbd, &state) == Success)
+        return (state.locked_mods & LockMask);
+    return false;
+}
+
+static void DetermineKeyStatus(Display* display, glimmer::IODescriptor& desc)
+{
+    desc.capslock = IsCapsLockOn(display);
+    desc.insert = false; // Unlike Windows, there is no gloabl "insert" state in Linux
+}
+#endif
+
+namespace glimmer {
+#elif defined(_WIN32)
+}
+
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <libs/inc/GLFW/glfw3native.h>
+
+namespace glimmer {
+#else
+}
+
+#define GLFW_EXPOSE_NATIVE_COCOA
+#include <libs/inc/GLFW/glfw3native.h>
+
+namespace glimmer {
+#endif
 
     static void RegisterKeyBindings()
     {
@@ -1502,10 +1643,7 @@ namespace glimmer
 
     struct ImGuiGLFWPlatform final : public IPlatform
     {
-        ImGuiGLFWPlatform()
-        {
-            DetermineInitialKeyStates(desc);
-        }
+        ImGuiGLFWPlatform() {}
 
         void SetClipboardText(std::string_view input)
         {
@@ -1560,10 +1698,7 @@ namespace glimmer
             int width = 0, height = 0;
 
             if (params.size.x == FLT_MAX || params.size.y == FLT_MAX)
-            {
                 glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
-                width = 640; height = 480;
-            }
             else
             {
                 width = (int)params.size.x;
@@ -1699,12 +1834,46 @@ namespace glimmer
             return (ImTextureID)(intptr_t)image_texture;
         }
 
-#if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__)
+#if defined(GLIMMER_ENABLE_NFDEXT)
 
-        void GetWindowHandle(void* out) override
+        void* GetWindowHandle(void* out) override
         {
             std::call_once(nfdInitialized, [] { NFD_Init(); });
             NFD_GetNativeWindowFromGLFWWindow(window, (nfdwindowhandle_t*)out);
+
+#if defined(__linux__)
+            return glfwGetX11Display();
+#elif defined(_WIN32)
+            return glfwGetWin32Window(window);
+#else
+            return glfwGetCocoaWindow(window);
+#endif
+        }
+
+#else
+
+        void* GetWindowHandle(void* out) override
+        {
+#if defined(__linux__)
+            return glfwGetX11Display();
+#elif defined(_WIN32)
+            return glfwGetWin32Window(window);
+#else
+            return glfwGetCocoaWindow(window);
+#endif
+        }
+
+#endif
+
+        bool DetermineInitialKeyStates(IODescriptor& desc) override
+        {
+#if defined(__linux__)
+            DetermineKeyStatus(glfwGetX11Display(), desc);
+#else
+            DetermineKeyStatus(desc);
+#endif
+            return true;
         }
 
 #endif

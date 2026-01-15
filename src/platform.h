@@ -272,6 +272,8 @@ namespace glimmer
         };
 
         friend int64_t FramesRendered();
+
+        IPlatform();
         
         virtual void PopulateIODescriptor(const CustomEventData& custom);
         virtual void SetClipboardText(std::string_view input) = 0;
@@ -281,11 +283,12 @@ namespace glimmer
         virtual ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels) = 0;
 
         virtual void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) {}
-        virtual void GetWindowHandle(void*);
+        virtual void* GetWindowHandle(void* outptr = nullptr);
         virtual int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
             int totalFilters = 0, const DialogProperties& props = DialogProperties{});
 
+        virtual bool DetermineInitialKeyStates(IODescriptor& desc) { return false; }
         virtual bool RegisterHotkey(const HotKeyEvent& hotkey);
 
         void SetMouseCursor(MouseCursor cursor);
@@ -301,8 +304,6 @@ namespace glimmer
 
         bool EnterFrame(float w, float h, const CustomEventData& event);
         void ExitFrame();
-
-        static bool DetermineInitialKeyStates(IODescriptor& desc);
 
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;
