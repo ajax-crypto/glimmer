@@ -1109,6 +1109,8 @@ namespace glimmer
                 switch (idx)
                 {
                 case WSI_Hovered:
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
                     slider.thumbColor = ToRGBA(255, 255, 255);
                     rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(255, 255, 255);
                     spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
@@ -1119,10 +1121,10 @@ namespace glimmer
                     Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonfg, 1.5f);
                     //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Default].track, 1.5f);
                     Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Default].grip, 1.5f);
-                    [[fallthrough]];
+                    break;
                 case WSI_Checked:
-                    toggle.trackColor = ToRGBA(200, 200, 200);
-                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                    toggle.trackColor = ToRGBA(152, 251, 152);
+                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
                     slider.trackColor = rangeslider.trackColor = ToRGBA(175, 175, 175);
                     slider.fillColor = rangeslider.fillColor = ToRGBA(100, 149, 237);
                     break;
@@ -1133,8 +1135,8 @@ namespace glimmer
                     Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Hovered].grip, 1.2f);
                     [[fallthrough]];
                 default:
-                    toggle.trackColor = ToRGBA(152, 251, 152);
-                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
                     slider.thumbColor = ToRGBA(240, 240, 240);
                     rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(240, 240, 240);
                     spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);

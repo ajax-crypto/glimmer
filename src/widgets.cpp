@@ -492,7 +492,6 @@ namespace glimmer
     {
         auto hasHScroll = false;
         float gripExtent = 0.f;
-        const float opacityRatio = (256.f / Config.scrollbar.animationDuration);
         auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
         const float vwidth = xbounds.has_value() ? xbounds.value().second - xbounds.value().first : viewport.GetWidth();
@@ -504,6 +503,7 @@ namespace glimmer
         {
             auto hasMouseInteraction = (region.type & ST_Always_H);
             auto hasOpacity = scroll.opacity.x > 0.f;
+            scroll.progress.x = scroll.opacity.x >= 255.f ? 0.f : scroll.progress.x;
 
             if (!hasMouseInteraction)
             {
@@ -518,9 +518,9 @@ namespace glimmer
                 if (!(region.type & ST_Always_H))
                 {
                     if (hasMouseInteraction && scroll.opacity.x < 255.f)
-                        scroll.opacity.x = std::min((opacityRatio * io.deltaTime) + scroll.opacity.x, 255.f);
+                        scroll.opacity.x = 255.f * anim::EaseOut(scroll.progress.x, Config.scrollbar.animationDuration);
                     else if (!hasMouseInteraction && scroll.opacity.x > 0.f)
-                        scroll.opacity.x = std::max(scroll.opacity.x - (opacityRatio * io.deltaTime), 0.f);
+                        scroll.opacity.x = 255.f * (1.f - anim::EaseOut(scroll.progress.x, Config.scrollbar.animationDuration));
                 }
                 else
                     scroll.opacity.x = 255.f;
@@ -642,7 +642,6 @@ namespace glimmer
     static bool HandleVScroll(ScrollableRegion& region, IRenderer& renderer, const IODescriptor& io, float btnsz, 
         bool hasHScroll = false, std::optional<std::pair<float, float>> ybounds = std::nullopt)
     {
-        const float opacityRatio = (256.f / Config.scrollbar.animationDuration);
         auto viewport = region.viewport;
         const auto mousepos = io.mousepos;
         const auto vheight = ybounds.has_value() ? ybounds.value().second - ybounds.value().first : viewport.GetHeight();
@@ -654,6 +653,7 @@ namespace glimmer
         {
             auto hasOpacity = scroll.opacity.y > 0.f;
             auto hasMouseInteraction = (region.type & ST_Always_V);
+            scroll.progress.y = scroll.opacity.y >= 255.f ? 0.f : scroll.progress.y;
 
             if (!hasMouseInteraction)
             {
@@ -669,9 +669,9 @@ namespace glimmer
                 if (!(region.type & ST_Always_V))
                 {
                     if (hasMouseInteraction && scroll.opacity.y < 255.f)
-                        scroll.opacity.y = std::min((opacityRatio * io.deltaTime) + scroll.opacity.y, 255.f);
+                        scroll.opacity.y = 255.f * anim::EaseOut(scroll.progress.y, Config.scrollbar.animationDuration);
                     else if (!hasMouseInteraction && scroll.opacity.y > 0.f)
-                        scroll.opacity.y = std::max(scroll.opacity.y - (opacityRatio * io.deltaTime), 0.f);
+                        scroll.opacity.y = 255.f * (1.f - anim::EaseOut(scroll.progress.y, Config.scrollbar.animationDuration));
                 }
                 else
                     scroll.opacity.y = 255.f;
@@ -1943,7 +1943,9 @@ namespace glimmer
                 specificStyle.fontsz, FT_Bold);
 
             renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
-            text = renderer.GetTextSize(Config.toggleButtonText, specificStyle.fontptr, specificStyle.fontsz);
+            auto text1 = renderer.GetTextSize(Config.toggleButtonText[0], specificStyle.fontptr, specificStyle.fontsz);
+            auto text2 = renderer.GetTextSize(Config.toggleButtonText[1], specificStyle.fontptr, specificStyle.fontsz);
+            text = { text1.x + text2.x, std::max(text1.y, text2.y) };
             result.Max += text;
             renderer.ResetFont();
 
@@ -1976,7 +1978,7 @@ namespace glimmer
                 result.event = WidgetEvent::Clicked;
                 state.checked = !state.checked;
                 toggle.animate = true;
-                toggle.progress = 0.f;
+                toggle.progress = 0.018f;
             }
 
             toggle.btnpos = toggle.animate ? center.x : -1.f;
@@ -2007,8 +2009,8 @@ namespace glimmer
         auto extra = (-specificStyle.thumbOffset + specificStyle.trackBorderThickness);
         auto radius = (extent.GetHeight() * 0.5f) - (2.f * extra);
         auto movement = extent.GetWidth() - (2.f * (radius + extra));
-        auto moveAmount = toggle.animate ? (io.deltaTime / specificStyle.animate) * movement * (state.checked ? 1.f : -1.f) : 0.f;
-        toggle.progress += fabsf(moveAmount / movement);
+        auto ratio = anim::EaseOut(toggle.progress, specificStyle.animationDuration);
+        auto moveAmount = toggle.animate ? ratio * movement * (state.checked ? 1.f : -1.f) : 0.f;
 
         auto center = toggle.btnpos == -1.f ? state.checked ? extent.Max - ImVec2{ extra + radius, extra + radius }
             : extent.Min + ImVec2{ radius + extra, extra + radius }
@@ -2018,19 +2020,11 @@ namespace glimmer
         toggle.animate = (center.x < (extent.Max.x - extra - radius)) && (center.x > (extent.Min.x + extra + radius));
 
         auto rounded = extent.GetHeight() * 0.5f;
-        auto tcol = specificStyle.trackColor;
-        if (toggle.animate)
-        {
-            auto prevTCol = state.checked ? context.toggleButtonStyles[WSI_Default].top().trackColor :
-                context.toggleButtonStyles[WSI_Checked].top().trackColor;
-            auto [fr, fg, fb, fa] = DecomposeColor(prevTCol);
-            auto [tr, tg, tb, ta] = DecomposeColor(tcol);
-            tr = (int)((1.f - toggle.progress) * (float)fr + toggle.progress * (float)tr);
-            tg = (int)((1.f - toggle.progress) * (float)fg + toggle.progress * (float)tg);
-            tb = (int)((1.f - toggle.progress) * (float)fb + toggle.progress * (float)tb);
-            ta = (int)((1.f - toggle.progress) * (float)fa + toggle.progress * (float)ta);
-            tcol = ToRGBA(tr, tg, tb, ta);
-        }
+        auto tcol = toggle.animate ? anim::InterpolateColor(state.checked ? 
+            context.toggleButtonStyles[WSI_Default].top().trackColor :
+            context.toggleButtonStyles[WSI_Checked].top().trackColor,
+            specificStyle.trackColor, toggle.progress) :
+            specificStyle.trackColor;
 
         renderer.DrawRoundedRect(extent.Min, extent.Max, tcol, true, rounded, rounded, rounded, rounded);
         renderer.DrawRoundedRect(extent.Min, extent.Max, specificStyle.trackBorderColor, false, rounded, rounded, rounded, rounded,
@@ -2040,9 +2034,9 @@ namespace glimmer
         {
             renderer.SetCurrentFont(specificStyle.fontptr, specificStyle.fontsz);
             auto texth = ((extent.GetHeight() - textsz.y) * 0.5f) - 2.f;
-            state.checked ? renderer.DrawText(Config.toggleButtonText.substr(0, Config.toggleButtonTextSplit), 
+            state.checked ? renderer.DrawText(Config.toggleButtonText[1],
                     extent.Min + ImVec2{extra, texth}, specificStyle.indicatorTextColor) :
-                renderer.DrawText(Config.toggleButtonText.substr(Config.toggleButtonTextSplit), 
+                renderer.DrawText(Config.toggleButtonText[0],
                     extent.Min + ImVec2{ (extent.GetWidth() * 0.5f) - 5.f, texth }, specificStyle.indicatorTextColor);
             renderer.ResetFont();
         }
@@ -2103,8 +2097,7 @@ namespace glimmer
                 result.event = WidgetEvent::Clicked;
                 state.checked = !state.checked;
                 radio.animate = true;
-                radio.progress = 0.f;
-                radio.radius = state.checked ? 0.f : maxrad;
+                radio.progress = 0.018f;
             }
 
             state.state = mouseover && io.isLeftMouseDown() ? WS_Hovered | WS_Pressed :
@@ -2135,18 +2128,19 @@ namespace glimmer
         auto center = extent.Min + ImVec2{ radius + 1.f, radius + 1.f };
         renderer.DrawCircle(center, radius, specificStyle.outlineColor, false, specificStyle.outlineThickness);
         auto maxrad = radius * specificStyle.checkedRadius;
-        radio.radius = radio.radius == -1.f ? state.checked ? maxrad : 0.f : radio.radius;
-        radius = radio.radius;
+        
+        if (radio.animate)
+        {
+            auto ratio = anim::EaseOut(radio.progress, specificStyle.animationDuration);
+            radius =  state.checked ? ratio * maxrad : (1.f - ratio) * maxrad;
+        }
+        else radius = state.checked ? maxrad : 0.f;
 
         if (radius > 0.f) renderer.DrawCircle(center, radius, specificStyle.checkedColor, true);
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
 
-        auto ratio = radio.animate ? (io.deltaTime / specificStyle.animate) : 0.f;
-        radio.progress += ratio;
-        radio.radius += ratio * maxrad * (state.checked ? 1.f : -1.f);
-        radio.animate = radio.radius > 0.f && radio.radius < maxrad;
-        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result);
-        
+        radio.animate = radius > 0.f && radius < maxrad;
+        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result); 
         result.geometry = extent;
         return result;
     }
@@ -5218,12 +5212,8 @@ namespace glimmer
 
             if (navDrawerStyle.openAnimationTime > 0 && navstate.currw < 1.0)
             {
-                auto t = navstate.currw;
-                float sqr = t * t;
-                auto ratio = sqr / (2.0f * (sqr - t) + 1.0f); // t* t* (3.0f - 2.0f * t);
+                auto ratio = anim::EaseOut(navstate.currw, navDrawerStyle.openAnimationTime);
                 extent.Max.x = extent.Min.x + ((extent.GetWidth() - navstate.visiblew) * ratio) + navstate.visiblew;
-                navstate.currw += (io.deltaTime / navDrawerStyle.openAnimationTime);
-                assert(navstate.currw > t);
             }
 
             auto selected = navstate.selected;
@@ -5304,10 +5294,10 @@ namespace glimmer
         auto& context = GetContext();
         auto& nav = context.currentNavDrawer;
         auto& navstate = context.NavDrawerState(nav.id);
-        auto style = context.GetStyle(
+        auto& item = nav.items.emplace_back(text, icon, resflags, extype, iconFontSzRatio, StyleDescriptor{}, atStart);
+        item.style = context.GetStyle(
             ((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
             navstate.items[nav.items.size() - 1].state);
-        nav.items.emplace_back(text, icon, resflags, extype, iconFontSzRatio, style, atStart);
     }
 
     void AddNavDrawerEntry(int32_t resflags, std::string_view icon, std::string_view text, bool atStart, float iconFontSzRatio)
@@ -5315,10 +5305,10 @@ namespace glimmer
         auto& context = GetContext();
         auto& nav = context.currentNavDrawer;
         auto& navstate = context.NavDrawerState(nav.id);
-        auto style = context.GetStyle(
+        auto& item = nav.items.emplace_back(text, icon, resflags, TextType::PlainText, iconFontSzRatio, StyleDescriptor{}, atStart);
+        item.style = context.GetStyle(
             ((nav.items.size() - 1) >= navstate.items.size() || nav.items.empty()) ? WS_Default :
             navstate.items[nav.items.size() - 1].state);
-        nav.items.emplace_back(text, icon, resflags, TextType::PlainText, iconFontSzRatio, style, atStart);
     }
 
     WidgetDrawResult EndNavDrawer()

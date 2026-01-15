@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <variant>
 #include "style.h"
+#include "platform.h"
 
 namespace glimmer
 {
@@ -1778,4 +1779,156 @@ namespace glimmer
 #pragma endregion
 
     void (*StyleDescriptor::GlobalThemeProvider)(GlobalWidgetTheme*) = nullptr;
+}
+
+float glimmer::anim::EaseIn(float& progress, float duration)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    auto ratio = t * t;
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseOut(float& progress, float duration)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    float ratio = t * (2.f - t);
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseInOut(float& progress, float duration)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    auto ratio = progress < 0.5f ? (2.f * t * t) : ((-2.f * t * t) + (4.f * t) - 1.f);
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseInSharp(float& progress, float duration)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    auto ratio = t * t * t;
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseOutSharp(float& progress, float duration)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    auto x = (1.f - t);
+    auto ratio = 1.f - (x * x * x);
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseInBack(float& progress, float duration, float overshoot)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress, s = overshoot;
+    float sqr = t * t; float cube = sqr * t;
+    auto ratio = (s + 1.f) * cube - (s * sqr);
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseOutBack(float& progress, float duration, float overshoot)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress - 1.f, s = overshoot;
+    float sqr = t * t; float cube = sqr * t;
+    auto ratio = 1.f + (s + 1.f) * cube - (s * sqr);
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
+}
+
+float glimmer::anim::EaseInBounce(float& progress, float duration, float bounceTempo)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = 1.f - progress;
+    float gravity = bounceTempo * bounceTempo;
+    float t1 = 1.0f / bounceTempo;
+    float t2 = 2.0f / bounceTempo;
+    float t3 = 2.5f / bounceTempo;
+    float ratio = 0.f;
+
+    if (t < t1)
+    {
+        ratio = gravity * t * t;
+    }
+    else if (t < t2)
+    {
+        t -= 1.5f / bounceTempo;
+        ratio = gravity * t * t + 0.75f;
+    }
+    else if (t < t3)
+    {
+        t -= 2.25f / bounceTempo;
+        ratio = gravity * t * t + 0.9375f;
+    }
+    else
+    {
+        t -= 2.625f / bounceTempo;
+        ratio = gravity * t * t + 0.984375f;
+    }
+
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return 1.f - ratio;
+}
+
+float glimmer::anim::EaseOutBounce(float& progress, float duration, float bounceTempo)
+{
+    if (progress == 0.f) progress = 1.f / (float)glimmer::Config.platform->targetFPS;
+    else if (progress == 1.f) return 1.f;
+
+    auto t = progress;
+    float gravity = bounceTempo * bounceTempo;
+    float t1 = 1.0f / bounceTempo;
+    float t2 = 2.0f / bounceTempo;
+    float t3 = 2.5f / bounceTempo;
+    float ratio = 0.f;
+
+    if (t < t1)
+    {
+        ratio = gravity * t * t;
+    }
+    else if (t < t2)
+    {
+        t -= 1.5f / bounceTempo;
+        ratio = gravity * t * t + 0.75f;
+    }
+    else if (t < t3)
+    {
+        t -= 2.25f / bounceTempo;
+        ratio = gravity * t * t + 0.9375f;
+    }
+    else
+    {
+        t -= 2.625f / bounceTempo;
+        ratio = gravity * t * t + 0.984375f;
+    }
+
+    progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
+    return ratio;
 }

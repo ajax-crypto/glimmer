@@ -299,6 +299,7 @@ namespace glimmer
         bool hasModalDialog() const;
 
         IODescriptor desc;
+        int32_t targetFPS = -1;
 
     protected:
 
@@ -308,7 +309,6 @@ namespace glimmer
         int64_t frameCount = 0;
         int32_t deltaFrames = 0;
         int32_t totalCustomEvents = 0;
-        int32_t targetFPS = -1;
         float totalTime = 0.f;
         float totalDeltaTime = 0.f;
         float maxFrameTime = 0.f;

@@ -212,7 +212,7 @@ namespace glimmer
         float trackBorderThickness = 0.f;
         float thumbOffset = -2.f;
         float thumbExpand = 0.f;
-        float animate = 0.3f;
+        float animationDuration = 0.3f;
         bool showText = true; // Show ON/OFF text inside button
         void* fontptr = nullptr;
         float fontsz = 12.f;
@@ -269,7 +269,7 @@ namespace glimmer
         uint32_t outlineColor = ToRGBA(0, 0, 0);
         float outlineThickness = 2.f;
         float checkedRadius = 0.6f; // relative to total
-        float animate = 0.3f;
+        float animationDuration = 0.3f;
 
         static RadioButtonStyleDescriptor ParseFrom(std::string_view css);
     };
@@ -330,6 +330,35 @@ namespace glimmer
 
         CommonWidgetStyleDescriptor() {}
     };
+
+    namespace anim
+    {
+        inline uint32_t InterpolateColor(uint32_t from, uint32_t to, float progress)
+        {
+            auto [fr, fg, fb, fa] = DecomposeColor(from);
+            auto [tr, tg, tb, ta] = DecomposeColor(to);
+            tr = (int)((1.f - progress) * (float)fr + progress * (float)tr);
+            tg = (int)((1.f - progress) * (float)fg + progress * (float)tg);
+            tb = (int)((1.f - progress) * (float)fb + progress * (float)tb);
+            ta = (int)((1.f - progress) * (float)fa + progress * (float)ta);
+            return ToRGBA(tr, tg, tb, ta);
+        }
+
+        inline float Interpolate(float from, float to, float progress)
+        {
+            return (to * progress) + (from * (1.f - progress));
+        }
+
+        float EaseIn(float& progress, float duration);
+        float EaseOut(float& progress, float duration);
+        float EaseInOut(float& progress, float duration);
+        float EaseInSharp(float& progress, float duration);
+        float EaseOutSharp(float& progress, float duration);
+        float EaseInBack(float& progress, float duration, float overshoot = 1.70158f);
+        float EaseOutBack(float& progress, float duration, float overshoot = 1.70158f);
+        float EaseInBounce(float& progress, float duration, float bounceTempo);
+        float EaseOutBounce(float& progress, float duration, float bounceTempo);
+    }
 
     // Set all styles for ids/classes as a stylesheet (This should be done before event loop, or at the start
     // of a frame ideally)

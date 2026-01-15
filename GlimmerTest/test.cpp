@@ -298,7 +298,7 @@ void TestWindow(glimmer::UIConfig& config)
 
             EndItemGridHeader();
             AddFilterRow();
-            PopulateItemGrid(10, ItemGridPopulateMethod::ByRows);
+            PopulateItemGrid(100, ItemGridPopulateMethod::ByRows);
             EndItemGrid();
         }
 

@@ -196,7 +196,6 @@ namespace glimmer
         uint32_t focuscolor = ToRGBA(100, 100, 200);
         uint64_t implicitInheritedProps = 0;
         int32_t tooltipDelay = 500;
-        int32_t toggleButtonTextSplit = 2;
         float tooltipFontSz = 16.f;
         float defaultFontSz = 16.f;
         float fontScaling = 2.f;
@@ -207,7 +206,7 @@ namespace glimmer
         std::string_view tooltipFontFamily = GLIMMER_DEFAULT_FONTFAMILY;
         std::string_view pinTabsTooltip = "Click to pin tab";
         std::string_view closeTabsTooltip = "Click to close tab";
-        std::string_view toggleButtonText = "ONOFF";
+        std::string_view toggleButtonText[2] = { "OFF", "ON" };
         BoxShadowQuality shadowQuality = BoxShadowQuality::Balanced;
         IRenderer* renderer = nullptr;
         IPlatform* platform = nullptr;
@@ -398,6 +397,7 @@ namespace glimmer
         ImVec2 pos;
         ImVec2 lastMousePos;
         ImVec2 opacity;
+        ImVec2 progress;
         bool mouseDownOnVGrip = false;
         bool mouseDownOnHGrip = false;
     };

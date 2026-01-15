@@ -304,7 +304,6 @@ namespace glimmer
 
     struct RadioButtonPersistentState
     {
-        float radius = -1.f;
         float progress = 0.f;
         bool animate = false;
     };
