@@ -220,7 +220,7 @@ message(STATUS "Looking for libraries in: ${PLATFORM_LIB_DIR}")
 set(CORE_LIBS
     libimgui.a
     libfreetype.a
-    libyogacore.a
+    libyoga.a
 )
 
 foreach(lib ${CORE_LIBS})

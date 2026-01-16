@@ -448,9 +448,9 @@ fi
 if [ "$BUILD_YOGA" = true ]; then
     CURRENT_LIB=$((CURRENT_LIB+1))
     echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building Yoga v${YOGA_VERSION}... (BUILD SECOND - LAYOUT ENGINE)${NC}"
-if [ -f "$LIB_OUTPUT_DIR/libyogacore.a" ] && [ "$UPDATE_ALL" != true ]; then
-    echo -e "${YELLOW}✓ libyogacore.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libyogacore.a"
+if [ -f "$LIB_OUTPUT_DIR/libyoga.a" ] && [ "$UPDATE_ALL" != true ]; then
+    echo -e "${YELLOW}✓ libyoga.a already exists, skipping build${NC}"
+    ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
         LIBS_SKIPPED+=("Yoga v${YOGA_VERSION}")
     else
         LIBS_BUILT+=("Yoga v${YOGA_VERSION}")
@@ -481,8 +481,8 @@ if [ -f "$LIB_OUTPUT_DIR/libyogacore.a" ] && [ "$UPDATE_ALL" != true ]; then
             -not -path "*/java/*" \
             -not -path "*/javascript/*" \
             -exec g++ -c -std=c++20 $CFLAGS {} -I. -Iyoga \;
-        ar rcs libyogacore.a *.o
-        cp libyogacore.a "$LIB_OUTPUT_DIR/"
+        ar rcs libyoga.a *.o
+        cp libyoga.a "$LIB_OUTPUT_DIR/"
         rm -f *.o
         
         # Copy headers
@@ -501,7 +501,7 @@ if [ -f "$LIB_OUTPUT_DIR/libyogacore.a" ] && [ "$UPDATE_ALL" != true ]; then
         grep -q "Yoga: v${YOGA_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "Yoga: v${YOGA_VERSION}" >> "$VERSION_FILE"
         
         echo -e "${GREEN}✓ Yoga built successfully (headers copied)${NC}"
-        ls -lh "$LIB_OUTPUT_DIR/libyogacore.a"
+        ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
         cd "$BUILD_DIR"
 fi
 echo ""
@@ -1293,9 +1293,9 @@ fi
 if false; then  # DISABLED - duplicate of earlier Yoga build
     CURRENT_LIB=$((CURRENT_LIB+1))
     echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building Yoga...${NC}"
-if [ -f "$LIB_OUTPUT_DIR/libyogacore.a" ]; then
-    echo -e "${YELLOW}✓ libyogacore.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libyogacore.a"
+if [ -f "$LIB_OUTPUT_DIR/libyoga.a" ]; then
+    echo -e "${YELLOW}✓ libyoga.a already exists, skipping build${NC}"
+    ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
         LIBS_SKIPPED+=("Yoga (bundled)")
 else
         LIBS_BUILT+=("Yoga (bundled)")
@@ -1305,10 +1305,9 @@ else
         
         # Build all Yoga source files (C++20 required)
         find . -name "*.cpp" -exec g++ -c -O3 -std=c++20 -fPIC -I.. -I. {} \;
-        find . -name "*.o" -exec ar rcs libyogacore.a {} +
+        find . -name "*.o" -exec ar rcs libyoga.a {} +
         
-    cp libyogacore.a "$LIB_OUTPUT_DIR/"
-    rm -f "$LIB_OUTPUT_DIR/libyogacore.a"
+    cp libyoga.a "$LIB_OUTPUT_DIR/"
     rm -f *.o
         find . -name "*.o" -delete
         
@@ -1317,7 +1316,7 @@ else
         grep -q "Yoga: ${YOGA_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "Yoga: ${YOGA_VERSION}" >> "$VERSION_FILE"
         
     echo -e "${GREEN}✓ Yoga built successfully${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libyogacore.a"
+    ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
 fi
 echo ""
 fi

@@ -198,10 +198,79 @@ struct ImVec2
     ImVec2& operator+=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
     ImVec2& operator-=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
 };
-bool operator==(const ImVec2& lhs, const ImVec2& rhs) { return lhs.x == rhs.x && lhs.y == rhs.y; }
-bool operator!=(const ImVec2& lhs, const ImVec2& rhs) { return lhs.x != rhs.x || lhs.y != rhs.y; }
-ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2{ lhs.x + rhs.x, lhs.y + rhs.y }; }
-ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2{ lhs.x - rhs.x, lhs.y - rhs.y }; }
+// ImVec2 arithmetic operators (ImGui 1.92+ doesn't define these)
+#ifndef GLIMMER_IMVEC2_OPERATORS_DEFINED
+#define GLIMMER_IMVEC2_OPERATORS_DEFINED
+inline ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return ImVec2{ lhs.x + rhs.x, lhs.y + rhs.y };
+}
+
+inline ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return ImVec2{ lhs.x - rhs.x, lhs.y - rhs.y };
+}
+
+// Unary negation operator
+inline ImVec2 operator-(const ImVec2& v)
+{
+    return ImVec2{ -v.x, -v.y };
+}
+
+inline ImVec2 operator*(const ImVec2& lhs, float rhs)
+{
+    return ImVec2{ lhs.x * rhs, lhs.y * rhs };
+}
+
+inline ImVec2 operator/(const ImVec2& lhs, float rhs)
+{
+    return ImVec2{ lhs.x / rhs, lhs.y / rhs };
+}
+
+inline ImVec2& operator+=(ImVec2& lhs, const ImVec2& rhs)
+{
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    return lhs;
+}
+
+inline ImVec2& operator-=(ImVec2& lhs, const ImVec2& rhs)
+{
+    lhs.x -= rhs.x;
+    lhs.y -= rhs.y;
+    return lhs;
+}
+
+inline ImVec2& operator*=(ImVec2& lhs, float rhs)
+{
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    return lhs;
+}
+
+inline ImVec2& operator/=(ImVec2& lhs, float rhs)
+{
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    return lhs;
+}
+
+// ImVec2 comparison operators
+inline bool operator==(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
+inline bool operator!=(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x != rhs.x || lhs.y != rhs.y;
+}
+
+inline bool operator>(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x > rhs.x || lhs.y > rhs.y;
+}
+#endif
 struct ImRect
 {
     ImVec2 Min{}, Max{};
@@ -217,6 +286,80 @@ struct ImRect
 #else
 #include "libs/inc/imgui/imgui.h"
 #include "libs/inc/imgui/imgui_internal.h"
+
+// ImVec2 arithmetic operators (ImGui 1.92+ doesn't define these)
+#ifndef GLIMMER_IMVEC2_OPERATORS_DEFINED
+#define GLIMMER_IMVEC2_OPERATORS_DEFINED
+inline ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return ImVec2(lhs.x + rhs.x, lhs.y + rhs.y);
+}
+
+inline ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return ImVec2(lhs.x - rhs.x, lhs.y - rhs.y);
+}
+
+// Unary negation operator
+inline ImVec2 operator-(const ImVec2& v)
+{
+    return ImVec2(-v.x, -v.y);
+}
+
+inline ImVec2 operator*(const ImVec2& lhs, float rhs)
+{
+    return ImVec2(lhs.x * rhs, lhs.y * rhs);
+}
+
+inline ImVec2 operator/(const ImVec2& lhs, float rhs)
+{
+    return ImVec2(lhs.x / rhs, lhs.y / rhs);
+}
+
+inline ImVec2& operator+=(ImVec2& lhs, const ImVec2& rhs)
+{
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    return lhs;
+}
+
+inline ImVec2& operator-=(ImVec2& lhs, const ImVec2& rhs)
+{
+    lhs.x -= rhs.x;
+    lhs.y -= rhs.y;
+    return lhs;
+}
+
+inline ImVec2& operator*=(ImVec2& lhs, float rhs)
+{
+    lhs.x *= rhs;
+    lhs.y *= rhs;
+    return lhs;
+}
+
+inline ImVec2& operator/=(ImVec2& lhs, float rhs)
+{
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    return lhs;
+}
+
+// ImVec2 comparison operators
+inline bool operator==(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
+inline bool operator!=(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x != rhs.x || lhs.y != rhs.y;
+}
+
+inline bool operator>(const ImVec2& lhs, const ImVec2& rhs)
+{
+    return lhs.x > rhs.x || lhs.y > rhs.y;
+}
+#endif
 #endif
 
 #ifdef _DEBUG
