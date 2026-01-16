@@ -7,7 +7,7 @@
 #define GLIMMER_PLATFORM_WASM 3 // Not implemented yet
 // Keep adding new platforms here...
 
-using ImWchar = unsigned int;
+// ImWchar is now defined by ImGui (removed conflicting typedef)
 
 #ifndef GLIMMER_MAX_GLFW_CLIPBOARD_TEXTSZ
 #define GLIMMER_MAX_GLFW_CLIPBOARD_TEXTSZ 4096
