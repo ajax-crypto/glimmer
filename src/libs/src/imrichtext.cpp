@@ -1078,7 +1078,7 @@ namespace ImRichText
 
             startpos.x = ImGui::GetCurrentWindow()->Size.x - sz.x;
             overlay->AddRectFilled(startpos, startpos + ImVec2{ ImGui::GetCurrentWindow()->Size.x, sz.y }, IM_COL32_WHITE);
-            overlay->AddText(font, font->FontSize, startpos, IM_COL32_BLACK, buffer, NULL, 300.f);
+            overlay->AddText(font, font->LegacySize, startpos, IM_COL32_BLACK, buffer, NULL, 300.f);
             ImGui::PopFont();
             return true;
         }

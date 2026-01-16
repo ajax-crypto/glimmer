@@ -40,7 +40,7 @@ Glimmer requires these static libraries (built automatically by `build_dependenc
 - **libfreetype.a** - Font rendering
 - **libimgui.a** - Immediate mode GUI framework
 - **libimplot.a** - Plotting support
-- **libyogacore.a** - Flexbox layout engine
+- **libyoga.a** - Flexbox layout engine
 - **libblend2d.a** - 2D graphics rendering (optional)
 
 ### System Dependencies
@@ -232,7 +232,7 @@ target_link_libraries(myapp
     ${GLIMMER_ROOT}/staticlib/libglimmer.a
     ${GLIMMER_LIB_DIR}/libimgui.a
     ${GLIMMER_LIB_DIR}/libimplot.a
-    ${GLIMMER_LIB_DIR}/libyogacore.a
+    ${GLIMMER_LIB_DIR}/libyoga.a
     ${GLIMMER_LIB_DIR}/liblunasvg.a
     ${GLIMMER_LIB_DIR}/libplutovg.a
     ${GLIMMER_LIB_DIR}/libSDL3.a
@@ -265,7 +265,7 @@ g++ -std=c++20 main.cpp \
     $GLIMMER_DIR/staticlib/libglimmer.a \
     $LIB_DIR/libimgui.a \
     $LIB_DIR/libimplot.a \
-    $LIB_DIR/libyogacore.a \
+    $LIB_DIR/libyoga.a \
     $LIB_DIR/liblunasvg.a \
     $LIB_DIR/libplutovg.a \
     $LIB_DIR/libSDL3.a \

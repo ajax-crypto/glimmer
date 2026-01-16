@@ -66,8 +66,11 @@ namespace glimmer
         auto imfont = (ImFont*)fontptr;
         ImVec2 txtsz;
 
+        // Get the baked font data for the requested size
+        ImFontBaked* baked = imfont->GetFontBaked(sz);
+
         if ((int)text.size() > 4 && wrapWidth == -1.f && IsFontMonospace(fontptr))
-            txtsz = ImVec2{ (float)text.size() * imfont->IndexAdvanceX.front(), sz };
+            txtsz = ImVec2((float)text.size() * baked->IndexAdvanceX.Data[0], sz);
         else
         {
             ImGui::PushFont(imfont);
@@ -75,7 +78,7 @@ namespace glimmer
             ImGui::PopFont();
         }
 
-        auto ratio = (sz / imfont->FontSize);
+        auto ratio = (sz / baked->Size);
         txtsz.x *= ratio;
         txtsz.y *= ratio;
         return txtsz;
@@ -104,7 +107,7 @@ namespace glimmer
             if (h <= 0.0f)
             {
                 auto fm = font->metrics();
-                h = (float)(fm.ascent - fm.descent + fm.leading);
+                h = (float)(fm.ascent - fm.descent + fm.line_gap);
             }
             return { w, h };
         };
@@ -170,7 +173,7 @@ namespace glimmer
         if (lineH <= 0.f)
         {
             auto fm = font->metrics();
-            lineH = (float)(fm.ascent - fm.descent + fm.leading);
+            lineH = (float)(fm.ascent - fm.descent + fm.line_gap);
         }
 
         return ImVec2{ maxLineWidth, lineH * (float)lineCount };
@@ -1242,7 +1245,10 @@ namespace glimmer
 
     float ImGuiRenderer::EllipsisWidth(void* fontptr, float sz)
     {
-        return ((ImFont*)fontptr)->EllipsisWidth;
+        ImFont* font = (ImFont*)fontptr;
+        ImFontBaked* baked = font->GetFontBaked(sz);
+        ImFontGlyph* glyph = baked->FindGlyph(font->EllipsisChar);
+        return glyph ? glyph->AdvanceX : 0.0f;
     }
 
     bool ImGuiRenderer::StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color)
@@ -2663,7 +2669,9 @@ namespace glimmer
             {
                 if (fromFile)
                 {
-                    int written = snprintf(scratchBuffer, scratchBufferSize, "  \n", (int)content.length(), content.data());
+                    int written = snprintf(scratchBuffer, scratchBufferSize,
+                        "  <image x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" xlink:href=\"%.*s\" />\n",
+                        pos.x, pos.y, size.x, size.y, (int)content.length(), content.data());
                     if (written > 0) appendToBuffer(mainSvgBuffer, mainSvgBufferOffset, svgMainBufferSize, scratchBuffer, written);
                     return false;
                 }
@@ -2786,7 +2794,7 @@ namespace glimmer
         {
             if (!deferredContents.empty())
             {
-                auto& renderer = deferredContents.back();
+                auto& renderer = deferredContents.back().second;
                 renderer.Render(*this, {}, 0, -1);
                 deferredContents.clear();
             }
@@ -2816,16 +2824,16 @@ namespace glimmer
             //ctx.restore();
         }
 
-        void ImGuiRenderer::BeginDefer() override
+        void BeginDefer() override
         {
             if (!deferDrawCalls)
             {
                 deferDrawCalls = true;
-                deferredContents.emplace_back(&Blend2DMeasureText);
+                deferredContents.emplace_back(nullptr, &Blend2DMeasureText);
             }
         }
 
-        void ImGuiRenderer::EndDefer() override
+        void EndDefer() override
         {
             deferDrawCalls = false;
         }
