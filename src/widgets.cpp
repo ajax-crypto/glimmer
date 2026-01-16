@@ -4015,7 +4015,8 @@ namespace glimmer
                 });
             }
 
-            EndPopUp(true, ddstyle.bgcolor);
+            const auto& specificStyle = GetContext().dropdownStyles[glimmer::log2((unsigned)state.state)].top();
+            EndPopUp(true, ddstyle.bgcolor, specificStyle.occludeBg);
             if (state.out) *state.out = selected;
             state.selected = selected;
             state.hovered = hovered;
@@ -7700,7 +7701,7 @@ namespace glimmer
         context.popupCallbackData[phase] = data;
     }
 
-    WidgetDrawResult EndPopUp(bool alwaysVisible, std::optional<uint32_t> bgcoloropt)
+    WidgetDrawResult EndPopUp(bool alwaysVisible, std::optional<uint32_t> bgcoloropt, bool occlude)
     {
         auto& overlayctx = GetContext();
         WidgetDrawResult result;
@@ -7714,14 +7715,13 @@ namespace glimmer
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
             auto& renderer = *Config.renderer; // overlay cannot be deferred TODO: Figure out if it can be
+            auto available = overlayctx.parentContext->WindowSize();
             ImVec2 origin = overlayctx.popupOrigin, size;
             size.x = overlayctx.popupSize.x != FLT_MAX ? overlayctx.popupSize.x : overlayctx.deferedRenderer->size.x;
             size.y = overlayctx.popupSize.y != FLT_MAX ? overlayctx.popupSize.y : overlayctx.deferedRenderer->size.y;
 
             if (alwaysVisible)
             {
-                auto available = overlayctx.parentContext->WindowSize();
-
                 if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
                     origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
 
@@ -7731,6 +7731,13 @@ namespace glimmer
 
             auto style = overlayctx.GetStyle(WS_Default);
             auto bgcolor = bgcoloropt.has_value() ? bgcoloropt.value() : style.bgcolor;
+
+            if (occlude)
+            {
+                renderer.BeginDefer(); 
+                renderer.DrawRect(ImVec2{}, available, Config.popupOcclusionColor, true); 
+                renderer.EndDefer();
+            }
 
             if (renderer.StartOverlay(overlayctx.PopupTarget, origin, size, bgcolor))
             {

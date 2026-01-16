@@ -194,6 +194,7 @@ namespace glimmer
     {
         uint32_t bgcolor = ToRGBA(255, 255, 255);
         uint32_t focuscolor = ToRGBA(100, 100, 200);
+        uint32_t popupOcclusionColor = ToRGBA(0, 0, 0, 175);
         uint64_t implicitInheritedProps = 0;
         int32_t tooltipDelay = 500;
         float tooltipFontSz = 16.f;

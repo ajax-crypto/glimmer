@@ -124,7 +124,7 @@ auto InfoIconSVG = R"(
 
 namespace glimmer
 {
-    IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos)
+    IntersectRects ComputeIntersectRects(const ImRect& rect, ImVec2 startpos, ImVec2 endpos)
     {
         IntersectRects res;
 
@@ -176,7 +176,7 @@ namespace glimmer
         return res;
     }
 
-    RectBreakup ComputeRectBreakups(ImRect rect, float amount)
+    RectBreakup ComputeRectBreakups(const ImRect& rect, float amount)
     {
         RectBreakup res;
 

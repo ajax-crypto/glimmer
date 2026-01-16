@@ -26,6 +26,9 @@ namespace glimmer
         int sizesCount = 0;
     };
 
+    enum class RendererType
+    { ImGui, Blend2D, SVG, PDCurses, Deferred };
+
     // Implement this to draw primitives in your favorite graphics API
     // TODO: Separate gradient creation vs. drawing
     struct IRenderer
@@ -33,11 +36,15 @@ namespace glimmer
         void* UserData = nullptr;
         ImVec2 size{ 0.f, 0.f };
 
+        virtual RendererType Type() const = 0;
         virtual bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) { return true; }
         virtual void FinalizeFrame(int32_t cursor) {}
 
         virtual void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect = true) = 0;
         virtual void ResetClipRect() = 0;
+
+        virtual void BeginDefer() {}
+        virtual void EndDefer() {}
 
         virtual void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) = 0;
         virtual void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) = 0;
@@ -81,9 +88,7 @@ namespace glimmer
 
     using TextMeasureFuncT = ImVec2(*)(std::string_view text, void* fontptr, float sz, float wrapWidth);
 
-    ImVec2 ImGuiMeasureText(std::string_view text, void* fontptr, float sz, float wrapWidth);
-
-    IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc);
+    IRenderer* CreateDeferredRenderer();
     IRenderer* CreateImGuiRenderer();
     IRenderer* CreateSoftwareRenderer();
     IRenderer* CreateSVGRenderer(TextMeasureFuncT tmfunc, ImVec2 dimensions);

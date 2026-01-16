@@ -117,7 +117,7 @@ namespace glimmer
 
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
-    WidgetDrawResult EndPopUp(bool alwaysVisible = true, std::optional<uint32_t> bgcolor = std::nullopt);
+    WidgetDrawResult EndPopUp(bool alwaysVisible = true, std::optional<uint32_t> bgcolor = std::nullopt, bool occlude = false);
 
     void BeginScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });

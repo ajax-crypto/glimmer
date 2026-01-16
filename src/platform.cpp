@@ -1153,6 +1153,8 @@ namespace glimmer {
 
         bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
         {
+            // TODO: If using Blend2D renderer, additional changes are required to copy
+            // from BLContext to SDL frame
             if (device)
             {
                 ImGui_ImplSDLGPU3_InitInfo init_info = {};

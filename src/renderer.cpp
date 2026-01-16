@@ -7,6 +7,7 @@
 #include <charconv>
 #include <limits>
 #include <algorithm>
+#include <deque>
 
 #ifndef GLIMMER_DISABLE_GIF
 #include <chrono>
@@ -79,6 +80,103 @@ namespace glimmer
         txtsz.y *= ratio;
         return txtsz;
     }
+
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+
+    ImVec2 Blend2DMeasureText(std::string_view text, void* fontptr, float sz, float wrapWidth)
+    {
+        auto font = static_cast<BLFont*>(fontptr);
+        if (!font)
+        {
+            return ImVec2{ (float)text.size() * sz, sz };
+        }
+
+        auto measureWithFont = [&](std::string_view s) -> ImVec2 {
+            if (s.empty()) return ImVec2{ 0.f, 0.f };
+            BLGlyphBuffer gb;
+            gb.set_utf8_text(s.data(), s.size());
+            font->shape(gb);
+            BLTextMetrics tm;
+            font->get_text_metrics(gb, tm);
+
+            float w = (float)(tm.bounding_box.x1 - tm.bounding_box.x0);
+            float h = (float)(tm.bounding_box.y1 - tm.bounding_box.y0);
+            if (h <= 0.0f)
+            {
+                auto fm = font->metrics();
+                h = (float)(fm.ascent - fm.descent + fm.leading);
+            }
+            return { w, h };
+        };
+
+        if (wrapWidth <= 0.f)
+        {
+            return measureWithFont(text);
+        }
+
+        // Word-wrapping: break into tokens (words + following whitespace) and accumulate line widths.
+        float maxLineWidth = 0.f;
+        float currentLineWidth = 0.f;
+        float maxTokenHeight = 0.f;
+        int lineCount = 0;
+        const char* ptr = text.data();
+        size_t len = text.size();
+        size_t i = 0;
+
+        while (i < len)
+        {
+            // find next word (non-space sequence)
+            size_t j = i;
+            while (j < len && !std::isspace((unsigned char)ptr[j])) ++j;
+            std::string_view word(ptr + i, j - i);
+
+            // measure the word
+            ImVec2 wordSz = measureWithFont(word);
+            // gather following whitespace (so spaces count towards width)
+            size_t k = j;
+            while (k < len && std::isspace((unsigned char)ptr[k])) ++k;
+            std::string_view spaces(ptr + j, k - j);
+            ImVec2 spacesSz = measureWithFont(spaces);
+
+            float segmentW = wordSz.x + spacesSz.x;
+            float segmentH = std::max(wordSz.y, spacesSz.y);
+            maxTokenHeight = std::max(maxTokenHeight, segmentH);
+
+            // If the segment doesn't fit on current line, wrap to next line (unless line empty)
+            if (currentLineWidth > 0.f && (currentLineWidth + segmentW) > wrapWidth)
+            {
+                maxLineWidth = std::max(maxLineWidth, currentLineWidth);
+                currentLineWidth = 0.f;
+                ++lineCount;
+            }
+
+            // If a single segment exceeds wrapWidth and current line is empty, still place it (no hyphenation)
+            currentLineWidth += segmentW;
+            i = k;
+        }
+
+        if (currentLineWidth > 0.f)
+        {
+            ++lineCount;
+            maxLineWidth = std::max(maxLineWidth, currentLineWidth);
+        }
+
+        if (lineCount == 0)
+        {
+            return ImVec2{ 0.f, 0.f };
+        }
+
+        float lineH = maxTokenHeight;
+        if (lineH <= 0.f)
+        {
+            auto fm = font->metrics();
+            lineH = (float)(fm.ascent - fm.descent + fm.leading);
+        }
+
+        return ImVec2{ maxLineWidth, lineH * (float)lineCount };
+    }
+
+#endif
 
     struct FileContents
     {
@@ -173,6 +271,388 @@ namespace glimmer
         return { 0, 0 };
     }
 
+#pragma region Deferred Renderer
+
+    enum class DrawingOps
+    {
+        Line, Triangle, Rectangle, RoundedRectangle, Circle, Sector,
+        RectGradient, RoundedRectGradient,
+        Polyline, Polygon, PolyGradient,
+        Text, Tooltip,
+        Resource,
+        PushClippingRect, PopClippingRect,
+        PushFont, PopFont
+    };
+
+    union DrawParams
+    {
+        struct {
+            ImVec2 start, end;
+            uint32_t color;
+            float thickness;
+        } line;
+
+        struct {
+            ImVec2 pos1, pos2, pos3;
+            uint32_t color;
+            float thickness;
+            bool filled;
+        } triangle;
+
+        struct {
+            ImVec2 start, end;
+            uint32_t color;
+            float thickness;
+            bool filled;
+        } rect;
+
+        struct {
+            ImVec2 start, end;
+            float topleftr, toprightr, bottomleftr, bottomrightr;
+            uint32_t color;
+            float thickness;
+            bool filled;
+        } roundedRect;
+
+        struct {
+            ImVec2 start, end;
+            uint32_t from, to;
+            Direction dir;
+        } rectGradient;
+
+        struct {
+            ImVec2 start, end;
+            float topleftr, toprightr, bottomleftr, bottomrightr;
+            uint32_t from, to;
+            Direction dir;
+        } roundedRectGradient;
+
+        struct {
+            ImVec2 center;
+            float radius;
+            uint32_t color;
+            float thickness;
+            bool filled;
+        } circle;
+
+        struct {
+            ImVec2 center;
+            float radius;
+            int start, end;
+            uint32_t color;
+            float thickness;
+            bool filled, inverted;
+        } sector;
+
+        struct {
+            std::string_view text;
+            ImVec2 pos;
+            uint32_t color;
+            float wrapWidth;
+        } text;
+
+        struct {
+            ImVec2 pos;
+            std::string_view text;
+        } tooltip;
+
+        struct {
+            ImVec2 start, end;
+            bool intersect;
+        } clippingRect;
+
+        struct {
+            void* fontptr;
+            float size;
+        } font;
+
+        struct {
+            int32_t resflags;
+            int32_t id;
+            ImVec2 pos, size;
+            uint32_t color;
+            std::string_view content;
+        } resource;
+
+        struct {
+            ImVec2* points;
+            int size;
+            uint32_t color;
+            float thickness;
+        } polyline;
+
+        struct {
+            ImVec2* points;
+            int size;
+            uint32_t color;
+            float thickness;
+            bool filled;
+        } polygon;
+
+        struct {
+            ImVec2* points;
+            uint32_t* color;
+            int size;
+        } polygradient;
+
+        DrawParams() {}
+    };
+
+    struct DeferredRenderer final : public IRenderer
+    {
+        Vector<std::pair<DrawingOps, DrawParams>, int32_t, 32> queue{ 32 };
+        ImVec2(*TextMeasure)(std::string_view text, void* fontptr, float sz, float wrapWidth);
+
+        DeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth))
+            : TextMeasure{ tm } {
+        }
+
+        RendererType Type() const { return RendererType::Deferred; }
+
+        int TotalEnqueued() const override { return queue.size(); }
+
+        void Render(IRenderer& renderer, ImVec2 offset, int from, int to) override
+        {
+            auto prevdl = renderer.UserData;
+            renderer.UserData = ImGui::GetWindowDrawList();
+            to = to == -1 ? queue.size() : to;
+
+            for (auto idx = from; idx < to; ++idx)
+            {
+                const auto& entry = queue[idx];
+
+                switch (entry.first)
+                {
+                case DrawingOps::Line:
+                    renderer.DrawLine(entry.second.line.start + offset, entry.second.line.end + offset, entry.second.line.color,
+                        entry.second.line.thickness);
+                    break;
+
+                case DrawingOps::Triangle:
+                    renderer.DrawTriangle(entry.second.triangle.pos1 + offset, entry.second.triangle.pos2 + offset,
+                        entry.second.triangle.pos3 + offset, entry.second.triangle.color, entry.second.triangle.filled,
+                        entry.second.triangle.thickness);
+                    break;
+
+                case DrawingOps::Rectangle:
+                    renderer.DrawRect(entry.second.rect.start + offset, entry.second.rect.end + offset, entry.second.rect.color,
+                        entry.second.rect.filled, entry.second.rect.thickness);
+                    break;
+
+                case DrawingOps::RoundedRectangle:
+                    renderer.DrawRoundedRect(entry.second.roundedRect.start + offset, entry.second.roundedRect.end + offset, entry.second.roundedRect.color,
+                        entry.second.roundedRect.filled, entry.second.roundedRect.topleftr, entry.second.roundedRect.toprightr,
+                        entry.second.roundedRect.bottomrightr, entry.second.roundedRect.bottomleftr, entry.second.roundedRect.thickness);
+                    break;
+
+                case DrawingOps::Circle:
+                    renderer.DrawCircle(entry.second.circle.center + offset, entry.second.circle.radius, entry.second.circle.color,
+                        entry.second.circle.filled, entry.second.circle.thickness);
+                    break;
+
+                case DrawingOps::Sector:
+                    renderer.DrawSector(entry.second.sector.center + offset, entry.second.sector.radius, entry.second.sector.start, entry.second.sector.end,
+                        entry.second.sector.color, entry.second.sector.filled, entry.second.sector.inverted, entry.second.sector.thickness);
+                    break;
+
+                case DrawingOps::RectGradient:
+                    renderer.DrawRectGradient(entry.second.rectGradient.start + offset, entry.second.rectGradient.end + offset, entry.second.rectGradient.from,
+                        entry.second.rectGradient.to, entry.second.rectGradient.dir);
+                    break;
+
+                case DrawingOps::RoundedRectGradient:
+                    renderer.DrawRoundedRectGradient(entry.second.roundedRectGradient.start + offset, entry.second.roundedRectGradient.end + offset,
+                        entry.second.roundedRectGradient.topleftr, entry.second.roundedRectGradient.toprightr,
+                        entry.second.roundedRectGradient.bottomrightr, entry.second.roundedRectGradient.bottomleftr,
+                        entry.second.roundedRectGradient.from, entry.second.roundedRectGradient.to, entry.second.roundedRectGradient.dir);
+                    break;
+
+                case DrawingOps::Text:
+                    renderer.DrawText(entry.second.text.text, entry.second.text.pos + offset, entry.second.text.color, entry.second.text.wrapWidth);
+                    break;
+
+                case DrawingOps::Tooltip:
+                    renderer.DrawTooltip(entry.second.tooltip.pos + offset, entry.second.tooltip.text);
+                    break;
+
+                case DrawingOps::Resource:
+                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos + offset,
+                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content,
+                        entry.second.resource.id);
+                    break;
+
+                case DrawingOps::PushClippingRect:
+                    renderer.SetClipRect(entry.second.clippingRect.start + offset, entry.second.clippingRect.end + offset,
+                        entry.second.clippingRect.intersect);
+                    break;
+
+                case DrawingOps::PopClippingRect:
+                    renderer.ResetClipRect();
+                    break;
+
+                case DrawingOps::PushFont:
+                    renderer.SetCurrentFont(entry.second.font.fontptr, entry.second.font.size);
+                    break;
+
+                case DrawingOps::PopFont:
+                    renderer.ResetFont();
+                    break;
+
+                case DrawingOps::Polyline:
+                    renderer.DrawPolyline(entry.second.polyline.points, entry.second.polyline.size,
+                        entry.second.polyline.color, entry.second.polyline.thickness);
+                    break;
+
+                case DrawingOps::Polygon:
+                    renderer.DrawPolygon(entry.second.polygon.points, entry.second.polygon.size,
+                        entry.second.polygon.color, entry.second.polygon.filled, entry.second.polygon.thickness);
+                    break;
+
+                case DrawingOps::PolyGradient:
+                    renderer.DrawPolyGradient(entry.second.polygradient.points, entry.second.polygradient.color,
+                        entry.second.polygradient.size);
+                    break;
+
+                default: break;
+                }
+            }
+
+            renderer.UserData = prevdl;
+        }
+
+        void Reset() { queue.clear(true); size = { 0.f, 0.f }; }
+
+        void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::PushClippingRect;
+            val.second.clippingRect = { startpos, endpos, intersect };
+            size = ImMax(size, endpos);
+        }
+
+        void ResetClipRect() { auto& val = queue.emplace_back(); val.first = DrawingOps::PopClippingRect; }
+
+        void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Line;
+            val.second.line = { startpos, endpos, color, thickness };
+            size = ImMax(size, endpos);
+        }
+
+        void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness)
+        {
+            // TODO ...
+        }
+
+        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Triangle;
+            val.second.triangle = { pos1, pos2, pos3, color, thickness, filled };
+            size = ImMax(size, pos1);
+            size = ImMax(size, pos2);
+            size = ImMax(size, pos3);
+        }
+
+        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Rectangle;
+            val.second.rect = { startpos, endpos, color, thickness, filled };
+            size = ImMax(size, endpos);
+        }
+
+        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr,
+            float bottomrightr, float bottomleftr, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectangle;
+            val.second.roundedRect = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, color, thickness, filled };
+            size = ImMax(size, endpos);
+        }
+
+        void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::RectGradient;
+            val.second.rectGradient = { startpos, endpos, colorfrom, colorto, dir };
+            size = ImMax(size, endpos);
+        }
+
+        void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr,
+            float bottomleftr, uint32_t colorfrom, uint32_t colorto, Direction dir)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectGradient;
+            val.second.roundedRectGradient = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, colorfrom, colorto, dir };
+            size = ImMax(size, endpos);
+        }
+
+        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) {}
+
+        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) {}
+
+        void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Circle;
+            val.second.circle = { center, radius, color, thickness, filled };
+            size = ImMax(size, center + ImVec2{ radius, radius });
+        }
+
+        void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Sector;
+            val.second.sector = { center, radius, start, end, color, thickness, filled, inverted };
+            size = ImMax(size, center + ImVec2{ radius, radius });
+        }
+
+        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) {}
+
+        bool SetCurrentFont(std::string_view family, float sz, FontType type) override
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
+            val.second.font = { GetFont(family, sz, type), sz };
+            return true;
+        }
+
+        bool SetCurrentFont(void* fontptr, float sz) override
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
+            val.second.font = { fontptr, sz };
+            return true;
+        }
+
+        void ResetFont() override
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::PopFont;
+        }
+
+        ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth = -1.f)
+        {
+            return TextMeasure(text, fontptr, sz, wrapWidth);
+        }
+
+        void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Text;
+            ::new (&val.second.text.text) std::string_view{ text };
+            val.second.text.color = color;
+            val.second.text.pos = pos;
+            val.second.text.wrapWidth = wrapWidth;
+            size = ImMax(size, pos);
+        }
+
+        void DrawTooltip(ImVec2 pos, std::string_view text)
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Tooltip;
+            val.second.tooltip.pos = pos;
+            ::new (&val.second.tooltip.text) std::string_view{ text };
+        }
+
+        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override
+        {
+            auto& val = queue.emplace_back(); val.first = DrawingOps::Resource;
+            val.second.resource = { resflags, id, pos, size, color, content };
+            return true;
+        }
+    };
+
+#pragma endregion
+
 #pragma region ImGui Renderer
 
     constexpr auto InvalidTextureId = std::numeric_limits<ImTextureID>::max();
@@ -181,11 +661,15 @@ namespace glimmer
     {
         ImGuiRenderer();
 
+        RendererType Type() const { return RendererType::ImGui; }
         bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) override;
         void FinalizeFrame(int32_t cursor) override;
 
         void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect);
         void ResetClipRect();
+
+        void BeginDefer() override;
+        void EndDefer() override;
 
         void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f);
         void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness);
@@ -262,6 +746,7 @@ namespace glimmer
         float _currentFontSz = 0.f;
         std::vector<std::pair<ImageLookupKey, ImTextureID>> bitmaps;
         std::vector<std::pair<GifLookupKey, ImTextureID>> gifframes;
+        std::deque<std::pair<ImGuiWindow*, DeferredRenderer>> deferredContents;
         std::vector<DebugRect> debugrects;
         Vector<char, int32_t, 4096> prefetched; // All resource prefetched data is read into this
         ImDrawList* prevlist = nullptr;
@@ -269,6 +754,8 @@ namespace glimmer
 #ifdef _DEBUG
         int clipDepth = 0;
 #endif
+
+        bool deferDrawCalls = false;
     };
 
     ImGuiRenderer::ImGuiRenderer()
@@ -297,6 +784,15 @@ namespace glimmer
 
     void ImGuiRenderer::FinalizeFrame(int32_t cursor)
     {
+        if (!deferredContents.empty())
+        {
+            auto& [dwindow, renderer] = deferredContents.back();
+            if (dwindow == ImGui::GetCurrentWindow())
+                renderer.Render(*this, {}, 0, -1);
+
+            deferredContents.clear();
+        }
+
         for (const auto& rect : debugrects)
             (ImGui::GetForegroundDrawList())->AddRect(
                 rect.startpos, rect.endpos, rect.color, 0.f, ImDrawFlags_None, rect.thickness);
@@ -324,280 +820,363 @@ namespace glimmer
 #endif
     }
 
+    void ImGuiRenderer::BeginDefer()
+    {
+        if (!deferDrawCalls)
+        {
+            deferDrawCalls = true;
+            auto window = ImGui::GetCurrentWindow();
+            deferredContents.emplace_back(window, 
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+                Config.renderer->Type() == RendererType::ImGui ? &ImGuiMeasureText : &Blend2DMeasureText
+#else
+                &ImGuiMeasureText
+#endif
+            );
+        }
+    }
+
+    void ImGuiRenderer::EndDefer()
+    {
+        deferDrawCalls = false;
+    }
+
     void ImGuiRenderer::DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness)
     {
-        Round(startpos); Round(endpos); thickness = roundf(thickness);
-        ((ImDrawList*)UserData)->AddLine(startpos, endpos, color, thickness);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawLine(startpos, endpos, color, thickness);
+        else
+        {
+            Round(startpos); Round(endpos); thickness = roundf(thickness);
+            ((ImDrawList*)UserData)->AddLine(startpos, endpos, color, thickness);
+        }
     }
 
     void ImGuiRenderer::DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness)
     {
-        ((ImDrawList*)UserData)->AddPolyline(points, sz, color, 0, thickness);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawPolyline(points, sz, color, thickness);
+        else
+            ((ImDrawList*)UserData)->AddPolyline(points, sz, color, 0, thickness);
     }
 
     void ImGuiRenderer::DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness)
     {
-        Round(pos1); Round(pos2); Round(pos3); thickness = roundf(thickness);
-        filled ? ((ImDrawList*)UserData)->AddTriangleFilled(pos1, pos2, pos3, color) :
-            ((ImDrawList*)UserData)->AddTriangle(pos1, pos2, pos3, color, thickness);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawTriangle(pos1, pos2, pos3, color, filled, thickness);
+        else
+        {
+            Round(pos1); Round(pos2); Round(pos3); thickness = roundf(thickness);
+            filled ? ((ImDrawList*)UserData)->AddTriangleFilled(pos1, pos2, pos3, color) :
+                ((ImDrawList*)UserData)->AddTriangle(pos1, pos2, pos3, color, thickness);
+        }
     }
 
     void ImGuiRenderer::DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness)
     {
         if (thickness > 0.f || filled)
         {
-            Round(startpos); Round(endpos); thickness = roundf(thickness);
-            filled ? ((ImDrawList*)UserData)->AddRectFilled(startpos, endpos, color) :
-                ((ImDrawList*)UserData)->AddRect(startpos, endpos, color, 0.f, 0, thickness);
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRect(startpos, endpos, color, filled, thickness);
+            else
+            {
+                Round(startpos); Round(endpos); thickness = roundf(thickness);
+                filled ? ((ImDrawList*)UserData)->AddRectFilled(startpos, endpos, color) :
+                    ((ImDrawList*)UserData)->AddRect(startpos, endpos, color, 0.f, 0, thickness);
+            }
         }
     }
 
     void ImGuiRenderer::DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled,
         float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness)
     {
-        auto isUniformRadius = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr) ||
-            ((topleftr + toprightr + bottomrightr + bottomleftr) == 0.f);
-
-        Round(startpos); Round(endpos);
-        thickness = roundf(thickness);
-        topleftr = roundf(topleftr);
-        toprightr = roundf(toprightr);
-        bottomrightr = roundf(bottomrightr);
-        bottomleftr = roundf(bottomleftr);
-
-        if (isUniformRadius)
-        {
-            auto drawflags = 0;
-
-            if (topleftr > 0.f) drawflags |= ImDrawFlags_RoundCornersTopLeft;
-            if (toprightr > 0.f) drawflags |= ImDrawFlags_RoundCornersTopRight;
-            if (bottomrightr > 0.f) drawflags |= ImDrawFlags_RoundCornersBottomRight;
-            if (bottomleftr > 0.f) drawflags |= ImDrawFlags_RoundCornersBottomLeft;
-
-            filled ? ((ImDrawList*)UserData)->AddRectFilled(startpos, endpos, color, toprightr, drawflags) :
-                ((ImDrawList*)UserData)->AddRect(startpos, endpos, color, toprightr, drawflags, thickness);
-        }
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawRoundedRect(startpos, endpos, color, filled, topleftr, 
+                toprightr, bottomrightr, bottomleftr, thickness);
         else
         {
-            auto& dl = *((ImDrawList*)UserData);
-            ConstructRoundedRect(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr);
-            filled ? dl.PathFillConvex(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
+            auto isUniformRadius = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr) ||
+                ((topleftr + toprightr + bottomrightr + bottomleftr) == 0.f);
+
+            Round(startpos); Round(endpos);
+            thickness = roundf(thickness);
+            topleftr = roundf(topleftr);
+            toprightr = roundf(toprightr);
+            bottomrightr = roundf(bottomrightr);
+            bottomleftr = roundf(bottomleftr);
+
+            if (isUniformRadius)
+            {
+                auto drawflags = 0;
+
+                if (topleftr > 0.f) drawflags |= ImDrawFlags_RoundCornersTopLeft;
+                if (toprightr > 0.f) drawflags |= ImDrawFlags_RoundCornersTopRight;
+                if (bottomrightr > 0.f) drawflags |= ImDrawFlags_RoundCornersBottomRight;
+                if (bottomleftr > 0.f) drawflags |= ImDrawFlags_RoundCornersBottomLeft;
+
+                filled ? ((ImDrawList*)UserData)->AddRectFilled(startpos, endpos, color, toprightr, drawflags) :
+                    ((ImDrawList*)UserData)->AddRect(startpos, endpos, color, toprightr, drawflags, thickness);
+            }
+            else
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                ConstructRoundedRect(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr);
+                filled ? dl.PathFillConvex(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
+            }
         }
     }
 
     void ImGuiRenderer::DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
-        Round(startpos); Round(endpos);
-        dir == DIR_Horizontal ? ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorto, colorto, colorfrom) :
-            ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorfrom, colorto, colorto);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawRectGradient(startpos, endpos, colorfrom, colorto, dir);
+        else
+        {
+            Round(startpos); Round(endpos);
+            dir == DIR_Horizontal ? ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorto, colorto, colorfrom) :
+                ((ImDrawList*)UserData)->AddRectFilledMultiColor(startpos, endpos, colorfrom, colorfrom, colorto, colorto);
+        }
     }
 
     void ImGuiRenderer::DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr, 
         uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
-        auto& dl = *((ImDrawList*)UserData);
-        ConstructRoundedRect(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr);
-        // TODO: Create color array per vertex
-        DrawPolyGradient(dl._Path.Data, NULL, dl._Path.Size);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawRoundedRectGradient(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr, colorfrom, colorto, dir);
+        else
+        {
+            auto& dl = *((ImDrawList*)UserData);
+            ConstructRoundedRect(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr);
+            // TODO: Create color array per vertex
+            DrawPolyGradient(dl._Path.Data, NULL, dl._Path.Size);
+        }
     }
 
     void ImGuiRenderer::DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness)
     {
-        Round(center); radius = roundf(radius); thickness = roundf(thickness);
-        filled ? ((ImDrawList*)UserData)->AddCircleFilled(center, radius, color) :
-            ((ImDrawList*)UserData)->AddCircle(center, radius, color, 0, thickness);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawCircle(center, radius, color, filled, thickness);
+        else
+        {
+            Round(center); radius = roundf(radius); thickness = roundf(thickness);
+            filled ? ((ImDrawList*)UserData)->AddCircleFilled(center, radius, color) :
+                ((ImDrawList*)UserData)->AddCircle(center, radius, color, 0, thickness);
+        }
     }
 
     void ImGuiRenderer::DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness)
     {
-        constexpr float DegToRad = M_PI / 180.f;
-        Round(center); radius = roundf(radius); thickness = roundf(thickness);
-
-        if (inverted)
-        {
-            auto& dl = *((ImDrawList*)UserData);
-            dl.PathClear();
-            dl.PathArcTo(center, radius, DegToRad * (float)start, DegToRad * (float)end, 32);
-            auto start = dl._Path.front(), end = dl._Path.back();
-
-            ImVec2 exterior[4] = { { std::min(start.x, end.x), std::min(start.y, end.y) },
-                { std::max(start.x, end.x), std::min(start.y, end.y) },
-                { std::min(start.x, end.x), std::max(start.y, end.y) },
-                { std::max(start.x, end.x), std::max(start.y, end.y) }
-            };
-
-            auto maxDistIdx = 0;
-            float dist = 0.f;
-            for (auto idx = 0; idx < 4; ++idx)
-            {
-                auto curr = sqrt((end.x - start.x) * (end.x - start.x) +
-                    (end.y - start.y) * (end.y - start.y));
-                if (curr > dist)
-                {
-                    dist = curr;
-                    maxDistIdx = idx;
-                }
-            }
-
-            dl.PathLineTo(exterior[maxDistIdx]);
-            filled ? dl.PathFillConcave(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
-        }
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawSector(center, radius, start, end, color, filled, thickness);
         else
         {
-            auto& dl = *((ImDrawList*)UserData);
-            dl.PathClear();
-            dl.PathArcTo(center, radius, DegToRad * (float)start, DegToRad * (float)end, 32);
-            dl.PathLineTo(center);
-            filled ? dl.PathFillConcave(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
+            constexpr float DegToRad = M_PI / 180.f;
+            Round(center); radius = roundf(radius); thickness = roundf(thickness);
+
+            if (inverted)
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                dl.PathClear();
+                dl.PathArcTo(center, radius, DegToRad * (float)start, DegToRad * (float)end, 32);
+                auto start = dl._Path.front(), end = dl._Path.back();
+
+                ImVec2 exterior[4] = { { std::min(start.x, end.x), std::min(start.y, end.y) },
+                    { std::max(start.x, end.x), std::min(start.y, end.y) },
+                    { std::min(start.x, end.x), std::max(start.y, end.y) },
+                    { std::max(start.x, end.x), std::max(start.y, end.y) }
+                };
+
+                auto maxDistIdx = 0;
+                float dist = 0.f;
+                for (auto idx = 0; idx < 4; ++idx)
+                {
+                    auto curr = sqrt((end.x - start.x) * (end.x - start.x) +
+                        (end.y - start.y) * (end.y - start.y));
+                    if (curr > dist)
+                    {
+                        dist = curr;
+                        maxDistIdx = idx;
+                    }
+                }
+
+                dl.PathLineTo(exterior[maxDistIdx]);
+                filled ? dl.PathFillConcave(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
+            }
+            else
+            {
+                auto& dl = *((ImDrawList*)UserData);
+                dl.PathClear();
+                dl.PathArcTo(center, radius, DegToRad * (float)start, DegToRad * (float)end, 32);
+                dl.PathLineTo(center);
+                filled ? dl.PathFillConcave(color) : dl.PathStroke(color, ImDrawFlags_Closed, thickness);
+            }
         }
     }
 
     void ImGuiRenderer::DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness)
     {
-        filled ? ((ImDrawList*)UserData)->AddConvexPolyFilled(points, sz, color) :
-            ((ImDrawList*)UserData)->AddPolyline(points, sz, color, ImDrawFlags_Closed, thickness);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawPolygon(points, sz, color, filled, thickness);
+        else
+            filled ? ((ImDrawList*)UserData)->AddConvexPolyFilled(points, sz, color) :
+                ((ImDrawList*)UserData)->AddPolyline(points, sz, color, ImDrawFlags_Closed, thickness);
     }
 
     void ImGuiRenderer::DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz)
     {
-        auto drawList = ((ImDrawList*)UserData);
-        const ImVec2 uv = drawList->_Data->TexUvWhitePixel;
-
-        if (drawList->Flags & ImDrawListFlags_AntiAliasedFill)
-        {
-            // Anti-aliased Fill
-            const float AA_SIZE = 1.0f;
-            const int idx_count = (sz - 2) * 3 + sz * 6;
-            const int vtx_count = (sz * 2);
-            drawList->PrimReserve(idx_count, vtx_count);
-
-            // Add indexes for fill
-            unsigned int vtx_inner_idx = drawList->_VtxCurrentIdx;
-            unsigned int vtx_outer_idx = drawList->_VtxCurrentIdx + 1;
-            for (int i = 2; i < sz; i++)
-            {
-                drawList->_IdxWritePtr[0] = (ImDrawIdx)(vtx_inner_idx);
-                drawList->_IdxWritePtr[1] = (ImDrawIdx)(vtx_inner_idx + ((i - 1) << 1));
-                drawList->_IdxWritePtr[2] = (ImDrawIdx)(vtx_inner_idx + (i << 1));
-                drawList->_IdxWritePtr += 3;
-            }
-
-            // Compute normals
-            ImVec2* temp_normals = (ImVec2*)alloca(sz * sizeof(ImVec2));
-            for (int i0 = sz - 1, i1 = 0; i1 < sz; i0 = i1++)
-            {
-                const ImVec2& p0 = points[i0];
-                const ImVec2& p1 = points[i1];
-                ImVec2 diff = p1 - p0;
-                diff *= ImInvLength(diff, 1.0f);
-                temp_normals[i0].x = diff.y;
-                temp_normals[i0].y = -diff.x;
-            }
-
-            for (int i0 = sz - 1, i1 = 0; i1 < sz; i0 = i1++)
-            {
-                // Average normals
-                const ImVec2& n0 = temp_normals[i0];
-                const ImVec2& n1 = temp_normals[i1];
-                ImVec2 dm = (n0 + n1) * 0.5f;
-                float dmr2 = dm.x * dm.x + dm.y * dm.y;
-                if (dmr2 > 0.000001f)
-                {
-                    float scale = 1.0f / dmr2;
-                    if (scale > 100.0f) scale = 100.0f;
-                    dm *= scale;
-                }
-                dm *= AA_SIZE * 0.5f;
-
-                // Add vertices
-                drawList->_VtxWritePtr[0].pos = (points[i1] - dm);
-                drawList->_VtxWritePtr[0].uv = uv; drawList->_VtxWritePtr[0].col = colors[i1];        // Inner
-                drawList->_VtxWritePtr[1].pos = (points[i1] + dm);
-                drawList->_VtxWritePtr[1].uv = uv; drawList->_VtxWritePtr[1].col = colors[i1] & ~IM_COL32_A_MASK;  // Outer
-                drawList->_VtxWritePtr += 2;
-
-                // Add indexes for fringes
-                drawList->_IdxWritePtr[0] = (ImDrawIdx)(vtx_inner_idx + (i1 << 1));
-                drawList->_IdxWritePtr[1] = (ImDrawIdx)(vtx_inner_idx + (i0 << 1));
-                drawList->_IdxWritePtr[2] = (ImDrawIdx)(vtx_outer_idx + (i0 << 1));
-                drawList->_IdxWritePtr[3] = (ImDrawIdx)(vtx_outer_idx + (i0 << 1));
-                drawList->_IdxWritePtr[4] = (ImDrawIdx)(vtx_outer_idx + (i1 << 1));
-                drawList->_IdxWritePtr[5] = (ImDrawIdx)(vtx_inner_idx + (i1 << 1));
-                drawList->_IdxWritePtr += 6;
-            }
-
-            drawList->_VtxCurrentIdx += (ImDrawIdx)vtx_count;
-        }
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawPolyGradient(points, colors, sz);
         else
         {
-            // Non Anti-aliased Fill
-            const int idx_count = (sz - 2) * 3;
-            const int vtx_count = sz;
-            drawList->PrimReserve(idx_count, vtx_count);
-            for (int i = 0; i < vtx_count; i++)
+            auto drawList = ((ImDrawList*)UserData);
+            const ImVec2 uv = drawList->_Data->TexUvWhitePixel;
+
+            if (drawList->Flags & ImDrawListFlags_AntiAliasedFill)
             {
-                drawList->_VtxWritePtr[0].pos = points[i];
-                drawList->_VtxWritePtr[0].uv = uv;
-                drawList->_VtxWritePtr[0].col = colors[i];
-                drawList->_VtxWritePtr++;
+                // Anti-aliased Fill
+                const float AA_SIZE = 1.0f;
+                const int idx_count = (sz - 2) * 3 + sz * 6;
+                const int vtx_count = (sz * 2);
+                drawList->PrimReserve(idx_count, vtx_count);
+
+                // Add indexes for fill
+                unsigned int vtx_inner_idx = drawList->_VtxCurrentIdx;
+                unsigned int vtx_outer_idx = drawList->_VtxCurrentIdx + 1;
+                for (int i = 2; i < sz; i++)
+                {
+                    drawList->_IdxWritePtr[0] = (ImDrawIdx)(vtx_inner_idx);
+                    drawList->_IdxWritePtr[1] = (ImDrawIdx)(vtx_inner_idx + ((i - 1) << 1));
+                    drawList->_IdxWritePtr[2] = (ImDrawIdx)(vtx_inner_idx + (i << 1));
+                    drawList->_IdxWritePtr += 3;
+                }
+
+                // Compute normals
+                ImVec2* temp_normals = (ImVec2*)alloca(sz * sizeof(ImVec2));
+                for (int i0 = sz - 1, i1 = 0; i1 < sz; i0 = i1++)
+                {
+                    const ImVec2& p0 = points[i0];
+                    const ImVec2& p1 = points[i1];
+                    ImVec2 diff = p1 - p0;
+                    diff *= ImInvLength(diff, 1.0f);
+                    temp_normals[i0].x = diff.y;
+                    temp_normals[i0].y = -diff.x;
+                }
+
+                for (int i0 = sz - 1, i1 = 0; i1 < sz; i0 = i1++)
+                {
+                    // Average normals
+                    const ImVec2& n0 = temp_normals[i0];
+                    const ImVec2& n1 = temp_normals[i1];
+                    ImVec2 dm = (n0 + n1) * 0.5f;
+                    float dmr2 = dm.x * dm.x + dm.y * dm.y;
+                    if (dmr2 > 0.000001f)
+                    {
+                        float scale = 1.0f / dmr2;
+                        if (scale > 100.0f) scale = 100.0f;
+                        dm *= scale;
+                    }
+                    dm *= AA_SIZE * 0.5f;
+
+                    // Add vertices
+                    drawList->_VtxWritePtr[0].pos = (points[i1] - dm);
+                    drawList->_VtxWritePtr[0].uv = uv; drawList->_VtxWritePtr[0].col = colors[i1];        // Inner
+                    drawList->_VtxWritePtr[1].pos = (points[i1] + dm);
+                    drawList->_VtxWritePtr[1].uv = uv; drawList->_VtxWritePtr[1].col = colors[i1] & ~IM_COL32_A_MASK;  // Outer
+                    drawList->_VtxWritePtr += 2;
+
+                    // Add indexes for fringes
+                    drawList->_IdxWritePtr[0] = (ImDrawIdx)(vtx_inner_idx + (i1 << 1));
+                    drawList->_IdxWritePtr[1] = (ImDrawIdx)(vtx_inner_idx + (i0 << 1));
+                    drawList->_IdxWritePtr[2] = (ImDrawIdx)(vtx_outer_idx + (i0 << 1));
+                    drawList->_IdxWritePtr[3] = (ImDrawIdx)(vtx_outer_idx + (i0 << 1));
+                    drawList->_IdxWritePtr[4] = (ImDrawIdx)(vtx_outer_idx + (i1 << 1));
+                    drawList->_IdxWritePtr[5] = (ImDrawIdx)(vtx_inner_idx + (i1 << 1));
+                    drawList->_IdxWritePtr += 6;
+                }
+
+                drawList->_VtxCurrentIdx += (ImDrawIdx)vtx_count;
             }
-            for (int i = 2; i < sz; i++)
+            else
             {
-                drawList->_IdxWritePtr[0] = (ImDrawIdx)(drawList->_VtxCurrentIdx);
-                drawList->_IdxWritePtr[1] = (ImDrawIdx)(drawList->_VtxCurrentIdx + i - 1);
-                drawList->_IdxWritePtr[2] = (ImDrawIdx)(drawList->_VtxCurrentIdx + i);
-                drawList->_IdxWritePtr += 3;
+                // Non Anti-aliased Fill
+                const int idx_count = (sz - 2) * 3;
+                const int vtx_count = sz;
+                drawList->PrimReserve(idx_count, vtx_count);
+                for (int i = 0; i < vtx_count; i++)
+                {
+                    drawList->_VtxWritePtr[0].pos = points[i];
+                    drawList->_VtxWritePtr[0].uv = uv;
+                    drawList->_VtxWritePtr[0].col = colors[i];
+                    drawList->_VtxWritePtr++;
+                }
+                for (int i = 2; i < sz; i++)
+                {
+                    drawList->_IdxWritePtr[0] = (ImDrawIdx)(drawList->_VtxCurrentIdx);
+                    drawList->_IdxWritePtr[1] = (ImDrawIdx)(drawList->_VtxCurrentIdx + i - 1);
+                    drawList->_IdxWritePtr[2] = (ImDrawIdx)(drawList->_VtxCurrentIdx + i);
+                    drawList->_IdxWritePtr += 3;
+                }
+
+                drawList->_VtxCurrentIdx += (ImDrawIdx)vtx_count;
             }
 
-            drawList->_VtxCurrentIdx += (ImDrawIdx)vtx_count;
+            drawList->_Path.Size = 0;
         }
-
-        drawList->_Path.Size = 0;
     }
 
     void ImGuiRenderer::DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end)
     {
-        Round(center); radius = roundf(radius);
-
-        auto drawList = ((ImDrawList*)UserData);
-        if (((in | out) & IM_COL32_A_MASK) == 0 || radius < 0.5f)
-            return;
-        auto startrad = ((float)M_PI / 180.f) * (float)start;
-        auto endrad = ((float)M_PI / 180.f) * (float)end;
-
-        // Use arc with 32 segment count
-        drawList->PathArcTo(center, radius, startrad, endrad, 32);
-        const int count = drawList->_Path.Size - 1;
-
-        unsigned int vtx_base = drawList->_VtxCurrentIdx;
-        drawList->PrimReserve(count * 3, count + 1);
-
-        // Submit vertices
-        const ImVec2 uv = drawList->_Data->TexUvWhitePixel;
-        drawList->PrimWriteVtx(center, uv, in);
-        for (int n = 0; n < count; n++)
-            drawList->PrimWriteVtx(drawList->_Path[n], uv, out);
-
-        // Submit a fan of triangles
-        for (int n = 0; n < count; n++)
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawRadialGradient(center, radius, in, out, start, end);
+        else
         {
-            drawList->PrimWriteIdx((ImDrawIdx)(vtx_base));
-            drawList->PrimWriteIdx((ImDrawIdx)(vtx_base + 1 + n));
-            drawList->PrimWriteIdx((ImDrawIdx)(vtx_base + 1 + ((n + 1) % count)));
-        }
+            Round(center); radius = roundf(radius);
 
-        drawList->_Path.Size = 0;
+            auto drawList = ((ImDrawList*)UserData);
+            if (((in | out) & IM_COL32_A_MASK) == 0 || radius < 0.5f)
+                return;
+            auto startrad = ((float)M_PI / 180.f) * (float)start;
+            auto endrad = ((float)M_PI / 180.f) * (float)end;
+
+            // Use arc with 32 segment count
+            drawList->PathArcTo(center, radius, startrad, endrad, 32);
+            const int count = drawList->_Path.Size - 1;
+
+            unsigned int vtx_base = drawList->_VtxCurrentIdx;
+            drawList->PrimReserve(count * 3, count + 1);
+
+            // Submit vertices
+            const ImVec2 uv = drawList->_Data->TexUvWhitePixel;
+            drawList->PrimWriteVtx(center, uv, in);
+            for (int n = 0; n < count; n++)
+                drawList->PrimWriteVtx(drawList->_Path[n], uv, out);
+
+            // Submit a fan of triangles
+            for (int n = 0; n < count; n++)
+            {
+                drawList->PrimWriteIdx((ImDrawIdx)(vtx_base));
+                drawList->PrimWriteIdx((ImDrawIdx)(vtx_base + 1 + n));
+                drawList->PrimWriteIdx((ImDrawIdx)(vtx_base + 1 + ((n + 1) % count)));
+            }
+
+            drawList->_Path.Size = 0;
+        }
     }
 
     bool ImGuiRenderer::SetCurrentFont(std::string_view family, float sz, FontType type)
     {
-        auto font = GetFont(family, sz, type);
-
-        if (font != nullptr)
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.SetCurrentFont(family, sz, type);
+        else
         {
-            _currentFontSz = sz;
-            ImGui::PushFont((ImFont*)font);
-            return true;
+            auto font = GetFont(family, sz, type);
+
+            if (font != nullptr)
+            {
+                _currentFontSz = sz;
+                ImGui::PushFont((ImFont*)font);
+                return true;
+            }
         }
 
         return false;
@@ -605,11 +1184,16 @@ namespace glimmer
 
     bool ImGuiRenderer::SetCurrentFont(void* fontptr, float sz)
     {
-        if (fontptr != nullptr)
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.SetCurrentFont(fontptr, sz);
+        else
         {
-            _currentFontSz = sz;
-            ImGui::PushFont((ImFont*)fontptr);
-            return true;
+            if (fontptr != nullptr)
+            {
+                _currentFontSz = sz;
+                ImGui::PushFont((ImFont*)fontptr);
+                return true;
+            }
         }
 
         return false;
@@ -617,7 +1201,10 @@ namespace glimmer
 
     void ImGuiRenderer::ResetFont()
     {
-        ImGui::PopFont();
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.ResetFont();
+        else
+            ImGui::PopFont();
     }
 
     ImVec2 ImGuiRenderer::GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth)
@@ -627,19 +1214,29 @@ namespace glimmer
 
     void ImGuiRenderer::DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth)
     {
-        Round(pos);
-        auto font = ImGui::GetFont();
-        ((ImDrawList*)UserData)->AddText(font, _currentFontSz, pos, color, text.data(), text.data() + text.size(),
-            wrapWidth);
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawText(text, pos, color, wrapWidth);
+        else
+        {
+            Round(pos);
+            auto font = ImGui::GetFont();
+            ((ImDrawList*)UserData)->AddText(font, _currentFontSz, pos, color, text.data(), text.data() + text.size(),
+                wrapWidth);
+        }
     }
 
     void ImGuiRenderer::DrawTooltip(ImVec2 pos, std::string_view text)
     {
-        if (!text.empty())
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawTooltip(pos, text);
+        else
         {
-            SetCurrentFont(Config.tooltipFontFamily, Config.defaultFontSz, FT_Normal);
-            ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
-            ResetFont();
+            if (!text.empty())
+            {
+                SetCurrentFont(Config.tooltipFontFamily, Config.defaultFontSz, FT_Normal);
+                ImGui::SetTooltip("%.*s", (int)text.size(), text.data());
+                ResetFont();
+            }
         }
     }
 
@@ -674,6 +1271,18 @@ namespace glimmer
 
     void ImGuiRenderer::EndOverlay()
     {
+        auto window = ImGui::GetCurrentWindow();
+
+        if (!deferredContents.empty())
+        {
+            auto& [dwindow, renderer] = deferredContents.back();
+            if (dwindow == window)
+            {
+                renderer.Render(*this, {}, 0, -1);
+                deferredContents.pop_back();
+            }
+        }
+
         ResetClipRect();
         ImGui::End();
         UserData = prevlist;
@@ -688,169 +1297,174 @@ namespace glimmer
 
     bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id)
     {
-        auto fromFile = (resflags & RT_PATH) != 0;
+        if (deferDrawCalls) [[likely]]
+            deferredContents.back().second.DrawResource(resflags, pos, size, color, content, id);
+        else
+        {
+            auto fromFile = (resflags & RT_PATH) != 0;
 
-        if (resflags & RT_SYMBOL)
-        {
-            Round(pos); Round(size);
-            auto icon = GetSymbolIcon(content);
-            DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
-        }
-        else if (resflags & RT_ICON_FONT)
-        {
+            if (resflags & RT_SYMBOL)
+            {
+                Round(pos); Round(size);
+                auto icon = GetSymbolIcon(content);
+                DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
+            }
+            else if (resflags & RT_ICON_FONT)
+            {
 #ifdef GLIMMER_ENABLE_ICON_FONT
-            Round(pos); Round(size);
-            SetCurrentFont(Config.iconFont, _currentFontSz);
-            DrawText(content, pos, color);
-            ResetFont();
+                Round(pos); Round(size);
+                SetCurrentFont(Config.iconFont, _currentFontSz);
+                DrawText(content, pos, color);
+                ResetFont();
 #else
-            assert(false);
+                assert(false);
 #endif
-        }
-        else if (resflags & RT_SVG)
-        {
+            }
+            else if (resflags & RT_SVG)
+            {
 #ifndef GLIMMER_DISABLE_SVG
-            Round(pos); Round(size);
-            auto& dl = *((ImDrawList*)UserData);
-            bool found = false;
+                Round(pos); Round(size);
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
 
-            for (auto& entry : bitmaps)
-            {
-                auto& [key, texid] = entry;
-                if (MatchKey(key, id, content) && (key.size == size))
+                for (auto& entry : bitmaps)
                 {
-                    if (key.prefetched.second > key.prefetched.first)
+                    auto& [key, texid] = entry;
+                    if (MatchKey(key, id, content) && (key.size == size))
                     {
-                        auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first, 
-                            key.prefetched.second - key.prefetched.first);
-                        if (document)
-                            RecordSVG(entry, id, pos, size, color, *document, false);
-                        else
-                            std::fprintf(stderr, "Failed to load SVG [%.*s]\n", 
-                                key.prefetched.second - key.prefetched.first,
-                                prefetched.data() + key.prefetched.first);
-                        key.prefetched.second = key.prefetched.first = 0;
-                    }
-
-                    if (texid != InvalidTextureId)
-                        dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
-                    
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-            {
-                auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0)
-                {
-                    auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
-                    if (document)
-                        RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
-                    else
-                        std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
-                }
-                FreeResource(contents);
-            }
-#else
-            assert(false); // Unsupported
-#endif
-        }
-        else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) || 
-            (resflags & RT_GENERIC_IMG))
-        {
-#ifndef GLIMMER_DISABLE_IMAGES
-            Round(pos); Round(size);
-
-            auto& dl = *((ImDrawList*)UserData);
-            bool found = false;
-
-            for (auto& entry : bitmaps)
-            {
-                auto& [key, texid] = entry;
-                if (MatchKey(key, id, content))
-                {
-                    if (key.prefetched.second > key.prefetched.first)
-                    {
-                        auto data = prefetched.data() + key.prefetched.first;
-                        auto sz = key.prefetched.second - key.prefetched.first;
-                        RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
-                        key.prefetched.second = key.prefetched.first = 0;
-                    }
-
-                    if (texid != InvalidTextureId)
-                        dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
-
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-            {
-                auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0) 
-                    RecordImage(bitmaps.emplace_back(), id, pos, size, 
-                        (stbi_uc*)contents.data, (int)contents.size, true);
-                FreeResource(contents);
-            }
-#else
-            assert(false); // Unsupported
-#endif
-        }
-        else if (resflags & RT_GIF)
-        {
-#ifndef GLIMMER_DISABLE_GIF
-            using namespace std::chrono;
-            Round(pos); Round(size);
-
-            auto& dl = *((ImDrawList*)UserData);
-            bool found = false;
-
-            for (auto& entry : gifframes)
-            {
-                auto& [key, texid] = entry;
-                if (MatchKey(key, id, content))
-                {
-                    if (key.prefetched.second > key.prefetched.first)
-                    {
-                        auto data = prefetched.data() + key.prefetched.first;
-                        auto sz = key.prefetched.second - key.prefetched.first;
-                        RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
-                        key.prefetched.second = key.prefetched.first = 0;
-                    }
-
-                    if (texid != InvalidTextureId)
-                    {
-                        auto currts = system_clock::now().time_since_epoch();
-                        auto ms = duration_cast<milliseconds>(currts).count();
-                        if (key.delays[key.currframe] <= (ms - key.lastTime))
+                        if (key.prefetched.second > key.prefetched.first)
                         {
-                            key.currframe = (key.currframe + 1) % key.totalframe;
-                            key.lastTime = ms;
+                            auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first,
+                                key.prefetched.second - key.prefetched.first);
+                            if (document)
+                                RecordSVG(entry, id, pos, size, color, *document, false);
+                            else
+                                std::fprintf(stderr, "Failed to load SVG [%.*s]\n",
+                                    key.prefetched.second - key.prefetched.first,
+                                    prefetched.data() + key.prefetched.first);
+                            key.prefetched.second = key.prefetched.first = 0;
                         }
 
-                        auto uvrect = key.uvmaps[key.currframe];
-                        dl.AddImage(texid, pos, pos + size, uvrect.Min, uvrect.Max);
+                        if (texid != InvalidTextureId)
+                            dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
+
+                        found = true;
+                        break;
                     }
-
-                    found = true;
-                    break;
                 }
-            }
 
-            if (!found)
-            {
-                auto contents = GetResourceContents(resflags, content);
-                if (contents.size > 0) 
-                    RecordGif(gifframes.emplace_back(), id, pos, size, 
-                        (stbi_uc*)contents.data, (int)contents.size, true);
-                FreeResource(contents);
-            }
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                    {
+                        auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
+                        if (document)
+                            RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
+                        else
+                            std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
+                    }
+                    FreeResource(contents);
+                }
 #else
-            assert(false); // Unsupported
+                assert(false); // Unsupported
 #endif
+            }
+            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                (resflags & RT_GENERIC_IMG))
+            {
+#ifndef GLIMMER_DISABLE_IMAGES
+                Round(pos); Round(size);
+
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
+
+                for (auto& entry : bitmaps)
+                {
+                    auto& [key, texid] = entry;
+                    if (MatchKey(key, id, content))
+                    {
+                        if (key.prefetched.second > key.prefetched.first)
+                        {
+                            auto data = prefetched.data() + key.prefetched.first;
+                            auto sz = key.prefetched.second - key.prefetched.first;
+                            RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                            key.prefetched.second = key.prefetched.first = 0;
+                        }
+
+                        if (texid != InvalidTextureId)
+                            dl.AddImage(texid, pos, pos + size, key.uvrect.Min, key.uvrect.Max);
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                        RecordImage(bitmaps.emplace_back(), id, pos, size,
+                            (stbi_uc*)contents.data, (int)contents.size, true);
+                    FreeResource(contents);
+                }
+#else
+                assert(false); // Unsupported
+#endif
+            }
+            else if (resflags & RT_GIF)
+            {
+#ifndef GLIMMER_DISABLE_GIF
+                using namespace std::chrono;
+                Round(pos); Round(size);
+
+                auto& dl = *((ImDrawList*)UserData);
+                bool found = false;
+
+                for (auto& entry : gifframes)
+                {
+                    auto& [key, texid] = entry;
+                    if (MatchKey(key, id, content))
+                    {
+                        if (key.prefetched.second > key.prefetched.first)
+                        {
+                            auto data = prefetched.data() + key.prefetched.first;
+                            auto sz = key.prefetched.second - key.prefetched.first;
+                            RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                            key.prefetched.second = key.prefetched.first = 0;
+                        }
+
+                        if (texid != InvalidTextureId)
+                        {
+                            auto currts = system_clock::now().time_since_epoch();
+                            auto ms = duration_cast<milliseconds>(currts).count();
+                            if (key.delays[key.currframe] <= (ms - key.lastTime))
+                            {
+                                key.currframe = (key.currframe + 1) % key.totalframe;
+                                key.lastTime = ms;
+                            }
+
+                            auto uvrect = key.uvmaps[key.currframe];
+                            dl.AddImage(texid, pos, pos + size, uvrect.Min, uvrect.Max);
+                        }
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    auto contents = GetResourceContents(resflags, content);
+                    if (contents.size > 0)
+                        RecordGif(gifframes.emplace_back(), id, pos, size,
+                            (stbi_uc*)contents.data, (int)contents.size, true);
+                    FreeResource(contents);
+                }
+#else
+                assert(false); // Unsupported
+#endif
+            }
         }
 
         // TODO: return correct status
@@ -1186,349 +1800,6 @@ namespace glimmer
 
 #pragma endregion
 
-#pragma region Deferred Renderer
-
-    enum class DrawingOps
-    {
-        Line, Triangle, Rectangle, RoundedRectangle, Circle, Sector,
-        RectGradient, RoundedRectGradient,
-        Text, Tooltip,
-        Resource,
-        PushClippingRect, PopClippingRect,
-        PushFont, PopFont
-    };
-
-    union DrawParams
-    {
-        struct {
-            ImVec2 start, end;
-            uint32_t color;
-            float thickness;
-        } line;
-
-        struct {
-            ImVec2 pos1, pos2, pos3;
-            uint32_t color;
-            float thickness;
-            bool filled;
-        } triangle;
-
-        struct {
-            ImVec2 start, end;
-            uint32_t color;
-            float thickness;
-            bool filled;
-        } rect;
-
-        struct {
-            ImVec2 start, end;
-            float topleftr, toprightr, bottomleftr, bottomrightr;
-            uint32_t color;
-            float thickness;
-            bool filled;
-        } roundedRect;
-
-        struct {
-            ImVec2 start, end;
-            uint32_t from, to;
-            Direction dir;
-        } rectGradient;
-
-        struct {
-            ImVec2 start, end;
-            float topleftr, toprightr, bottomleftr, bottomrightr;
-            uint32_t from, to;
-            Direction dir;
-        } roundedRectGradient;
-
-        struct {
-            ImVec2 center;
-            float radius;
-            uint32_t color;
-            float thickness;
-            bool filled;
-        } circle;
-
-        struct {
-            ImVec2 center;
-            float radius;
-            int start, end;
-            uint32_t color;
-            float thickness;
-            bool filled, inverted;
-        } sector;
-
-        struct {
-            std::string_view text;
-            ImVec2 pos;
-            uint32_t color;
-            float wrapWidth;
-        } text;
-
-        struct {
-            ImVec2 pos;
-            std::string_view text;
-        } tooltip;
-
-        struct {
-            ImVec2 start, end;
-            bool intersect;
-        } clippingRect;
-
-        struct {
-            void* fontptr;
-            float size;
-        } font;
-          
-        struct {
-            int32_t resflags;
-            int32_t id;
-            ImVec2 pos, size;
-            uint32_t color;
-            std::string_view content;
-        } resource;
-
-        DrawParams() {}
-    };
-
-    struct DeferredRenderer final : public IRenderer
-    {
-        Vector<std::pair<DrawingOps, DrawParams>, int32_t, 32> queue{ 32 };
-        ImVec2(*TextMeasure)(std::string_view text, void* fontptr, float sz, float wrapWidth);
-
-        DeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth))
-            : TextMeasure{ tm } {
-        }
-
-        int TotalEnqueued() const override { return queue.size(); }
-
-        void Render(IRenderer& renderer, ImVec2 offset, int from, int to) override
-        {
-            auto prevdl = renderer.UserData;
-            renderer.UserData = ImGui::GetWindowDrawList();
-            to = to == -1 ? queue.size() : to;
-
-            for (auto idx = from; idx < to; ++idx)
-            {
-                const auto& entry = queue[idx];
-
-                switch (entry.first)
-                {
-                case DrawingOps::Line:
-                    renderer.DrawLine(entry.second.line.start + offset, entry.second.line.end + offset, entry.second.line.color, 
-                        entry.second.line.thickness); 
-                    break;
-
-                case DrawingOps::Triangle:
-                    renderer.DrawTriangle(entry.second.triangle.pos1 + offset, entry.second.triangle.pos2 + offset, 
-                        entry.second.triangle.pos3 + offset, entry.second.triangle.color, entry.second.triangle.filled, 
-                        entry.second.triangle.thickness);
-                    break;
-
-                case DrawingOps::Rectangle:
-                    renderer.DrawRect(entry.second.rect.start + offset, entry.second.rect.end + offset, entry.second.rect.color,
-                        entry.second.rect.filled, entry.second.rect.thickness);
-                    break;
-
-                case DrawingOps::RoundedRectangle:
-                    renderer.DrawRoundedRect(entry.second.roundedRect.start + offset, entry.second.roundedRect.end + offset, entry.second.roundedRect.color,
-                        entry.second.roundedRect.filled, entry.second.roundedRect.topleftr, entry.second.roundedRect.toprightr,
-                        entry.second.roundedRect.bottomrightr, entry.second.roundedRect.bottomleftr, entry.second.roundedRect.thickness);
-                    break;
-
-                case DrawingOps::Circle:
-                    renderer.DrawCircle(entry.second.circle.center + offset, entry.second.circle.radius, entry.second.circle.color,
-                        entry.second.circle.filled, entry.second.circle.thickness);
-                    break;
-
-                case DrawingOps::Sector:
-                    renderer.DrawSector(entry.second.sector.center + offset, entry.second.sector.radius, entry.second.sector.start, entry.second.sector.end,
-                        entry.second.sector.color, entry.second.sector.filled, entry.second.sector.inverted, entry.second.sector.thickness);
-                    break;
-
-                case DrawingOps::RectGradient:
-                    renderer.DrawRectGradient(entry.second.rectGradient.start + offset, entry.second.rectGradient.end + offset, entry.second.rectGradient.from,
-                        entry.second.rectGradient.to, entry.second.rectGradient.dir);
-                    break;
-
-                case DrawingOps::RoundedRectGradient:
-                    renderer.DrawRoundedRectGradient(entry.second.roundedRectGradient.start + offset, entry.second.roundedRectGradient.end + offset,
-                        entry.second.roundedRectGradient.topleftr, entry.second.roundedRectGradient.toprightr,
-                        entry.second.roundedRectGradient.bottomrightr, entry.second.roundedRectGradient.bottomleftr,
-                        entry.second.roundedRectGradient.from, entry.second.roundedRectGradient.to, entry.second.roundedRectGradient.dir);
-                    break;
-
-                case DrawingOps::Text:
-                    renderer.DrawText(entry.second.text.text, entry.second.text.pos + offset, entry.second.text.color, entry.second.text.wrapWidth);
-                    break;
-
-                case DrawingOps::Tooltip:
-                    renderer.DrawTooltip(entry.second.tooltip.pos + offset, entry.second.tooltip.text);
-                    break;
-
-                case DrawingOps::Resource:
-                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos + offset,
-                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content,
-                        entry.second.resource.id);
-                    break;
-
-                case DrawingOps::PushClippingRect:
-                    renderer.SetClipRect(entry.second.clippingRect.start + offset, entry.second.clippingRect.end + offset, 
-                        entry.second.clippingRect.intersect);
-                    break;
-
-                case DrawingOps::PopClippingRect:
-                    renderer.ResetClipRect();
-                    break;
-
-                case DrawingOps::PushFont:
-                    renderer.SetCurrentFont(entry.second.font.fontptr, entry.second.font.size);
-                    break;
-
-                case DrawingOps::PopFont:
-                    renderer.ResetFont();
-                    break;
-
-                default: break;
-                }
-            }
-
-            renderer.UserData = prevdl;
-        }
-
-        void Reset() { queue.clear(true); size = { 0.f, 0.f }; }
-
-        void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushClippingRect;
-            val.second.clippingRect = { startpos, endpos, intersect };
-            size = ImMax(size, endpos);
-        }
-
-        void ResetClipRect() { auto& val = queue.emplace_back(); val.first = DrawingOps::PopClippingRect; }
-
-        void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Line;
-            val.second.line = { startpos, endpos, color, thickness };
-            size = ImMax(size, endpos);
-        }
-
-        void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness)
-        {
-            // TODO ...
-        }
-
-        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Triangle;
-            val.second.triangle = { pos1, pos2, pos3, color, thickness, filled };
-            size = ImMax(size, pos1);
-            size = ImMax(size, pos2);
-            size = ImMax(size, pos3);
-        }
-
-        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Rectangle;
-            val.second.rect = { startpos, endpos, color, thickness, filled };
-            size = ImMax(size, endpos);
-        }
-
-        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr,
-            float bottomrightr, float bottomleftr, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectangle;
-            val.second.roundedRect = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, color, thickness, filled };
-            size = ImMax(size, endpos);
-        }
-
-        void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RectGradient;
-            val.second.rectGradient = { startpos, endpos, colorfrom, colorto, dir };
-            size = ImMax(size, endpos);
-        }
-
-        void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr,
-            float bottomleftr, uint32_t colorfrom, uint32_t colorto, Direction dir)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectGradient;
-            val.second.roundedRectGradient = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, colorfrom, colorto, dir };
-            size = ImMax(size, endpos);
-        }
-
-        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) {}
-
-        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) {}
-
-        void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Circle;
-            val.second.circle = { center, radius, color, thickness, filled };
-            size = ImMax(size, center + ImVec2{ radius, radius });
-        }
-
-        void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Sector;
-            val.second.sector = { center, radius, start, end, color, thickness, filled, inverted };
-            size = ImMax(size, center + ImVec2{ radius, radius });
-        }
-
-        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) {}
-
-        bool SetCurrentFont(std::string_view family, float sz, FontType type) override
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
-            val.second.font = { GetFont(family, sz, type), sz };
-            return true;
-        }
-
-        bool SetCurrentFont(void* fontptr, float sz) override
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
-            val.second.font = { fontptr, sz };
-            return true;
-        }
-
-        void ResetFont() override
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PopFont;
-        }
-
-        ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth = -1.f)
-        {
-            return TextMeasure(text, fontptr, sz, wrapWidth);
-        }
-
-        void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Text;
-            ::new (&val.second.text.text) std::string_view{ text };
-            val.second.text.color = color;
-            val.second.text.pos = pos;
-            val.second.text.wrapWidth = wrapWidth;
-            size = ImMax(size, pos);
-        }
-
-        void DrawTooltip(ImVec2 pos, std::string_view text)
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Tooltip;
-            val.second.tooltip.pos = pos;
-            ::new (&val.second.tooltip.text) std::string_view{ text };
-        }
-
-        bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override
-        {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Resource;
-            val.second.resource = { resflags, id, pos, size, color, content };
-            return true;
-        }
-    };
-
-#pragma endregion
-
 #pragma region SVG Renderer
 
     // Helper to format uint32_t color to SVG "rgb(r,g,b)" or "rgba(r,g,b,a_float)" string into a buffer
@@ -1613,6 +1884,8 @@ namespace glimmer
             Reset();
         }
 
+        RendererType Type() const { return RendererType::SVG; }
+
         void Reset() override
         {
             mainSvgBufferOffset = 0;
@@ -1659,8 +1932,6 @@ namespace glimmer
             finalSvgStr.append("</svg>\n");
             return finalSvgStr;
         }
-
-        // --- IRenderer Implementation ---
 
         void SetClipRect(ImVec2 startPos, ImVec2 endPos, bool intersect) override
         {
@@ -2472,9 +2743,11 @@ namespace glimmer
 
         std::vector<std::pair<ImageLookupKey, BLImage>> bitmaps;
         std::vector<std::pair<GifLookupKey, std::vector<BLImage>>> gifframes;
+        std::deque<std::pair<ImGuiWindow*, DeferredRenderer>> deferredContents;
         std::vector<DebugRect> debugrects;
         Vector<char, int32_t, 4096> prefetched;
         float _currentFontSz = 0;
+        bool deferDrawCalls = false;
 
         Blend2DRenderer()
         { }
@@ -2483,6 +2756,8 @@ namespace glimmer
         {
             ctx.end();
         }
+
+        RendererType Type() const { return RendererType::Blend2D; }
 
         bool InitFrame(float width, float height, uint32_t bgcolor, bool softCursor) override
         {
@@ -2509,6 +2784,13 @@ namespace glimmer
 
         void FinalizeFrame(int32_t cursor) override
         {
+            if (!deferredContents.empty())
+            {
+                auto& renderer = deferredContents.back();
+                renderer.Render(*this, {}, 0, -1);
+                deferredContents.clear();
+            }
+
             for (const auto& rect : debugrects)
             {
                 auto [r, g, b, a] = DecomposeColor(rect.color);
@@ -2534,129 +2816,72 @@ namespace glimmer
             //ctx.restore();
         }
 
+        void ImGuiRenderer::BeginDefer() override
+        {
+            if (!deferDrawCalls)
+            {
+                deferDrawCalls = true;
+                deferredContents.emplace_back(&Blend2DMeasureText);
+            }
+        }
+
+        void ImGuiRenderer::EndDefer() override
+        {
+            deferDrawCalls = false;
+        }
+
         void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) override
         {
-            auto [r, g, b, a] = DecomposeColor(color);
-            ctx.set_stroke_style(BLRgba32(r, g, b, a));
-            ctx.set_stroke_width(thickness);
-            ctx.stroke_line(startpos.x, startpos.y, endpos.x, endpos.y);
+            if (deferDrawCalls) [[unlikely]]
+                deferredContents.back().second.DrawLine(startpos, endpos, color, thickness);
+            else
+            {
+                auto [r, g, b, a] = DecomposeColor(color);
+                ctx.set_stroke_style(BLRgba32(r, g, b, a));
+                ctx.set_stroke_width(thickness);
+                ctx.stroke_line(startpos.x, startpos.y, endpos.x, endpos.y);
+            }
         }
 
         void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) override
         {
-            if (sz < 2) return;
-            BLPath path;
-            path.move_to(points[0].x, points[0].y);
-            for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
-
-            auto [r, g, b, a] = DecomposeColor(color);
-            ctx.set_stroke_style(BLRgba32(r, g, b, a));
-            ctx.set_stroke_width(thickness);
-            ctx.stroke_path(path);
-        }
-
-        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f) override
-        {
-            BLPath path;
-            path.move_to(pos1.x, pos1.y);
-            path.line_to(pos2.x, pos2.y);
-            path.line_to(pos3.x, pos3.y);
-            path.close();
-
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-
-            if (filled) 
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawPolyline(points, sz, color, thickness);
+            else
             {
-                ctx.set_fill_style(c);
-                ctx.fill_path(path);
-            }
-            else 
-            {
-                ctx.set_stroke_style(c);
+                if (sz < 2) return;
+                BLPath path;
+                path.move_to(points[0].x, points[0].y);
+                for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
+
+                auto [r, g, b, a] = DecomposeColor(color);
+                ctx.set_stroke_style(BLRgba32(r, g, b, a));
                 ctx.set_stroke_width(thickness);
                 ctx.stroke_path(path);
             }
         }
 
-        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f) override
+        void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-            BLRect rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
-
-            if (filled) 
-            {
-                ctx.set_fill_style(c);
-                ctx.fill_rect(rect);
-            }
-            else 
-            {
-                ctx.set_stroke_style(c);
-                ctx.set_stroke_width(thickness);
-                ctx.stroke_rect(rect);
-            }
-        }
-
-        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness = 1.f) override
-        {
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-
-            // Check if uniform radius
-            bool uniform = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr);
-
-            if (uniform)
-            {
-                BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
-                if (filled) 
-                {
-                    ctx.set_fill_style(c);
-                    ctx.fill_round_rect(rr);
-                }
-                else 
-                {
-                    ctx.set_stroke_style(c);
-                    ctx.set_stroke_width(thickness);
-                    ctx.stroke_round_rect(rr);
-                }
-            }
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawTriangle(pos1, pos2, pos3, color, filled, thickness);
             else
             {
-                // Build complex path for non-uniform corners
                 BLPath path;
-                double w = endpos.x - startpos.x;
-                double h = endpos.y - startpos.y;
-                double x = startpos.x;
-                double y = startpos.y;
-
-				auto start = 0;
-                double startRad = (double)start * (M_PI / 180.0);
-                double sweepRad = M_PI / 2.f;
-
-                path.move_to(x + topleftr, y);
-                path.line_to(x + w - toprightr, y);
-                if (toprightr > 0) path.arc_to(x + w - toprightr, y + toprightr, toprightr, toprightr, startRad, sweepRad);
-                
-                path.line_to(x + w, y + h - bottomrightr);
-				startRad += sweepRad;
-                if (bottomrightr > 0) path.arc_to(x + w - bottomrightr, y + h - bottomrightr, bottomrightr, bottomrightr, startRad, sweepRad);
-                
-                path.line_to(x + bottomleftr, y + h);
-                startRad += sweepRad;
-                if (bottomleftr > 0) path.arc_to(x + bottomleftr, y + h - bottomleftr, bottomleftr, bottomleftr, startRad, sweepRad);
-                
-                path.line_to(x, y + topleftr);
-                startRad += sweepRad;
-                if (topleftr > 0) path.arc_to(x + topleftr, y + topleftr, topleftr, topleftr, startRad, sweepRad);
+                path.move_to(pos1.x, pos1.y);
+                path.line_to(pos2.x, pos2.y);
+                path.line_to(pos3.x, pos3.y);
                 path.close();
 
-                if (filled) 
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+
+                if (filled)
                 {
                     ctx.set_fill_style(c);
                     ctx.fill_path(path);
                 }
-                else 
+                else
                 {
                     ctx.set_stroke_style(c);
                     ctx.set_stroke_width(thickness);
@@ -2665,67 +2890,179 @@ namespace glimmer
             }
         }
 
+        void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f) override
+        {
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRect(startpos, endpos, color, filled, thickness);
+            else
+            {
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+                BLRect rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
+
+                if (filled)
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_rect(rect);
+                }
+                else
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_rect(rect);
+                }
+            }
+        }
+
+        void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness = 1.f) override
+        {
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRoundedRect(startpos, endpos, color, filled, topleftr,
+                    toprightr, bottomrightr, bottomleftr, thickness);
+            else
+            {
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+
+                // Check if uniform radius
+                bool uniform = (topleftr == toprightr && toprightr == bottomrightr && bottomrightr == bottomleftr);
+
+                if (uniform)
+                {
+                    BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
+                    if (filled)
+                    {
+                        ctx.set_fill_style(c);
+                        ctx.fill_round_rect(rr);
+                    }
+                    else
+                    {
+                        ctx.set_stroke_style(c);
+                        ctx.set_stroke_width(thickness);
+                        ctx.stroke_round_rect(rr);
+                    }
+                }
+                else
+                {
+                    // Build complex path for non-uniform corners
+                    BLPath path;
+                    double w = endpos.x - startpos.x;
+                    double h = endpos.y - startpos.y;
+                    double x = startpos.x;
+                    double y = startpos.y;
+
+                    auto start = 0;
+                    double startRad = (double)start * (M_PI / 180.0);
+                    double sweepRad = M_PI / 2.f;
+
+                    path.move_to(x + topleftr, y);
+                    path.line_to(x + w - toprightr, y);
+                    if (toprightr > 0) path.arc_to(x + w - toprightr, y + toprightr, toprightr, toprightr, startRad, sweepRad);
+
+                    path.line_to(x + w, y + h - bottomrightr);
+                    startRad += sweepRad;
+                    if (bottomrightr > 0) path.arc_to(x + w - bottomrightr, y + h - bottomrightr, bottomrightr, bottomrightr, startRad, sweepRad);
+
+                    path.line_to(x + bottomleftr, y + h);
+                    startRad += sweepRad;
+                    if (bottomleftr > 0) path.arc_to(x + bottomleftr, y + h - bottomleftr, bottomleftr, bottomleftr, startRad, sweepRad);
+
+                    path.line_to(x, y + topleftr);
+                    startRad += sweepRad;
+                    if (topleftr > 0) path.arc_to(x + topleftr, y + topleftr, topleftr, topleftr, startRad, sweepRad);
+                    path.close();
+
+                    if (filled)
+                    {
+                        ctx.set_fill_style(c);
+                        ctx.fill_path(path);
+                    }
+                    else
+                    {
+                        ctx.set_stroke_style(c);
+                        ctx.set_stroke_width(thickness);
+                        ctx.stroke_path(path);
+                    }
+                }
+            }
+        }
+
         void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir) override
         {
-            BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
-
-            if (dir == DIR_Horizontal)
-                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRectGradient(startpos, endpos, colorfrom, colorto, dir);
             else
-                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
+            {
+                BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
 
-            auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
-            auto [r2, g2, b2, a2] = DecomposeColor(colorto);
+                if (dir == DIR_Horizontal)
+                    gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+                else
+                    gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
 
-            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
-            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+                auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
+                auto [r2, g2, b2, a2] = DecomposeColor(colorto);
 
-            ctx.set_fill_style(gradient);
-            ctx.fill_rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
+                gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+                gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+
+                ctx.set_fill_style(gradient);
+                ctx.fill_rect(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y);
+            }
         }
 
         void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr,
             uint32_t colorfrom, uint32_t colorto, Direction dir) override
         {
-            BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
-            if (dir == DIR_Horizontal)
-                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRoundedRectGradient(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr, colorfrom, colorto, dir);
             else
-                gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
+            {
+                BLGradient gradient(BL_GRADIENT_TYPE_LINEAR);
+                if (dir == DIR_Horizontal)
+                    gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, endpos.x, startpos.y));
+                else
+                    gradient.set_values(BLLinearGradientValues(startpos.x, startpos.y, startpos.x, endpos.y));
 
-            auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
-            auto [r2, g2, b2, a2] = DecomposeColor(colorto);
-            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
-            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+                auto [r1, g1, b1, a1] = DecomposeColor(colorfrom);
+                auto [r2, g2, b2, a2] = DecomposeColor(colorto);
+                gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+                gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
 
-            // Just use uniform rect for simplicity in this snippet, effectively similar to DrawRectGradient but with rounded primitive
-            // For full non-uniform support, see DrawRoundedRect path logic
-            BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
-            ctx.set_fill_style(gradient);
-            ctx.fill_round_rect(rr);
+                // Just use uniform rect for simplicity in this snippet, effectively similar to DrawRectGradient but with rounded primitive
+                // For full non-uniform support, see DrawRoundedRect path logic
+                BLRoundRect rr(startpos.x, startpos.y, endpos.x - startpos.x, endpos.y - startpos.y, topleftr);
+                ctx.set_fill_style(gradient);
+                ctx.fill_round_rect(rr);
+            }
         }
 
         void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            if (sz < 3) return;
-            BLPath path;
-            path.move_to(points[0].x, points[0].y);
-            for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
-            path.close();
-
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-
-            if (filled) 
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawPolygon(points, sz, color, filled, thickness);
+            else
             {
-                ctx.set_fill_style(c);
-                ctx.fill_path(path);
-            }
-            else 
-            {
-                ctx.set_stroke_style(c);
-                ctx.set_stroke_width(thickness);
-                ctx.stroke_path(path);
+                if (sz < 3) return;
+                BLPath path;
+                path.move_to(points[0].x, points[0].y);
+                for (int i = 1; i < sz; ++i) path.line_to(points[i].x, points[i].y);
+                path.close();
+
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+
+                if (filled)
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_path(path);
+                }
+                else
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_path(path);
+                }
             }
         }
 
@@ -2734,80 +3071,105 @@ namespace glimmer
 
         void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-            BLCircle circle(center.x, center.y, radius);
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawCircle(center, radius, color, filled, thickness);
+            else
+            {
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+                BLCircle circle(center.x, center.y, radius);
 
-            if (filled) 
-            {
-                ctx.set_fill_style(c);
-                ctx.fill_circle(circle);
-            }
-            else 
-            {
-                ctx.set_stroke_style(c);
-                ctx.set_stroke_width(thickness);
-                ctx.stroke_circle(circle);
+                if (filled)
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_circle(circle);
+                }
+                else
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_circle(circle);
+                }
             }
         }
 
         void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f) override
         {
-            BLPath path;
-            double startRad = (double)start * (M_PI / 180.0);
-            double sweepRad = ((double)end - (double)start) * (M_PI / 180.0);
-
-            path.move_to(center.x, center.y);
-            path.arc_to(center.x, center.y, radius, radius, startRad, sweepRad);
-            path.close();
-
-            auto [r, g, b, a] = DecomposeColor(color);
-            BLRgba32 c(r, g, b, a);
-
-            if (filled) 
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawSector(center, radius, start, end, color, filled, thickness);
+            else
             {
-                ctx.set_fill_style(c);
-                ctx.fill_path(path);
-            }
-            else 
-            {
-                ctx.set_stroke_style(c);
-                ctx.set_stroke_width(thickness);
-                ctx.stroke_path(path);
+                BLPath path;
+                double startRad = (double)start * (M_PI / 180.0);
+                double sweepRad = ((double)end - (double)start) * (M_PI / 180.0);
+
+                path.move_to(center.x, center.y);
+                path.arc_to(center.x, center.y, radius, radius, startRad, sweepRad);
+                path.close();
+
+                auto [r, g, b, a] = DecomposeColor(color);
+                BLRgba32 c(r, g, b, a);
+
+                if (filled)
+                {
+                    ctx.set_fill_style(c);
+                    ctx.fill_path(path);
+                }
+                else
+                {
+                    ctx.set_stroke_style(c);
+                    ctx.set_stroke_width(thickness);
+                    ctx.stroke_path(path);
+                }
             }
         }
 
         void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) override
         {
-            BLGradient gradient(BL_GRADIENT_TYPE_RADIAL);
-            gradient.set_values(BLRadialGradientValues(center.x, center.y, center.x, center.y, radius));
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawRadialGradient(center, radius, in, out, start, end);
+            else
+            {
+                BLGradient gradient(BL_GRADIENT_TYPE_RADIAL);
+                gradient.set_values(BLRadialGradientValues(center.x, center.y, center.x, center.y, radius));
 
-            auto [r1, g1, b1, a1] = DecomposeColor(in);
-            auto [r2, g2, b2, a2] = DecomposeColor(out);
+                auto [r1, g1, b1, a1] = DecomposeColor(in);
+                auto [r2, g2, b2, a2] = DecomposeColor(out);
 
-            gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
-            gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
+                gradient.add_stop(0.0, BLRgba32(r1, g1, b1, a1));
+                gradient.add_stop(1.0, BLRgba32(r2, g2, b2, a2));
 
-            // Ideally use a sector arc path here, simplified to circle for full loop
-            ctx.set_fill_style(gradient);
-            ctx.fill_circle(center.x, center.y, radius);
+                // Ideally use a sector arc path here, simplified to circle for full loop
+                ctx.set_fill_style(gradient);
+                ctx.fill_circle(center.x, center.y, radius);
+            }
         }
 
         bool SetCurrentFont(std::string_view family, float sz, FontType type) override
         {
-            FontExtraInfo extra;
-            font = (BLFont*)GetFont(family, sz, type, extra);
-            _currentFontSz = sz;
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.SetCurrentFont(family, sz, type);
+            else
+            {
+                FontExtraInfo extra;
+                font = (BLFont*)GetFont(family, sz, type, extra);
+                _currentFontSz = sz;
+            }
             return true;
         }
 
         bool SetCurrentFont(void* fontptr, float sz) override
         {
-            if (fontptr) 
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.SetCurrentFont(fontptr, sz);
+            else
             {
-                font = ((BLFont*)fontptr); 
-                _currentFontSz = sz;
-                return true;
+                if (fontptr)
+                {
+                    font = ((BLFont*)fontptr);
+                    _currentFontSz = sz;
+                    return true;
+                }
             }
             return false;
         }
@@ -2816,36 +3178,47 @@ namespace glimmer
 
         ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth = -1.f) override
         {
-            BLTextMetrics tm;
-            BLGlyphBuffer gb;
-            gb.set_utf8_text(text.data(), text.size());
-            auto& font = *(BLFont*)fontptr;
-            font.shape(gb);
-            font.get_text_metrics(gb, tm);
-
-            BLBox bbox = tm.bounding_box;
-            return ImVec2((float)(bbox.x1 - bbox.x0), (float)(bbox.y1 - bbox.y0)); // Rough estimate
+            return Blend2DMeasureText(text, fontptr, sz, wrapWidth);
         }
 
         void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f) override
         {
-            auto [r, g, b, a] = DecomposeColor(color);
-            ctx.set_fill_style(BLRgba32(r, g, b, a));
-            ctx.fill_utf8_text(BLPoint(pos.x, pos.y + font->metrics().ascent), *font, text.data(), text.size());
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawText(text, pos, color, wrapWidth);
+            else
+            {
+                auto [r, g, b, a] = DecomposeColor(color);
+                ctx.set_fill_style(BLRgba32(r, g, b, a));
+                ctx.fill_utf8_text(BLPoint(pos.x, pos.y + font->metrics().ascent), *font, text.data(), text.size());
+            }
         }
 
-        void DrawTooltip(ImVec2 pos, std::string_view text) override { /* Implementation similar to DrawText with bg rect */ }
+        void DrawTooltip(ImVec2 pos, std::string_view text) override 
+        { 
+            // Have a tooltip deferred renderer which gets called at EndFrame() ?
+        }
 
         float EllipsisWidth(void* fontptr, float sz) override { return 10.f; }
 
         bool StartOverlay(int32_t id, ImVec2 pos, ImVec2 size, uint32_t color) override
         {
+            // TODO: Implement layer mechanism
             DrawRect(pos, pos + size, color, true);
             SetClipRect(pos, pos + size, false);
             return true;
         }
 
-        void EndOverlay() override { ResetClipRect(); }
+        void EndOverlay() override 
+        { 
+            /*if (!deferredContents.empty())
+            {
+                auto& renderer = deferredContents.back();
+                renderer.Render(*this, {}, 0, -1);
+                deferredContents.clear();
+            }*/
+
+            ResetClipRect(); 
+        }
 
         void DrawDebugRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness) override
         {
@@ -3013,162 +3386,167 @@ namespace glimmer
 
         bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) override
         {
-            BLImage* image = nullptr;
+            if (deferDrawCalls) [[likely]]
+                deferredContents.back().second.DrawResource(resflags, pos, size, color, content, id);
+            else
+            {
+                BLImage* image = nullptr;
 
-            if (resflags & RT_SYMBOL)
-            {
-                Round(pos); Round(size);
-                auto icon = GetSymbolIcon(content);
-                DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
-            }
-            else if (resflags & RT_ICON_FONT)
-            {
+                if (resflags & RT_SYMBOL)
+                {
+                    Round(pos); Round(size);
+                    auto icon = GetSymbolIcon(content);
+                    DrawSymbol(pos, size, { 0.f, 0.f }, icon, color, color, 1.f, *this);
+                }
+                else if (resflags & RT_ICON_FONT)
+                {
 #ifdef GLIMMER_ENABLE_ICON_FONT
-                Round(pos); Round(size);
-                SetCurrentFont(Config.iconFont, _currentFontSz);
-                DrawText(content, pos, color);
-                ResetFont();
+                    Round(pos); Round(size);
+                    SetCurrentFont(Config.iconFont, _currentFontSz);
+                    DrawText(content, pos, color);
+                    ResetFont();
 #else
-                assert(false);
+                    assert(false);
 #endif
-            }
-            else if (resflags & RT_SVG)
-            {
+                }
+                else if (resflags & RT_SVG)
+                {
 #ifndef GLIMMER_DISABLE_SVG
-                Round(pos); Round(size);
-                auto& dl = *((ImDrawList*)UserData);
-                bool found = false;
+                    Round(pos); Round(size);
+                    auto& dl = *((ImDrawList*)UserData);
+                    bool found = false;
 
-                for (auto& entry : bitmaps)
-                {
-                    auto& [key, texid] = entry;
-                    if (MatchKey(key, id, content) && (key.size == size))
+                    for (auto& entry : bitmaps)
                     {
-                        if (key.prefetched.second > key.prefetched.first)
+                        auto& [key, texid] = entry;
+                        if (MatchKey(key, id, content) && (key.size == size))
                         {
-                            auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first,
-                                key.prefetched.second - key.prefetched.first);
-                            if (document)
-                                RecordSVG(entry, id, pos, size, color, *document, false);
-                            else
-                                std::fprintf(stderr, "Failed to load SVG [%.*s]\n",
-                                    key.prefetched.second - key.prefetched.first,
-                                    prefetched.data() + key.prefetched.first);
-                            key.prefetched.second = key.prefetched.first = 0;
-                        }
-
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    auto contents = GetResourceContents(resflags, content);
-                    if (contents.size > 0)
-                    {
-                        auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
-                        if (document)
-                            RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
-                        else
-                            std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
-                    }
-                    FreeResource(contents);
-                }
-#else
-                assert(false); // Unsupported
-#endif
-            }
-            else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
-                (resflags & RT_GENERIC_IMG))
-            {
-#ifndef GLIMMER_DISABLE_IMAGES
-                Round(pos); Round(size);
-
-                auto& dl = *((ImDrawList*)UserData);
-                bool found = false;
-
-                for (auto& entry : bitmaps)
-                {
-                    auto& [key, texid] = entry;
-                    if (MatchKey(key, id, content))
-                    {
-                        if (key.prefetched.second > key.prefetched.first)
-                        {
-                            auto data = prefetched.data() + key.prefetched.first;
-                            auto sz = key.prefetched.second - key.prefetched.first;
-                            RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
-                            key.prefetched.second = key.prefetched.first = 0;
-                        }
-
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    auto contents = GetResourceContents(resflags, content);
-                    if (contents.size > 0)
-                        RecordImage(bitmaps.emplace_back(), id, pos, size,
-                            (stbi_uc*)contents.data, (int)contents.size, true);
-                    FreeResource(contents);
-                }
-#else
-                assert(false); // Unsupported
-#endif
-            }
-            else if (resflags & RT_GIF)
-            {
-#ifndef GLIMMER_DISABLE_GIF
-                using namespace std::chrono;
-                Round(pos); Round(size);
-
-                auto& dl = *((ImDrawList*)UserData);
-                bool found = false;
-
-                for (auto& entry : gifframes)
-                {
-                    auto& [key, images] = entry;
-                    if (MatchKey(key, id, content))
-                    {
-                        if (key.prefetched.second > key.prefetched.first)
-                        {
-                            auto data = prefetched.data() + key.prefetched.first;
-                            auto sz = key.prefetched.second - key.prefetched.first;
-                            RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
-                            key.prefetched.second = key.prefetched.first = 0;
-                        }
-
-                        if (!images.empty())
-                        {
-                            auto currts = system_clock::now().time_since_epoch();
-                            auto ms = duration_cast<milliseconds>(currts).count();
-                            if (key.delays[key.currframe] <= (ms - key.lastTime))
+                            if (key.prefetched.second > key.prefetched.first)
                             {
-                                key.currframe = (key.currframe + 1) % key.totalframe;
-                                key.lastTime = ms;
+                                auto document = lunasvg::Document::loadFromData(prefetched.data() + key.prefetched.first,
+                                    key.prefetched.second - key.prefetched.first);
+                                if (document)
+                                    RecordSVG(entry, id, pos, size, color, *document, false);
+                                else
+                                    std::fprintf(stderr, "Failed to load SVG [%.*s]\n",
+                                        key.prefetched.second - key.prefetched.first,
+                                        prefetched.data() + key.prefetched.first);
+                                key.prefetched.second = key.prefetched.first = 0;
                             }
 
-                            ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), images[key.currframe]);
+                            found = true;
+                            break;
                         }
-
-                        found = true;
-                        break;
                     }
-                }
 
-                if (!found)
-                {
-                    auto contents = GetResourceContents(resflags, content);
-                    if (contents.size > 0)
-                        RecordGif(gifframes.emplace_back(), id, pos, size,
-                            (stbi_uc*)contents.data, (int)contents.size, true);
-                    FreeResource(contents);
-                }
+                    if (!found)
+                    {
+                        auto contents = GetResourceContents(resflags, content);
+                        if (contents.size > 0)
+                        {
+                            auto document = lunasvg::Document::loadFromData(contents.data, contents.size);
+                            if (document)
+                                RecordSVG(bitmaps.emplace_back(), id, pos, size, color, *document, true);
+                            else
+                                std::fprintf(stderr, "Failed to load SVG [%s]\n", contents.data);
+                        }
+                        FreeResource(contents);
+                    }
 #else
-                assert(false); // Unsupported
+                    assert(false); // Unsupported
 #endif
+                }
+                else if ((resflags & RT_PNG) || (resflags & RT_JPG) || (resflags & RT_BMP) || (resflags & RT_PSD) ||
+                    (resflags & RT_GENERIC_IMG))
+                {
+#ifndef GLIMMER_DISABLE_IMAGES
+                    Round(pos); Round(size);
+
+                    auto& dl = *((ImDrawList*)UserData);
+                    bool found = false;
+
+                    for (auto& entry : bitmaps)
+                    {
+                        auto& [key, texid] = entry;
+                        if (MatchKey(key, id, content))
+                        {
+                            if (key.prefetched.second > key.prefetched.first)
+                            {
+                                auto data = prefetched.data() + key.prefetched.first;
+                                auto sz = key.prefetched.second - key.prefetched.first;
+                                RecordImage(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                                key.prefetched.second = key.prefetched.first = 0;
+                            }
+
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        auto contents = GetResourceContents(resflags, content);
+                        if (contents.size > 0)
+                            RecordImage(bitmaps.emplace_back(), id, pos, size,
+                                (stbi_uc*)contents.data, (int)contents.size, true);
+                        FreeResource(contents);
+                    }
+#else
+                    assert(false); // Unsupported
+#endif
+                }
+                else if (resflags & RT_GIF)
+                {
+#ifndef GLIMMER_DISABLE_GIF
+                    using namespace std::chrono;
+                    Round(pos); Round(size);
+
+                    auto& dl = *((ImDrawList*)UserData);
+                    bool found = false;
+
+                    for (auto& entry : gifframes)
+                    {
+                        auto& [key, images] = entry;
+                        if (MatchKey(key, id, content))
+                        {
+                            if (key.prefetched.second > key.prefetched.first)
+                            {
+                                auto data = prefetched.data() + key.prefetched.first;
+                                auto sz = key.prefetched.second - key.prefetched.first;
+                                RecordGif(entry, id, pos, size, (stbi_uc*)data, sz, false);
+                                key.prefetched.second = key.prefetched.first = 0;
+                            }
+
+                            if (!images.empty())
+                            {
+                                auto currts = system_clock::now().time_since_epoch();
+                                auto ms = duration_cast<milliseconds>(currts).count();
+                                if (key.delays[key.currframe] <= (ms - key.lastTime))
+                                {
+                                    key.currframe = (key.currframe + 1) % key.totalframe;
+                                    key.lastTime = ms;
+                                }
+
+                                ctx.blit_image(BLRect(pos.x, pos.y, size.x, size.y), images[key.currframe]);
+                            }
+
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        auto contents = GetResourceContents(resflags, content);
+                        if (contents.size > 0)
+                            RecordGif(gifframes.emplace_back(), id, pos, size,
+                                (stbi_uc*)contents.data, (int)contents.size, true);
+                        FreeResource(contents);
+                    }
+#else
+                    assert(false); // Unsupported
+#endif
+                }
             }
 
             // TODO: return correct status
@@ -3321,6 +3699,8 @@ namespace glimmer
         {
             endwin();
         }
+
+        RendererType Type() const { return RendererType::PDCurses; }
 
         bool ClipPoint(int x, int y)
         {
@@ -3838,9 +4218,15 @@ namespace glimmer
 
 #pragma endregion
 
-    IRenderer* CreateDeferredRenderer(TextMeasureFuncT tmfunc)
+    IRenderer* CreateDeferredRenderer()
     {
-        static thread_local DeferredRenderer renderer{ tmfunc };
+        static thread_local DeferredRenderer renderer{
+#ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+            Config.renderer->Type() == RendererType::ImGui ? &ImGuiMeasureText : &Blend2DMeasureText 
+#else
+            &ImGuiMeasureText
+#endif
+        };
         return &renderer;
     }
 

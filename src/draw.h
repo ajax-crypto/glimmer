@@ -9,8 +9,8 @@ namespace glimmer
     struct FourSidedBorder;
     struct ColorGradient;
 
-    IntersectRects ComputeIntersectRects(ImRect rect, ImVec2 startpos, ImVec2 endpos);
-    RectBreakup ComputeRectBreakups(ImRect rect, float amount);
+    IntersectRects ComputeIntersectRects(const ImRect& rect, ImVec2 startpos, ImVec2 endpos);
+    RectBreakup ComputeRectBreakups(const ImRect& rect, float amount);
 
     void DrawBorderRect(ImVec2 startpos, ImVec2 endpos, const FourSidedBorder& border, uint32_t bgcolor, IRenderer& renderer);
     void DrawBoxShadow(ImVec2 startpos, ImVec2 endpos, const StyleDescriptor& style, IRenderer& renderer);

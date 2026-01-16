@@ -433,7 +433,7 @@ namespace glimmer
 
         if (defer)
         {
-            auto renderer = CreateDeferredRenderer(&ImGuiMeasureText);
+            auto renderer = CreateDeferredRenderer();
             if (reset) { renderer->Reset(); adhocLayout.push(); }
             deferedRenderer = renderer;
             return *deferedRenderer;

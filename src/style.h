@@ -286,6 +286,7 @@ namespace glimmer
         ImVec2 optionSpacing{ 2.f, 2.f };
         Border separator;
         bool isIndicatorSuffix = true;
+        bool occludeBg = false;
 
         static DropDownStyleDescriptor ParseFrom(std::string_view css);
     };
@@ -356,8 +357,8 @@ namespace glimmer
         float EaseOutSharp(float& progress, float duration);
         float EaseInBack(float& progress, float duration, float overshoot = 1.70158f);
         float EaseOutBack(float& progress, float duration, float overshoot = 1.70158f);
-        float EaseInBounce(float& progress, float duration, float bounceTempo);
-        float EaseOutBounce(float& progress, float duration, float bounceTempo);
+        float EaseInBounce(float& progress, float duration, float bounceTempo = 3.5);
+        float EaseOutBounce(float& progress, float duration, float bounceTempo = 3.5);
     }
 
     // Set all styles for ids/classes as a stylesheet (This should be done before event loop, or at the start
