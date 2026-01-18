@@ -1,6 +1,5 @@
 #pragma once
 
-#include "platform_config.h"
 #include "types.h"
 #include "renderer.h"
 #include "style.h"

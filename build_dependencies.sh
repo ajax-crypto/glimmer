@@ -689,6 +689,107 @@ if [ "$BUILD_SDL3" = true ]; then
         
         cd "$BUILD_DIR"
     fi
+
+    # ==============================================================================
+    # Build Blend2D (2D rendering engine)
+    # ==============================================================================
+    if [ "$BUILD_BLEND2D" = true ]; then
+        CURRENT_LIB=$((CURRENT_LIB+1))
+        echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building blend2d v${BLEND2D_VERSION} (this may take a while)...${NC}"
+        cd "$BUILD_DIR"
+        if [ -f "$LIB_OUTPUT_DIR/libblend2d.a" ] && [ "$UPDATE_ALL" != true ]; then
+            echo -e "${YELLOW}✓ libblend2d.a already exists, skipping build${NC}"
+            ls -lh "$LIB_OUTPUT_DIR/libblend2d.a"
+            LIBS_SKIPPED+=("Blend2D v${BLEND2D_VERSION}")
+            if [ ! -d "$HEADER_DIR/blend2d" ] || [ -z "$(ls -A "$HEADER_DIR/blend2d" 2>/dev/null)" ]; then
+                echo -e "${YELLOW}Blend2D headers missing, restoring...${NC}"
+                BLEND2D_DIR="blend2d-${BLEND2D_VERSION}"
+                if [ ! -d "$BLEND2D_DIR" ]; then
+                    echo -e "${YELLOW}Downloading blend2d v${BLEND2D_VERSION} for headers...${NC}"
+                    $DOWNLOAD_CMD blend2d.tar.gz "$BLEND2D_URL"
+                    tar -xzf blend2d.tar.gz
+                    if [ -d "blend2d" ]; then
+                        mv blend2d "$BLEND2D_DIR"
+                    fi
+                    rm blend2d.tar.gz
+                fi
+                mkdir -p "$HEADER_DIR/blend2d"
+                if [ -d "$BLEND2D_DIR/blend2d" ]; then
+                    cp -r "$BLEND2D_DIR/blend2d/blend2d.h" "$HEADER_DIR/blend2d/" 2>/dev/null || true
+                    cp -r "$BLEND2D_DIR/blend2d" "$HEADER_DIR/" 2>/dev/null || true
+                else
+                    cp -r "$BLEND2D_DIR/src/blend2d.h" "$HEADER_DIR/blend2d/" 2>/dev/null || true
+                    cp -r "$BLEND2D_DIR/src/blend2d" "$HEADER_DIR/" 2>/dev/null || true
+                fi
+            fi
+        else
+            LIBS_BUILT+=("Blend2D v${BLEND2D_VERSION}")
+            BLEND2D_DIR="blend2d-${BLEND2D_VERSION}"
+            if [ "$UPDATE_ALL" = true ]; then
+                rm -rf "$BLEND2D_DIR"
+            fi
+            if [ ! -d "$BLEND2D_DIR" ]; then
+                echo -e "${YELLOW}Downloading blend2d v${BLEND2D_VERSION}...${NC}"
+                $DOWNLOAD_CMD blend2d.tar.gz "$BLEND2D_URL"
+                # Blend2D tarball extracts flat, so extract then rename
+                tar -xzf blend2d.tar.gz
+                # The tarball may extract to 'blend2d' or current directory
+                if [ -d "blend2d" ]; then
+                    mv blend2d "$BLEND2D_DIR"
+                fi
+                rm blend2d.tar.gz
+            else
+                echo -e "${YELLOW}blend2d v${BLEND2D_VERSION} source found${NC}"
+            fi
+            
+            # Build Blend2D (CMake will fetch AsmJit automatically)
+            cd "$BLEND2D_DIR"
+            rm -rf build
+            mkdir build && cd build
+            echo -e "${YELLOW}Building blend2d...${NC}"
+            cmake .. \
+                -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+                -DBUILD_SHARED_LIBS=OFF \
+                -DBLEND2D_STATIC=ON \
+                -DBLEND2D_TEST=OFF \
+                -DBL_BUILD_OPT_AVX512=ON \
+                -DASMJIT_NO_FOREIGN=ON \
+                -DASMJIT_NO_STDCXX=ON \
+                -DASMJIT_ABI_NAMESPACE=abi_bl \
+                -DASMJIT_STATIC=ON \
+                -DASMJIT_NO_AARCH64=ON
+            make -j$(nproc)
+            cp libblend2d.a "$LIB_OUTPUT_DIR/"
+            
+            # Copy headers (check if already copied for this version)
+            if [ "$UPDATE_ALL" != true ] && grep -q "Blend2D: v${BLEND2D_VERSION}" "$VERSION_FILE" 2>/dev/null && [ -d "$HEADER_DIR/blend2d" ] && [ "$(ls -A $HEADER_DIR/blend2d 2>/dev/null)" ]; then
+                echo -e "${YELLOW}✓ Blend2D v${BLEND2D_VERSION} headers already installed, skipping copy${NC}"
+                HEADERS_SKIPPED+=("Blend2D v${BLEND2D_VERSION}")
+            else
+                echo -e "${YELLOW}Copying blend2d v${BLEND2D_VERSION} headers...${NC}"
+                HEADERS_COPIED+=("Blend2D v${BLEND2D_VERSION}")
+                cd ..
+                mkdir -p "$HEADER_DIR/blend2d"
+                if [ -d "blend2d" ]; then
+                    cp -r blend2d/blend2d.h "$HEADER_DIR/blend2d/" 2>/dev/null || true
+                    cp -r blend2d "$HEADER_DIR/" 2>/dev/null || true
+                else
+                    cp -r src/blend2d.h "$HEADER_DIR/blend2d/" 2>/dev/null || true
+                    cp -r src/blend2d "$HEADER_DIR/" 2>/dev/null || true
+                fi
+                echo -e "${GREEN}✓ Headers copied${NC}"
+            fi
+            
+            # Track version
+            grep -q "Blend2D: v${BLEND2D_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "Blend2D: v${BLEND2D_VERSION}" >> "$VERSION_FILE"
+            grep -q "AsmJit: ${ASMJIT_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "AsmJit: ${ASMJIT_VERSION}" >> "$VERSION_FILE"
+            
+            echo -e "${GREEN}✓ blend2d built successfully (headers copied)${NC}"
+            ls -lh "$LIB_OUTPUT_DIR/libblend2d.a"
+            cd "$BUILD_DIR"
+        fi
+        echo ""
+    fi
     echo ""
 fi
 
@@ -1149,283 +1250,9 @@ fi
 fi
 
 # ==============================================================================
-# DUPLICATE SECTION DISABLED - FreeType now built earlier (BUILD FIRST)
-# ==============================================================================
-if false; then  # DISABLED - duplicate of earlier FreeType build
-    CURRENT_LIB=$((CURRENT_LIB+1))
-    echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building freetype v${FREETYPE_VERSION}...${NC}"
-cd "$BUILD_DIR"
-if [ -f "$LIB_OUTPUT_DIR/libfreetype.a" ]; then
-    echo -e "${YELLOW}✓ libfreetype.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libfreetype.a"
-        LIBS_SKIPPED+=("FreeType v${FREETYPE_VERSION}")
-    else
-        LIBS_BUILT+=("FreeType v${FREETYPE_VERSION}")
-        FREETYPE_DIR="freetype-VER-${FREETYPE_VERSION//./-}"
-        if [ ! -d "$FREETYPE_DIR" ]; then
-            echo -e "${YELLOW}Downloading freetype v${FREETYPE_VERSION}...${NC}"
-            $DOWNLOAD_CMD freetype.tar.gz "$FREETYPE_URL"
-            tar -xzf freetype.tar.gz
-            rm freetype.tar.gz
-        else
-            echo -e "${YELLOW}freetype v${FREETYPE_VERSION} source found, building...${NC}"
-        fi
-        cd "$FREETYPE_DIR"
-    rm -rf build
-    mkdir build && cd build
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DFT_DISABLE_ZLIB=ON \
-        -DFT_DISABLE_BZIP2=ON \
-        -DFT_DISABLE_PNG=OFF \
-        -DFT_DISABLE_HARFBUZZ=ON \
-        -DFT_DISABLE_BROTLI=ON
-    make -j$(nproc)
-    if [ "$BUILD_TYPE" = "Debug" ]; then
-        cp libfreetyped.a "$LIB_OUTPUT_DIR/libfreetype.a"
-    else
-        cp libfreetype.a "$LIB_OUTPUT_DIR/"
-    fi
-        
-        # Copy headers (check if already copied for this version)
-        if grep -q "FreeType: v${FREETYPE_VERSION}" "$VERSION_FILE" 2>/dev/null && [ -d "$HEADER_DIR/freetype2" ] && [ "$(ls -A $HEADER_DIR/freetype2 2>/dev/null)" ]; then
-            echo -e "${YELLOW}✓ FreeType v${FREETYPE_VERSION} headers already installed, skipping copy${NC}"
-            HEADERS_SKIPPED+=("FreeType v${FREETYPE_VERSION}")
-        else
-            echo -e "${YELLOW}Copying freetype v${FREETYPE_VERSION} headers...${NC}"
-            HEADERS_COPIED+=("FreeType v${FREETYPE_VERSION}")
-            make install DESTDIR="$BUILD_DIR/freetype-install" > /dev/null 2>&1 || true
-            mkdir -p "$HEADER_DIR/freetype2"
-            cp -r "$BUILD_DIR/freetype-install"/usr/local/include/freetype2/* "$HEADER_DIR/freetype2/" 2>/dev/null || \
-            cp -r ../include/* "$HEADER_DIR/freetype2/" 2>/dev/null || true
-            echo -e "${GREEN}✓ Headers copied${NC}"
-        fi
-        
-        # Track version
-        grep -q "FreeType: v${FREETYPE_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "FreeType: v${FREETYPE_VERSION}" >> "$VERSION_FILE"
-        
-        echo -e "${GREEN}✓ freetype built successfully (headers copied)${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libfreetype.a"
-    cd "$BUILD_DIR"
-fi
-echo ""
-fi
-
-# ==============================================================================
-# DUPLICATE SECTION DISABLED - ImGui now built earlier from downloaded tarball
-# ==============================================================================
-if false; then  # DISABLED - duplicate of earlier ImGui build
-    CURRENT_LIB=$((CURRENT_LIB+1))
-    echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building ImGui...${NC}"
-if [ -f "$LIB_OUTPUT_DIR/libimgui.a" ]; then
-    echo -e "${YELLOW}✓ libimgui.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libimgui.a"
-        LIBS_SKIPPED+=("ImGui (bundled)")
-else
-        LIBS_BUILT+=("ImGui (bundled)")
-    echo -e "${YELLOW}Building ImGui from source...${NC}"
-    cd "$PROJECT_ROOT/src/libs/src"
-        
-        # Build with FreeType support
-    g++ -c -O3 -std=c++17 -fPIC \
-        -I../inc \
-        -I../inc/imgui \
-            -I../inc/freetype2 \
-            -DIMGUI_ENABLE_FREETYPE \
-        imgui.cpp \
-        imgui_demo.cpp \
-        imgui_draw.cpp \
-        imgui_tables.cpp \
-            imgui_widgets.cpp \
-            ../inc/imgui/misc/freetype/imgui_freetype.cpp
-        
-        ar rcs libimgui.a imgui.o imgui_demo.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_freetype.o
-    cp libimgui.a "$LIB_OUTPUT_DIR/"
-    rm -f *.o
-        
-        # Headers already in src/libs/inc/imgui, just track version
-        IMGUI_VERSION=$(grep "IMGUI_VERSION " ../inc/imgui/imgui.h | head -1 | awk '{print $3}' | tr -d '"')
-        grep -q "ImGui: ${IMGUI_VERSION:-bundled}" "$VERSION_FILE" 2>/dev/null || echo "ImGui: ${IMGUI_VERSION:-bundled}" >> "$VERSION_FILE"
-        
-    echo -e "${GREEN}✓ ImGui built successfully${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libimgui.a"
-fi
-echo ""
-fi
-
-# ==============================================================================
-# DUPLICATE SECTION DISABLED - ImPlot now built earlier from downloaded tarball
-# ==============================================================================
-if false; then  # DISABLED - duplicate of earlier ImPlot build
-    CURRENT_LIB=$((CURRENT_LIB+1))
-    echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building ImPlot...${NC}"
-if [ -f "$LIB_OUTPUT_DIR/libimplot.a" ]; then
-    echo -e "${YELLOW}✓ libimplot.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libimplot.a"
-        LIBS_SKIPPED+=("ImPlot (bundled)")
-else
-        LIBS_BUILT+=("ImPlot (bundled)")
-    echo -e "${YELLOW}Building ImPlot from source...${NC}"
-    cd "$PROJECT_ROOT/src/libs/inc/implot"
-    g++ -c -O3 -std=c++17 -fPIC \
-        -I../../inc \
-        -I../../inc/imgui \
-        implot.cpp \
-        implot_items.cpp
-    ar rcs libimplot.a implot.o implot_items.o
-    cp libimplot.a "$LIB_OUTPUT_DIR/"
-    rm -f *.o
-        
-        # Headers already in src/libs/inc/implot, just track version
-        IMPLOT_VERSION=$(grep "IMPLOT_VERSION " implot.h | head -1 | awk '{print $3}' | tr -d '"')
-        grep -q "ImPlot: ${IMPLOT_VERSION:-bundled}" "$VERSION_FILE" 2>/dev/null || echo "ImPlot: ${IMPLOT_VERSION:-bundled}" >> "$VERSION_FILE"
-        
-    echo -e "${GREEN}✓ ImPlot built successfully${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libimplot.a"
-fi
-echo ""
-fi
-
-# ==============================================================================
-# DUPLICATE SECTION DISABLED - Yoga now built earlier from downloaded tarball
-# ==============================================================================
-if false; then  # DISABLED - duplicate of earlier Yoga build
-    CURRENT_LIB=$((CURRENT_LIB+1))
-    echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building Yoga...${NC}"
-if [ -f "$LIB_OUTPUT_DIR/libyoga.a" ]; then
-    echo -e "${YELLOW}✓ libyoga.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
-        LIBS_SKIPPED+=("Yoga (bundled)")
-else
-        LIBS_BUILT+=("Yoga (bundled)")
-    echo -e "${YELLOW}Building Yoga from source...${NC}"
-    cd "$PROJECT_ROOT/src/libs/inc/yoga"
-    rm -f *.o *.a
-        
-        # Build all Yoga source files (C++20 required)
-        find . -name "*.cpp" -exec g++ -c -O3 -std=c++20 -fPIC -I.. -I. {} \;
-        find . -name "*.o" -exec ar rcs libyoga.a {} +
-        
-    cp libyoga.a "$LIB_OUTPUT_DIR/"
-    rm -f *.o
-        find . -name "*.o" -delete
-        
-        # Headers already in src/libs/inc/yoga, just track version
-        YOGA_VERSION=$(grep "constexpr int32_t YGVersion" Yoga.h 2>/dev/null | awk '{print $5}' | tr -d ';' || echo "bundled")
-        grep -q "Yoga: ${YOGA_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "Yoga: ${YOGA_VERSION}" >> "$VERSION_FILE"
-        
-    echo -e "${GREEN}✓ Yoga built successfully${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libyoga.a"
-fi
-echo ""
-fi
-
-# ==============================================================================
-# Build Blend2D (2D rendering engine)
-# ==============================================================================
-if [ "$BUILD_BLEND2D" = true ]; then
-    CURRENT_LIB=$((CURRENT_LIB+1))
-    echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building blend2d v${BLEND2D_VERSION} (this may take a while)...${NC}"
-cd "$BUILD_DIR"
-if [ -f "$LIB_OUTPUT_DIR/libblend2d.a" ] && [ "$UPDATE_ALL" != true ]; then
-    echo -e "${YELLOW}✓ libblend2d.a already exists, skipping build${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libblend2d.a"
-        LIBS_SKIPPED+=("Blend2D v${BLEND2D_VERSION}")
-        if [ ! -d "$HEADER_DIR/blend2d" ] || [ -z "$(ls -A "$HEADER_DIR/blend2d" 2>/dev/null)" ]; then
-            echo -e "${YELLOW}Blend2D headers missing, restoring...${NC}"
-            BLEND2D_DIR="blend2d-${BLEND2D_VERSION}"
-            if [ ! -d "$BLEND2D_DIR" ]; then
-                echo -e "${YELLOW}Downloading blend2d v${BLEND2D_VERSION} for headers...${NC}"
-                $DOWNLOAD_CMD blend2d.tar.gz "$BLEND2D_URL"
-                tar -xzf blend2d.tar.gz
-                if [ -d "blend2d" ]; then
-                    mv blend2d "$BLEND2D_DIR"
-                fi
-                rm blend2d.tar.gz
-            fi
-            mkdir -p "$HEADER_DIR/blend2d"
-            if [ -d "$BLEND2D_DIR/blend2d" ]; then
-                cp -r "$BLEND2D_DIR/blend2d/blend2d.h" "$HEADER_DIR/blend2d/" 2>/dev/null || true
-                cp -r "$BLEND2D_DIR/blend2d" "$HEADER_DIR/" 2>/dev/null || true
-            else
-                cp -r "$BLEND2D_DIR/src/blend2d.h" "$HEADER_DIR/blend2d/" 2>/dev/null || true
-                cp -r "$BLEND2D_DIR/src/blend2d" "$HEADER_DIR/" 2>/dev/null || true
-            fi
-        fi
-    else
-        LIBS_BUILT+=("Blend2D v${BLEND2D_VERSION}")
-        BLEND2D_DIR="blend2d-${BLEND2D_VERSION}"
-        if [ "$UPDATE_ALL" = true ]; then
-            rm -rf "$BLEND2D_DIR"
-        fi
-        if [ ! -d "$BLEND2D_DIR" ]; then
-            echo -e "${YELLOW}Downloading blend2d v${BLEND2D_VERSION}...${NC}"
-            $DOWNLOAD_CMD blend2d.tar.gz "$BLEND2D_URL"
-            # Blend2D tarball extracts flat, so extract then rename
-            tar -xzf blend2d.tar.gz
-            # The tarball may extract to 'blend2d' or current directory
-            if [ -d "blend2d" ]; then
-                mv blend2d "$BLEND2D_DIR"
-            fi
-            rm blend2d.tar.gz
-        else
-            echo -e "${YELLOW}blend2d v${BLEND2D_VERSION} source found${NC}"
-        fi
-        
-        # Build Blend2D (CMake will fetch AsmJit automatically)
-        cd "$BLEND2D_DIR"
-        rm -rf build
-    mkdir build && cd build
-        echo -e "${YELLOW}Building blend2d...${NC}"
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DBLEND2D_STATIC=ON \
-        -DBLEND2D_TEST=OFF \
-        -DBL_BUILD_OPT_AVX512=ON \
-        -DASMJIT_NO_FOREIGN=ON \
-        -DASMJIT_NO_STDCXX=ON \
-        -DASMJIT_ABI_NAMESPACE=abi_bl \
-        -DASMJIT_STATIC=ON \
-        -DASMJIT_NO_AARCH64=ON
-    make -j$(nproc)
-    cp libblend2d.a "$LIB_OUTPUT_DIR/"
-        
-        # Copy headers (check if already copied for this version)
-        if [ "$UPDATE_ALL" != true ] && grep -q "Blend2D: v${BLEND2D_VERSION}" "$VERSION_FILE" 2>/dev/null && [ -d "$HEADER_DIR/blend2d" ] && [ "$(ls -A $HEADER_DIR/blend2d 2>/dev/null)" ]; then
-            echo -e "${YELLOW}✓ Blend2D v${BLEND2D_VERSION} headers already installed, skipping copy${NC}"
-            HEADERS_SKIPPED+=("Blend2D v${BLEND2D_VERSION}")
-        else
-            echo -e "${YELLOW}Copying blend2d v${BLEND2D_VERSION} headers...${NC}"
-            HEADERS_COPIED+=("Blend2D v${BLEND2D_VERSION}")
-            cd ..
-            mkdir -p "$HEADER_DIR/blend2d"
-            if [ -d "blend2d" ]; then
-                cp -r blend2d/blend2d.h "$HEADER_DIR/blend2d/" 2>/dev/null || true
-                cp -r blend2d "$HEADER_DIR/" 2>/dev/null || true
-            else
-                cp -r src/blend2d.h "$HEADER_DIR/blend2d/" 2>/dev/null || true
-                cp -r src/blend2d "$HEADER_DIR/" 2>/dev/null || true
-            fi
-            echo -e "${GREEN}✓ Headers copied${NC}"
-        fi
-        
-        # Track version
-        grep -q "Blend2D: v${BLEND2D_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "Blend2D: v${BLEND2D_VERSION}" >> "$VERSION_FILE"
-        grep -q "AsmJit: ${ASMJIT_VERSION}" "$VERSION_FILE" 2>/dev/null || echo "AsmJit: ${ASMJIT_VERSION}" >> "$VERSION_FILE"
-        
-        echo -e "${GREEN}✓ blend2d built successfully (headers copied)${NC}"
-    ls -lh "$LIB_OUTPUT_DIR/libblend2d.a"
-    cd "$BUILD_DIR"
-    fi
-    echo ""
-fi
-
-# ==============================================================================
 # Build NFD-Extended (native file dialogs)
 # ==============================================================================
-if [ "$BUILD_NFDEXT" = true ]; then
+if [ "$BUILD_NFDEXT" = true ] && [ "$BUILD_GLFW" = true ]; then
     CURRENT_LIB=$((CURRENT_LIB+1))
     echo -e "${GREEN}[$CURRENT_LIB/$LIB_COUNT] Building nfd-extended ${NFD_VERSION}...${NC}"
     cd "$BUILD_DIR"

@@ -324,7 +324,6 @@ install(TARGETS ${LIBRARY_NAME}
 )
 
 install(FILES glimmer.h DESTINATION include)
-install(FILES src/platform_config.h DESTINATION include/glimmer)
 install(DIRECTORY src/
     DESTINATION include/glimmer
     FILES_MATCHING PATTERN "*.h"
