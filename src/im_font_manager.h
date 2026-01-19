@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "config.h"
+#include "libs/inc/imgui/imgui.h"
 
 namespace glimmer
 {

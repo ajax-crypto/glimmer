@@ -116,13 +116,13 @@ namespace glimmer
             auto antialias = range.flags & FLT_Antialias;
 
 #ifdef IMGUI_ENABLE_FREETYPE
-            int32_t flags = !hinting ? ImGuiFreeTypeBuilderFlags_NoHinting :
-                !antialias ? ImGuiFreeTypeBuilderFlags_MonoHinting : ImGuiFreeTypeBuilderFlags_LightHinting;
-            flags = flags | (!antialias ? ImGuiFreeTypeBuilderFlags_Monochrome : 0);
+            int32_t flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting :
+                !antialias ? ImGuiFreeTypeLoaderFlags_MonoHinting : ImGuiFreeTypeLoaderFlags_LightHinting;
+            flags = flags | (!antialias ? ImGuiFreeTypeLoaderFlags_Monochrome : 0);
 #endif
 
             ImGuiIO& io = ImGui::GetIO();
-            fconfig.FontBuilderFlags = fconfig.FontBuilderFlags | flags;
+            fconfig.FontLoaderFlags = fconfig.FontLoaderFlags | flags;
             auto path = range.path.data();
             auto fontptr = io.Fonts->AddFontFromFileTTF(path, size, &fconfig, glyphs);
             if (!mergeWithPrevious) Config.iconFont = fontptr;
@@ -136,7 +136,7 @@ namespace glimmer
 #ifndef GLIMMER_DISABLE_IMGUI_RENDERER
     static void LoadFont(ImGuiIO& io, FontFamily& family, FontType ft, float size, ImFontConfig config, int flag, bool isMonospace)
     {
-        config.FontBuilderFlags = config.FontBuilderFlags | flag;
+        config.FontLoaderFlags = config.FontLoaderFlags | flag;
 
         if (ft == FT_Normal)
         {
@@ -176,9 +176,9 @@ namespace glimmer
     bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, 
         bool autoScale, bool isMonospace, bool hinting, bool antialias)
     {
-        int32_t flags = !hinting ? ImGuiFreeTypeBuilderFlags_NoHinting : 
-            !antialias ? ImGuiFreeTypeBuilderFlags_MonoHinting : ImGuiFreeTypeBuilderFlags_LightHinting;
-        flags = flags | (!antialias ? ImGuiFreeTypeBuilderFlags_Monochrome : 0);
+        int32_t flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting : 
+            !antialias ? ImGuiFreeTypeLoaderFlags_MonoHinting : ImGuiFreeTypeLoaderFlags_LightHinting;
+        flags = flags | (!antialias ? ImGuiFreeTypeLoaderFlags_Monochrome : 0);
 
         ImGuiIO& io = ImGui::GetIO();
         FontStore[family].Files = files;
