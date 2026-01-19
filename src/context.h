@@ -133,8 +133,8 @@ namespace glimmer
 
         struct BiDirMap
         {
-            Vector<int16_t, int16_t> ltov{ 128, -1 }; // Logical columns to visual columns
-			Vector<int16_t, int16_t> vtol{ 128, -1 }; // Visual columns to logical columns
+            Vector<int16_t, int16_t> ltov{ int16_t(128), int16_t(-1) }; // Logical columns to visual columns
+			Vector<int16_t, int16_t> vtol{ int16_t(128), int16_t(-1) }; // Visual columns to logical columns
         };
 
         Vector<HeaderCellResizeState, int16_t, 32> cols[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL];
@@ -801,7 +801,7 @@ namespace glimmer
         Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
 
         // Layout related members
-        Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
+        Vector<LayoutItemDescriptor, int16_t> layoutItems{ int16_t(128) };
         Vector<ImRect, int16_t> itemGeometries[WT_TotalTypes]{
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true },

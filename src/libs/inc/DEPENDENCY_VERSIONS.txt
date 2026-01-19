@@ -1,0 +1,28 @@
+================================================================================
+Glimmer Dependency Versions
+================================================================================
+Platform: sdl3
+Build Type: Release
+Build Date: 2026-01-16 18:54:28
+================================================================================
+
+FreeType: v2.14.1
+Yoga: v3.2.1
+PlutoVG: v1.3.2
+LunaSVG: v3.5.0
+SDL3: v3.4.0
+ImGui: v1.92.5
+ImPlot: v0.17
+Blend2D: v0.21.2
+AsmJit: 2024-11-18
+stb_image: v2.30 (header-only)
+IconFontCppHeaders: latest (FontAwesome , header-only)
+
+================================================================================
+Header Locations:
+================================================================================
+All headers installed in: /home/amd/ss/glimmer/src/libs/inc/
+Version tracking: /home/amd/ss/glimmer/src/libs/inc/DEPENDENCY_VERSIONS.txt
+
+To see installed versions: cat /home/amd/ss/glimmer/src/libs/inc/DEPENDENCY_VERSIONS.txt
+================================================================================

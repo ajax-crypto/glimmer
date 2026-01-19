@@ -115,8 +115,9 @@ namespace glimmer
             auto hinting = range.flags & FLT_Hinting;
             auto antialias = range.flags & FLT_Antialias;
 
+            int32_t flags = 0;
 #ifdef IMGUI_ENABLE_FREETYPE
-            int32_t flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting :
+            flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting :
                 !antialias ? ImGuiFreeTypeLoaderFlags_MonoHinting : ImGuiFreeTypeLoaderFlags_LightHinting;
             flags = flags | (!antialias ? ImGuiFreeTypeLoaderFlags_Monochrome : 0);
 #endif
@@ -161,9 +162,9 @@ namespace glimmer
 
             if (isMonospace) FontLookup.MonospaceFonts.insert(family.FontPtrs[ft][size]);
 #else
-            fonts[ft][size] = files.Files[ft].empty() ? fallback :
-                io.Fonts->AddFontFromFileTTF(files.Files[ft].data(), size, &config);
-            if (isMonospace) FontLookup.MonospaceFonts.insert(fonts[ft][size]);
+            family.FontPtrs[ft][size] = family.Files.Files[ft].empty() ? fallback :
+                io.Fonts->AddFontFromFileTTF(family.Files.Files[ft].data(), size, &config);
+            if (isMonospace) FontLookup.MonospaceFonts.insert(family.FontPtrs[ft][size]);
 #endif
 
 #ifdef GLIMMER_ENABLE_ICON_FONT
@@ -176,9 +177,12 @@ namespace glimmer
     bool LoadFonts(std::string_view family, const FontCollectionFile& files, float size, ImFontConfig config, 
         bool autoScale, bool isMonospace, bool hinting, bool antialias)
     {
-        int32_t flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting : 
+        int32_t flags = 0;
+#ifdef IMGUI_ENABLE_FREETYPE
+        flags = !hinting ? ImGuiFreeTypeLoaderFlags_NoHinting : 
             !antialias ? ImGuiFreeTypeLoaderFlags_MonoHinting : ImGuiFreeTypeLoaderFlags_LightHinting;
         flags = flags | (!antialias ? ImGuiFreeTypeLoaderFlags_Monochrome : 0);
+#endif
 
         ImGuiIO& io = ImGui::GetIO();
         FontStore[family].Files = files;
