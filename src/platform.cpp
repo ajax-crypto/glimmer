@@ -293,9 +293,9 @@ extern "C"
 #endif
 
 #if GLIMMER_TARGET_PLATFORM == GLIMMER_PLATFORM_GLFW
-#include "libs/inc/imgui/imgui_impl_glfw.h"
-#include "libs/inc/imgui/imgui_impl_opengl3.h"
-#include "libs/inc/imgui/imgui_impl_opengl3_loader.h"
+#include "libs/inc/imguiglfw/imgui_impl_glfw.h"
+#include "libs/inc/imguiglfw/imgui_impl_opengl3.h"
+#include "libs/inc/imguiglfw/imgui_impl_opengl3_loader.h"
 
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 #include <mutex>

@@ -7,7 +7,7 @@
 #endif
 #endif
 #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
-#include "libs/inc/blend2d/blend2d.h"
+#include "blend2d/blend2d.h"
 #endif
 
 #include <string>
