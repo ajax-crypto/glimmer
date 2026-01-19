@@ -149,13 +149,13 @@ namespace glimmer
         template <typename IntegralT,
             typename = std::enable_if_t<std::is_integral_v<IntegralT> && !std::is_same_v<IntegralT, bool>>>
         explicit Vector(IntegralT initialsz)
-            : _capacity{ (Sz)initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * (Sz)initialsz) }
+            : _data{ (T*)AllocateFunc(sizeof(T) * (Sz)initialsz) }, _size{ 0 }, _capacity{ (Sz)initialsz }
         {
             _default_init(0, _capacity);
         }
 
         explicit Vector(Sz initialsz, const T& el)
-            : _capacity{ initialsz }, _size{ initialsz }, _data{ (T*)AllocateFunc(sizeof(T) * initialsz) }
+            : _data{ (T*)AllocateFunc(sizeof(T) * initialsz) }, _size{ initialsz }, _capacity{ initialsz }
         {
             Fill(_data, _data + _capacity, el);
         }

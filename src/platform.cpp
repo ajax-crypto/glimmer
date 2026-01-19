@@ -964,7 +964,8 @@ namespace glimmer {
     }
 
     static std::list<SDL_GPUTextureSamplerBinding> SamplerBindings;
-
+    
+#ifdef _WIN32
     bool SDLCALL SDL_CustomWindowsMessageHook(void* userdata, MSG* msg)
     {
         if (msg->message == WM_HOTKEY)
@@ -987,6 +988,7 @@ namespace glimmer {
 
         return true;
     }
+#endif
 
     struct ImGuiSDL3Platform final : public IPlatform
     {
@@ -1055,9 +1057,10 @@ namespace glimmer {
                 SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
             SDL_ShowWindow(window);
-
+#ifdef _WIN32
             if (totalCustomEvents > 0)
                 SDL_SetWindowsMessageHook(&SDL_CustomWindowsMessageHook, &custom);
+#endif
 
             // Create GPU Device
             if (params.adapter != GraphicsAdapter::Software)
@@ -1223,7 +1226,7 @@ namespace glimmer {
                     if (swapchain_texture != nullptr && !is_minimized)
                     {
                         // This is mandatory: call ImGui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
-                        Imgui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
+                        ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
 
                         // Setup and start a render pass
                         SDL_GPUColorTargetInfo target_info = {};
@@ -1375,7 +1378,7 @@ namespace glimmer {
 
 #ifdef GLIMMER_ENABLE_NFDEXT
 
-        void* GetWindowHandle(void* out) override
+        void* GetWindowHandle(void* out = nullptr) override
         {
             void* retptr = nullptr;
             std::call_once(nfdInitialized, [] { NFD_Init(); });
@@ -1409,7 +1412,7 @@ namespace glimmer {
 
 #else
 
-        void* GetWindowHandle(void* out) override
+        void* GetWindowHandle(void* out = nullptr) override
         {
 #if defined(SDL_PLATFORM_WINDOWS)
 

@@ -17,7 +17,37 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Compiler flags for Linux
+#==============================================================================
+# Platform Configuration
+#==============================================================================
+set(GLIMMER_PLATFORM "sdl3" CACHE STRING "Target platform: test, tui, sdl3, glfw")
+
+# Validate platform
+if(NOT GLIMMER_PLATFORM MATCHES "^(test|tui|sdl3|glfw)$")
+    message(FATAL_ERROR "Invalid GLIMMER_PLATFORM: ${GLIMMER_PLATFORM}. Must be: test, tui, sdl3, or glfw")
+endif()
+
+# Map platform to library name and define
+if(GLIMMER_PLATFORM STREQUAL "test")
+    set(LIBRARY_NAME "glimmer_test")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_TEST=-1")
+elseif(GLIMMER_PLATFORM STREQUAL "tui")
+    set(LIBRARY_NAME "glimmer_tui")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_PDCURSES=0")
+elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
+    set(LIBRARY_NAME "glimmer_sdl3")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_SDL3=1")
+elseif(GLIMMER_PLATFORM STREQUAL "glfw")
+    set(LIBRARY_NAME "glimmer_glfw")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_GLFW=2")
+endif()
+
+message(STATUS "Platform: ${GLIMMER_PLATFORM}")
+message(STATUS "Library name: lib${LIBRARY_NAME}.a")
+
+#==============================================================================
+# Compiler Flags
+#==============================================================================
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
@@ -27,15 +57,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-implicit-fallthrough")
 endif()
 
-# Optional features (can be disabled by setting these to ON)
+#==============================================================================
+# Feature Options (can override platform defaults)
+#==============================================================================
 option(GLIMMER_DISABLE_SVG "Disable SVG rendering support" OFF)
 option(GLIMMER_DISABLE_IMAGES "Disable image loading support" OFF)
 option(GLIMMER_DISABLE_RICHTEXT "Disable rich text rendering" OFF)
 option(GLIMMER_DISABLE_PLOTS "Disable plotting/graph library integration" OFF)
 option(GLIMMER_ENABLE_NFDEXT "Enable nfd-extended library for file pickers" OFF)
 option(GLIMMER_ENABLE_BLEND2D "Enable Blend2D renderer (requires libblend2d.a)" OFF)
+option(GLIMMER_FORCE_UPDATE "Force dependency refresh (from build.sh)" OFF)
 
-# Configure compile definitions based on options
+# Configure compile definitions
+add_compile_definitions(${PLATFORM_DEFINE})
+add_compile_definitions(GLIMMER_PLATFORM=${GLIMMER_PLATFORM})
+
 if(GLIMMER_DISABLE_SVG)
     add_compile_definitions(GLIMMER_DISABLE_SVG)
 endif()
@@ -56,15 +92,20 @@ if(GLIMMER_ENABLE_NFDEXT)
     add_compile_definitions(GLIMMER_ENABLE_NFDEXT)
 endif()
 
-# Configure blend2d renderer based on option
 if(NOT GLIMMER_ENABLE_BLEND2D)
     add_compile_definitions(GLIMMER_DISABLE_BLEND2D_RENDERER)
 endif()
 
-# ImRichText target is always ImGui in Glimmer (blend2d is used separately)
+if(GLIMMER_FORCE_UPDATE)
+    add_compile_definitions(GLIMMER_FORCE_UPDATE)
+endif()
+
+# ImRichText target is always ImGui in Glimmer
 add_compile_definitions(IM_RICHTEXT_TARGET_IMGUI)
 
-# Source files for the main glimmer library
+#==============================================================================
+# Source Files
+#==============================================================================
 set(GLIMMER_SOURCES
     src/context.cpp
     src/draw.cpp
@@ -76,24 +117,7 @@ set(GLIMMER_SOURCES
     src/widgets.cpp
 )
 
-# Header files
-set(GLIMMER_HEADERS
-    src/context.h
-    src/draw.h
-    src/im_font_manager.h
-    src/layout.h
-    src/platform.h
-    src/renderer.h
-    src/style.h
-    src/types.h
-    src/utils.h
-    src/widgets.h
-    src/glimmer.h
-    src/custom/PathInput.h
-    glimmer.h
-)
-
-# ImRichText sources (only these, ImGui is prebuilt)
+# ImRichText sources (conditional)
 set(EXTRA_SOURCES)
 if(NOT GLIMMER_DISABLE_RICHTEXT)
     list(APPEND EXTRA_SOURCES
@@ -103,27 +127,43 @@ if(NOT GLIMMER_DISABLE_RICHTEXT)
     )
 endif()
 
-# Platform implementation sources
-list(APPEND EXTRA_SOURCES
-    src/libs/src/imgui_impl_glfw.cpp
-    src/libs/src/imgui_impl_opengl3.cpp
-)
+# Platform-specific implementation sources (from downloaded ImGui backends)
+if(GLIMMER_PLATFORM STREQUAL "sdl3")
+    list(APPEND EXTRA_SOURCES
+        src/libs/inc/imgui/backends/imgui_impl_sdl3.cpp
+        src/libs/inc/imgui/backends/imgui_impl_opengl3.cpp
+    )
+elseif(GLIMMER_PLATFORM STREQUAL "glfw")
+    list(APPEND EXTRA_SOURCES
+        src/libs/inc/imgui/backends/imgui_impl_glfw.cpp
+        src/libs/inc/imgui/backends/imgui_impl_opengl3.cpp
+    )
+endif()
 
 # Combine all sources
 set(ALL_SOURCES ${GLIMMER_SOURCES} ${EXTRA_SOURCES})
 
-# Create static library
-add_library(glimmer STATIC ${ALL_SOURCES})
+#==============================================================================
+# Create Static Library
+#==============================================================================
+add_library(${LIBRARY_NAME} STATIC ${ALL_SOURCES})
 
-# Include directories
-target_include_directories(glimmer PUBLIC
+# Define ImGui with FreeType and 32-bit Unicode support (for emoji)
+target_compile_definitions(${LIBRARY_NAME} PRIVATE 
+    IMGUI_ENABLE_FREETYPE
+    IMGUI_USE_WCHAR32
+)
+
+#==============================================================================
+# Include Directories
+#==============================================================================
+target_include_directories(${LIBRARY_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/imrichtext
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/freetype2
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/GLFW
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/yoga
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/lunasvg
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/stb_image
@@ -131,142 +171,153 @@ target_include_directories(glimmer PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/iconfonts
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/nfd-ext
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/SDL3
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/GLFW
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/imguisdl3
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/randrew.layout
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/blend2d
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/nlohmann
 )
 
-# Find required system libraries for Linux
+#==============================================================================
+# System Libraries
+#==============================================================================
 find_package(Threads REQUIRED)
 
-# Find FreeType (if not using bundled version)
-find_package(Freetype QUIET)
-if(Freetype_FOUND)
-    target_link_libraries(glimmer PUBLIC Freetype::Freetype)
-    message(STATUS "Using system FreeType library")
-else()
-    message(STATUS "System FreeType not found, using bundled headers")
+# OpenGL (required for graphical platforms)
+if(GLIMMER_PLATFORM MATCHES "sdl3|glfw")
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(${LIBRARY_NAME} PUBLIC OpenGL::GL)
 endif()
 
-# Find OpenGL (required for rendering)
-find_package(OpenGL QUIET)
-if(OpenGL_FOUND)
-    target_link_libraries(glimmer PUBLIC OpenGL::GL)
-    message(STATUS "OpenGL found")
+# X11 (required for Linux GUI platforms)
+if(GLIMMER_PLATFORM MATCHES "sdl3|glfw|tui")
+    find_package(X11 REQUIRED)
+    target_link_libraries(${LIBRARY_NAME} PUBLIC ${X11_LIBRARIES})
 endif()
 
-# Find GLFW (if needed)
-find_package(glfw3 QUIET)
-if(glfw3_FOUND)
-    target_link_libraries(glimmer PUBLIC glfw)
-    message(STATUS "GLFW3 found")
-endif()
-
-# Link with standard libraries
-target_link_libraries(glimmer PUBLIC
+# Standard libraries
+target_link_libraries(${LIBRARY_NAME} PUBLIC
     Threads::Threads
     ${CMAKE_DL_LIBS}
+    m  # Math library
 )
 
-# Linux-specific libraries
-if(UNIX AND NOT APPLE)
-    target_link_libraries(glimmer PUBLIC
-        m  # Math library
+#==============================================================================
+# Platform-Specific Dependency Libraries
+#==============================================================================
+# Determine library subdirectory path
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(LIB_SUBDIR "debug")
+else()
+    set(LIB_SUBDIR "release")
+endif()
+
+set(PLATFORM_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/libs/lib/linux/${LIB_SUBDIR}/${GLIMMER_PLATFORM}")
+
+message(STATUS "Looking for libraries in: ${PLATFORM_LIB_DIR}")
+
+# Core dependencies (required for all platforms)
+set(CORE_LIBS
+    libimgui.a
+    libfreetype.a
+    libyoga.a
+)
+
+foreach(lib ${CORE_LIBS})
+    set(lib_path "${PLATFORM_LIB_DIR}/${lib}")
+    if(EXISTS "${lib_path}")
+        target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+        message(STATUS "✓ Linking ${lib}")
+    else()
+        message(FATAL_ERROR "Required library not found: ${lib_path}")
+    endif()
+endforeach()
+
+# Platform-specific dependencies
+if(GLIMMER_PLATFORM STREQUAL "test")
+    # Minimal: no additional libraries
+    
+elseif(GLIMMER_PLATFORM STREQUAL "tui")
+    # Terminal UI: pdcurses
+    if(EXISTS "${PLATFORM_LIB_DIR}/libpdcurses.a")
+        target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/libpdcurses.a")
+        message(STATUS "✓ Linking libpdcurses.a")
+    else()
+        message(FATAL_ERROR "libpdcurses.a not found for TUI platform")
+    endif()
+    
+elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
+    # SDL3 platform: SDL3 + SVG + plots + blend2d
+    set(SDL3_LIBS
+        libSDL3.a
+        libplutovg.a
+        liblunasvg.a
+        libimplot.a
     )
     
-    # X11 libraries (required for SDL3 with X11 support)
-    find_package(X11)
-    if(X11_FOUND)
-        target_link_libraries(glimmer PUBLIC ${X11_LIBRARIES})
-        message(STATUS "Linking X11 libraries for SDL3")
-    endif()
-    
-    # Link against bundled static libraries for Linux
-    set(LINUX_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/libs/lib/linux")
-    
-    # Determine debug or release
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(LIB_SUBDIR "debug")
-    else()
-        set(LIB_SUBDIR "release")
-    endif()
-    
-    # Link plutovg (required by lunasvg)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libplutovg.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libplutovg.a")
-        message(STATUS "Linking bundled plutovg (${LIB_SUBDIR})")
-    else()
-        message(WARNING "plutovg not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link lunasvg (for SVG support)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/liblunasvg.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/liblunasvg.a")
-        message(STATUS "Linking bundled lunasvg (${LIB_SUBDIR})")
-    else()
-        message(WARNING "lunasvg not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link SDL3 (optional - for platform/windowing)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libSDL3.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libSDL3.a")
-        message(STATUS "Linking bundled SDL3 (${LIB_SUBDIR})")
-    else()
-        message(STATUS "SDL3 not found (optional)")
-    endif()
-    
-    # Link FreeType (for font rendering)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libfreetype.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libfreetype.a")
-        message(STATUS "Linking bundled FreeType (${LIB_SUBDIR})")
-    else()
-        message(WARNING "FreeType not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link ImGui (for immediate mode GUI)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libimgui.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libimgui.a")
-        message(STATUS "Linking bundled ImGui (${LIB_SUBDIR})")
-    else()
-        message(WARNING "ImGui not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link ImPlot (for plotting support)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libimplot.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libimplot.a")
-        message(STATUS "Linking bundled ImPlot (${LIB_SUBDIR})")
-    else()
-        message(WARNING "ImPlot not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link Yoga (for flexbox layout)
-    if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libyogacore.a")
-        target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libyogacore.a")
-        message(STATUS "Linking bundled Yoga (${LIB_SUBDIR})")
-    else()
-        message(WARNING "Yoga not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
-    endif()
-    
-    # Link blend2d (if enabled)
-    if(GLIMMER_ENABLE_BLEND2D)
-        if(EXISTS "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libblend2d.a")
-            target_link_libraries(glimmer PUBLIC "${LINUX_LIB_DIR}/${LIB_SUBDIR}/libblend2d.a")
-            message(STATUS "Linking bundled blend2d (${LIB_SUBDIR})")
+    foreach(lib ${SDL3_LIBS})
+        set(lib_path "${PLATFORM_LIB_DIR}/${lib}")
+        if(EXISTS "${lib_path}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+            message(STATUS "✓ Linking ${lib}")
         else()
-            message(WARNING "blend2d requested but not found in ${LINUX_LIB_DIR}/${LIB_SUBDIR}/")
+            message(WARNING "${lib} not found (may be optional)")
+        endif()
+    endforeach()
+    
+    # Blend2D (if enabled)
+    if(GLIMMER_ENABLE_BLEND2D)
+        if(EXISTS "${PLATFORM_LIB_DIR}/libblend2d.a")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/libblend2d.a")
+            message(STATUS "✓ Linking libblend2d.a")
+        else()
+            message(WARNING "libblend2d.a requested but not found")
+        endif()
+    endif()
+    
+elseif(GLIMMER_PLATFORM STREQUAL "glfw")
+    # GLFW platform: GLFW + SVG + plots + nfd-ext
+    set(GLFW_LIBS
+        libglfw3.a
+        libplutovg.a
+        liblunasvg.a
+        libimplot.a
+    )
+    
+    foreach(lib ${GLFW_LIBS})
+        set(lib_path "${PLATFORM_LIB_DIR}/${lib}")
+        if(EXISTS "${lib_path}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+            message(STATUS "✓ Linking ${lib}")
+        else()
+            message(WARNING "${lib} not found (may be optional)")
+        endif()
+    endforeach()
+    
+    # NFD-Extended (if enabled)
+    if(GLIMMER_ENABLE_NFDEXT)
+        if(EXISTS "${PLATFORM_LIB_DIR}/libnfd.a")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/libnfd.a")
+            message(STATUS "✓ Linking libnfd.a")
+        else()
+            message(WARNING "libnfd.a requested but not found")
         endif()
     endif()
 endif()
 
-# Set output directory for the static library
-set_target_properties(glimmer PROPERTIES
+#==============================================================================
+# Output Configuration
+#==============================================================================
+set_target_properties(${LIBRARY_NAME} PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/staticlib"
-    OUTPUT_NAME "glimmer"
+    OUTPUT_NAME "${LIBRARY_NAME}"
     POSITION_INDEPENDENT_CODE ON
 )
 
-# Installation rules (optional)
-install(TARGETS glimmer
+#==============================================================================
+# Installation Rules
+#==============================================================================
+install(TARGETS ${LIBRARY_NAME}
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin
@@ -278,17 +329,28 @@ install(DIRECTORY src/
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Print configuration summary
+#==============================================================================
+# Configuration Summary
+#==============================================================================
 message(STATUS "")
-message(STATUS "Glimmer Static Library Configuration:")
+message(STATUS "========================================")
+message(STATUS "Glimmer Static Library Configuration")
+message(STATUS "========================================")
+message(STATUS "  Platform: ${GLIMMER_PLATFORM}")
+message(STATUS "  Library: lib${LIBRARY_NAME}.a")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
+message(STATUS "  Dependencies: ${PLATFORM_LIB_DIR}")
+message(STATUS "")
+message(STATUS "Feature Flags:")
 message(STATUS "  Disable SVG: ${GLIMMER_DISABLE_SVG}")
 message(STATUS "  Disable Images: ${GLIMMER_DISABLE_IMAGES}")
 message(STATUS "  Disable RichText: ${GLIMMER_DISABLE_RICHTEXT}")
 message(STATUS "  Disable Plots: ${GLIMMER_DISABLE_PLOTS}")
 message(STATUS "  Enable NFD-Ext: ${GLIMMER_ENABLE_NFDEXT}")
 message(STATUS "  Enable Blend2D: ${GLIMMER_ENABLE_BLEND2D}")
-message(STATUS "  Output: ${CMAKE_CURRENT_SOURCE_DIR}/staticlib/libglimmer.a")
+message(STATUS "  Force Update: ${GLIMMER_FORCE_UPDATE}")
 message(STATUS "")
-
+message(STATUS "Output: ${CMAKE_CURRENT_SOURCE_DIR}/staticlib/lib${LIBRARY_NAME}.a")
+message(STATUS "========================================")
+message(STATUS "")
