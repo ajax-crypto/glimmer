@@ -379,6 +379,8 @@ inline bool operator>(const ImVec2& lhs, const ImVec2& rhs)
 
 #define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f)
 #define DEBUG_RECT2(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 2.f)
+#define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
+#define RECT_FMT "(%f, %f) x (%f, %f)"
 
 #define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 #define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)

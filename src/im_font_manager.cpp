@@ -7,7 +7,8 @@
 #endif
 #endif
 #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
-#include "libs/inc/blend2d/blend2d.h"
+#define BL_STATIC
+#include <libs/inc/blend2d/blend2d.h>
 #endif
 
 #include <string>
@@ -188,10 +189,10 @@ namespace glimmer
         LoadFont(io, ffamily, FT_Normal, size, config, flags, isMonospace);
 
 #ifdef IMGUI_ENABLE_FREETYPE
-        LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeBuilderFlags_Bold, isMonospace);
-        LoadFont(io, ffamily, FT_Italics, size, config, ImGuiFreeTypeBuilderFlags_Oblique, isMonospace);
-        LoadFont(io, ffamily, FT_BoldItalics, size, config, ImGuiFreeTypeBuilderFlags_Bold | 
-            ImGuiFreeTypeBuilderFlags_Oblique, isMonospace);
+        LoadFont(io, ffamily, FT_Bold, size, config, ImGuiFreeTypeLoaderFlags_Bold, isMonospace);
+        LoadFont(io, ffamily, FT_Italics, size, config, ImGuiFreeTypeLoaderFlags_Oblique, isMonospace);
+        LoadFont(io, ffamily, FT_BoldItalics, size, config, ImGuiFreeTypeLoaderFlags_Bold | 
+            ImGuiFreeTypeLoaderFlags_Oblique, isMonospace);
 #else
         LoadFont(io, ffamily, FT_Bold, size, config, 0, isMonospace);
         LoadFont(io, ffamily, FT_Italics, size, config, 0, isMonospace);
@@ -474,9 +475,6 @@ namespace glimmer
                 flt & FLT_AutoScale, flt & FLT_Hinting, flt & FLT_Antialias, glyphrange);
         }
 
-#ifndef GLIMMER_DISABLE_IMGUI_RENDERER
-        ImGui::GetIO().Fonts->Build();
-#endif
         return true;
     }
 
@@ -1113,11 +1111,7 @@ namespace glimmer
 
     bool IsFontLoaded()
     {
-#if GLIMMER_TARGET_PLATFORM != GLIMMER_PLATFORM_PDCURSES
-        return ImGui::GetIO().Fonts->IsBuilt();
-#else
         return true;
-#endif
     }
 
 #endif

@@ -302,6 +302,8 @@ namespace glimmer
         case glimmer::TextType::SVG: return ImVec2{ font.size, font.size };
         default: break;
         }
+
+        return ImVec2{};
     }
 
     template <typename StringT>

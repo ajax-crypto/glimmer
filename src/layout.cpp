@@ -960,7 +960,7 @@ namespace glimmer
                 }
 
                 // Record this widget for rendering once geometry is determined
-                item.implData = reinterpret_cast<void*>(GridLayoutItems.size() - 1);
+                item.implData = reinterpret_cast<void*>((intptr_t)(GridLayoutItems.size() - 1));
             }
 
             if (!isItemLayout)

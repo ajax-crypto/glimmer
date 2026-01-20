@@ -37,7 +37,7 @@ namespace glimmer
     inline void* AllocateImpl(size_t amount)
     {
         TotalMallocs++;
-        AllocatedBytes += amount;
+        AllocatedBytes += (int32_t)amount;
         auto ptr = std::malloc(amount);
         if (Allocations.find(ptr) != Allocations.end())
             LOGERROR("Possibly overwriting memory @ %p\n", ptr);
@@ -50,11 +50,11 @@ namespace glimmer
         auto result = std::realloc(ptr, amount);
         auto it = Allocations.find(ptr);
         if (it == Allocations.end()) {
-            AllocatedBytes += amount;
+            AllocatedBytes += (int32_t)amount;
             TotalMallocs++;
         }
         else {
-            AllocatedBytes += amount - it->second;
+            AllocatedBytes += (int32_t)amount - (int32_t)it->second;
             TotalReallocs++;
             Allocations.erase(ptr);
         }
@@ -68,7 +68,7 @@ namespace glimmer
         {
             --TotalMallocs;
             std::free(ptr);
-            AllocatedBytes -= Allocations.at(ptr);
+            AllocatedBytes -= (int32_t)Allocations.at(ptr);
             Allocations.erase(ptr);
         }
         else LOGERROR("Unchecked de-allocation of nullptr...\n");

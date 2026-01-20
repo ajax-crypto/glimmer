@@ -33,4 +33,7 @@
 /GlimmerTest/GlimmerTest/x64/Debug/GlimmerTest.tlog
 /GlimmerTest/GlimmerTest/x64/Debug
 /GlimmerTest/x64/Debug
-
+/dependency
+/build
+/src/libs
+/test/.vs
