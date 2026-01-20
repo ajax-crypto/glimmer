@@ -1362,7 +1362,7 @@ namespace glimmer {
                 binding.sampler = SDL_CreateGPUSampler(device, &sampler_info);
                 binding.texture = texture;
 
-                return (ImTextureID)(intptr_t)(&binding);
+                return (ImTextureID)(intptr_t)(texture);
             }
             else
             {

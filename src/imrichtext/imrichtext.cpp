@@ -1072,7 +1072,7 @@ namespace ImRichText
             }
 
             auto font = (ImFont*)glimmer::CreateImGuiRenderer();
-            ImGui::PushFont(font);
+            ImGui::PushFont(font, font->LegacySize);
             auto sz = ImGui::CalcTextSize(buffer, buffer + currpos, false, 300.f);
             sz.x += 20.f;
 

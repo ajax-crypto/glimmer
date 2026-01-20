@@ -32,7 +32,7 @@ namespace glimmer
 
 			// Browse button with icon
 			auto nid = Icon(id, SymbolIcon::Browse, IconSizingType::CurrentFontSz, geometry, neighbors).id;
-			void* data = (void*)(nid);
+			void* data = (void*)(intptr_t)(nid);
 
 			if (PathInputConfigs.find(nid) == PathInputConfigs.end())
 			{
@@ -43,7 +43,7 @@ namespace glimmer
 					IPlatform::FileDialogTarget::OneFile;
 
 				GetUIConfig().platform->PushEventHandler([](void* data, const IODescriptor& desc) {
-					auto id = reinterpret_cast<int32_t>(data);
+					auto id = (int32_t)reinterpret_cast<intptr_t>(data);
 					auto bounds = ICustomWidget::GetBounds(id);
 					auto config = PathInputConfigs.at(id);
 

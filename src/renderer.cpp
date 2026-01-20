@@ -17,6 +17,7 @@
 #include <math.h>
 
 #ifndef GLIMMER_DISABLE_SVG
+#define LUNASVG_BUILD_STATIC
 #include <libs/inc/lunasvg/lunasvg.h>
 #endif
 
@@ -33,6 +34,7 @@
 #endif
 
 #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+#define BL_STATIC
 #include <libs/inc/blend2d/blend2d.h>
 #endif
 
@@ -73,7 +75,7 @@ namespace glimmer
             txtsz = ImVec2((float)text.size() * baked->IndexAdvanceX.Data[0], sz);
         else
         {
-            ImGui::PushFont(imfont);
+            ImGui::PushFont(imfont, imfont->LegacySize);
             txtsz = ImGui::CalcTextSize(text.data(), text.data() + text.size(), false, wrapWidth);
             ImGui::PopFont();
         }
@@ -1177,7 +1179,7 @@ namespace glimmer
             if (font != nullptr)
             {
                 _currentFontSz = sz;
-                ImGui::PushFont((ImFont*)font);
+                ImGui::PushFont((ImFont*)font, ((ImFont*)font)->LegacySize);
                 return true;
             }
         }
@@ -1194,7 +1196,7 @@ namespace glimmer
             if (fontptr != nullptr)
             {
                 _currentFontSz = sz;
-                ImGui::PushFont((ImFont*)fontptr);
+                ImGui::PushFont((ImFont*)fontptr, ((ImFont*)fontptr)->LegacySize);
                 return true;
             }
         }

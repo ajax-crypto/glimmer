@@ -152,6 +152,10 @@ add_library(${LIBRARY_NAME} STATIC ${ALL_SOURCES})
 target_compile_definitions(${LIBRARY_NAME} PRIVATE 
     IMGUI_ENABLE_FREETYPE
     IMGUI_USE_WCHAR32
+    IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+    IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS
+    IMGUI_DISABLE_DEMO_WINDOWS
+    GLIMMER_DISABLE_BLEND2D_RENDERER
 )
 
 #==============================================================================
@@ -224,7 +228,7 @@ if(WIN32)
     if(EXISTS "${PLATFORM_LIB_DIR}/imgui_static.lib")
         set(IMGUI_LIB_NAME "imgui_static")
     else()
-        set(IMGUI_LIB_NAME "imgui")
+        set(IMGUI_LIB_NAME "libimgui_static")
     endif()
     set(CORE_LIBS ${IMGUI_LIB_NAME} freetype yoga)
 else()
@@ -270,9 +274,9 @@ elseif(GLIMMER_PLATFORM STREQUAL "tui")
 elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
     # SDL3 + SVG + Plots
     if(WIN32)
-        set(SDL3_LIBS SDL3 lunasvg imgui_static)
+        set(SDL3_LIBS SDL3 plutovg lunasvg imgui_static)
     else()
-        set(SDL3_LIBS libSDL3 liblunasvg libimgui)
+        set(SDL3_LIBS libSDL3 liblunasvg libimgui_static)
     endif()
 
     foreach(lib_base ${SDL3_LIBS})
@@ -287,22 +291,22 @@ elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
     endforeach()
 
     # Blend2D
-    if(GLIMMER_ENABLE_BLEND2D)
-        set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
-        if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
-            target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
-            message(STATUS "✓ Linking ${b2d_name}")
-        else()
-            message(WARNING "Blend2D requested but ${b2d_name} not found")
-        endif()
-    endif()
+    # if(GLIMMER_ENABLE_BLEND2D)
+    #     set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
+    #     if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
+    #         target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
+    #         message(STATUS "✓ Linking ${b2d_name}")
+    #     else()
+    #         message(WARNING "Blend2D requested but ${b2d_name} not found")
+    #     endif()
+    # endif()
 
 elseif(GLIMMER_PLATFORM STREQUAL "glfw")
     # GLFW + SVG + Plots + NFD
     if(WIN32)
-        set(GLFW_LIBS glfw3 lunasvg imgui_static)
+        set(GLFW_LIBS glfw3 plutovg lunasvg imgui_static)
     else()
-        set(GLFW_LIBS libglfw3 liblunasvg libimgui)
+        set(GLFW_LIBS libglfw3 libplutovg liblunasvg libimgui)
     endif()
 
     foreach(lib_base ${GLFW_LIBS})

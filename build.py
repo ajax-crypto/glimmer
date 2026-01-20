@@ -94,21 +94,42 @@ def find_msbuild():
     """Locate MSBuild.exe via vswhere"""
     vswhere = os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe")
     if not os.path.exists(vswhere):
-        error_exit("vswhere.exe not found. Install VS 2022.")
+        error_exit("vswhere.exe not found. Install Visual Studio (2022 or later).")
     
     cmd = [vswhere, "-latest", "-requires", "Microsoft.Component.MSBuild", "-find", r"MSBuild\**\Bin\MSBuild.exe"]
     try:
         return subprocess.check_output(cmd, encoding='utf-8').strip().splitlines()[0]
     except:
-        error_exit("MSBuild not found.")
+        log("MSBuild not found via standard query, trying prerelease versions...", YELLOW)
+        altcmd = [vswhere, "-latest", "-prerelease", "-requires", "Microsoft.Component.MSBuild", "-find", r"MSBuild\**\Bin\MSBuild.exe"]
+        try:
+            return subprocess.check_output(altcmd, encoding='utf-8').strip().splitlines()[0]
+        except:
+            error_exit("MSBuild not found.")
 
 def get_vc_env():
-    """Get Visual Studio environment variables for CL.exe"""
+    """Get Visual Studio environment variables for CL.exe and CMake generator"""
     vswhere = os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe")
     try:
         install_path = subprocess.check_output([vswhere, "-latest", "-property", "installationPath"], encoding='utf-8').strip()
+        version = subprocess.check_output([vswhere, "-latest", "-property", "installationVersion"], encoding='utf-8').strip()
     except:
-        error_exit("VS Installation path not found.")
+        log("Installation path not found via standard query, trying prerelease versions...", YELLOW)
+        altcmd = [vswhere, "-latest", "-prerelease", "-property", "installationPath"]
+        try:
+            install_path = subprocess.check_output(altcmd, encoding='utf-8').strip().splitlines()[0]
+            version = subprocess.check_output([vswhere, "-latest", "-prerelease", "-property", "installationVersion"], encoding='utf-8').strip().splitlines()[0]
+        except:
+            error_exit("VS Installation path not found.")
+
+    if install_path == "":
+        log("Installation path not found via standard query, trying prerelease versions...", YELLOW)
+        altcmd = [vswhere, "-latest", "-prerelease", "-property", "installationPath"]
+        try:
+            install_path = subprocess.check_output(altcmd, encoding='utf-8').strip().splitlines()[0]
+            version = subprocess.check_output([vswhere, "-latest", "-prerelease", "-property", "installationVersion"], encoding='utf-8').strip().splitlines()[0]
+        except:
+            error_exit("VS Installation path not found.")
         
     vcvars = os.path.join(install_path, "VC", "Auxiliary", "Build", "vcvarsall.bat")
     if not os.path.exists(vcvars):
@@ -123,9 +144,23 @@ def get_vc_env():
             if '=' in line:
                 k, v = line.split('=', 1)
                 env[k] = v
-        return env
     except:
         error_exit("Failed to initialize VS environment.")
+    
+    # Determine CMake generator
+    major = int(version.split('.')[0])
+    if major == 18:
+        generator = "Visual Studio 18 2026"
+    elif major == 17:
+        generator = "Visual Studio 17 2022"
+    elif major == 16:
+        generator = "Visual Studio 16 2019"
+    else:
+        error_exit(f"Unsupported VS version: {version}")
+    
+    sln_ext = "sln" if major < 18 else "slnx"
+    
+    return env, generator, sln_ext
 
 # ==============================================================================
 # Linux GCC Setup
@@ -190,6 +225,7 @@ def main():
     parser.add_argument("--disable-images", action="store_true")
     parser.add_argument("--disable-icon-font", action="store_true")
     parser.add_argument("--disable-richtext", action="store_true")
+    parser.add_argument("--enable-blend2d", action="store_true")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
 
@@ -201,6 +237,7 @@ def main():
     
     # Library extension by platform
     LIB_EXT = ".lib" if sys.platform == 'win32' else ".a"
+    LIB_PREFIX = "" if sys.platform == 'win32' else "lib"
     # Paths
     lib_output_dir = os.path.join(PROJECT_ROOT, "src", "libs", "lib", "win32" if sys.platform == 'win32' else "linux", lib_subdir)
     libs_header_dir = os.path.join(PROJECT_ROOT, "src", "libs", "inc")
@@ -231,13 +268,16 @@ def main():
     if args.disable_svg: feats["PLUTOVG"] = feats["LUNASVG"] = False
     if args.disable_images: feats["STB"] = False
     if args.disable_icon_font: feats["ICONS"] = False
+    if not args.enable_blend2d: feats["BLEND2D"] = False
 
     # Setup Tools
     if sys.platform == 'win32':
         msbuild = find_msbuild()
-        vc_env = get_vc_env()
+        vc_env, cmake_generator, sln_ext = get_vc_env()
     else:
         vc_env = setup_linux_toolchain()
+        cmake_generator = None
+        sln_ext = None
     
     os.chdir(dependency_dir)
 
@@ -264,17 +304,17 @@ def main():
             if not os.path.exists("build"): os.makedirs("build")
             os.chdir("build")
             if sys.platform == 'win32':
-                run_command(f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
-                run_command(f'"{msbuild}" freetype.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
+                run_command(f'"{msbuild}" freetype.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
             # Copy Lib
-            lib_src = f"{build_type}/freetyped{LIB_EXT}" if is_debug else f"{build_type}/freetype{LIB_EXT}"
-            if not os.path.exists(lib_src): lib_src = f"{build_type}/freetype{LIB_EXT}" # Fallback
-            shutil.copy(lib_src, os.path.join(lib_output_dir, f"freetype{LIB_EXT}"))
+            lib_src = f"{build_type}/{LIB_PREFIX}freetype{LIB_EXT}" if build_type == "Release" else f"{build_type}/{LIB_PREFIX}freetyped{LIB_EXT}"
+            shutil.copy(lib_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}freetype{LIB_EXT}"))
                     
+            log("Copying FreeType Headers...")
             copy_tree(os.path.abspath("../include"), os.path.join(libs_header_dir, "freetype2"))
             os.chdir(dependency_dir)
 
@@ -292,43 +332,22 @@ def main():
             if not os.path.exists("build"): os.makedirs("build")
             os.chdir("build")
             if sys.platform == 'win32':
-                run_command(f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
-                run_command(f'"{msbuild}" yoga/yogacore.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
+                run_command(f'"{msbuild}" yoga/yogacore.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
             # Copy
-            lib_src = f"yoga/{build_type}/yogacore{LIB_EXT}"
-            if not os.path.exists(lib_src): lib_src = f"{build_type}/yogacore{LIB_EXT}"
-            shutil.copy(lib_src, os.path.join(lib_output_dir, f"yoga{LIB_EXT}"))
+            lib_src = f"yoga/{build_type}/{LIB_PREFIX}yogacore{LIB_EXT}"
+            shutil.copy(lib_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}yoga{LIB_EXT}"))
             
             # Header
+            log("Copying Yoga Headers...")
             yoga_inc = os.path.join(libs_header_dir, "yoga")
             if not os.path.exists(yoga_inc): os.makedirs(yoga_inc)
             for h in glob.glob(os.path.join("..", "yoga", "*.h")): shutil.copy(h, yoga_inc)
             os.chdir(dependency_dir)
-
-    # -------------------------------------------------------------------------
-    # 3. PlutoVG
-    # -------------------------------------------------------------------------
-    # if feats["PLUTOVG"]:
-    #     if update_all or not os.path.exists(os.path.join(lib_output_dir, "plutovg.lib")):
-    #         log("Building PlutoVG...")
-    #         dirname = f"plutovg-{VERSIONS['PLUTOVG']}"
-    #         if not os.path.exists(dirname):
-    #             download_file(URLS["PLUTOVG"], "plutovg.tar.gz")
-    #             extract_archive("plutovg.tar.gz", ".")
-            
-    #         os.chdir(dirname)
-    #         if not os.path.exists("build"): os.makedirs("build")
-    #         os.chdir("build")
-    #         run_command(f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
-    #         run_command(f'"{msbuild}" plutovg.sln /p:Configuration={build_type} /p:Platform=x64 /m')
-            
-    #         shutil.copy(f"{build_type}/plutovg.lib", os.path.join(lib_output_dir, "plutovg.lib"))
-    #         copy_tree(os.path.abspath("../include"), os.path.join(header_dir, "plutovg"))
-    #         os.chdir(build_dir)
 
     # -------------------------------------------------------------------------
     # 4. LunaSVG
@@ -344,46 +363,91 @@ def main():
             if not os.path.exists("build"): os.makedirs("build")
             os.chdir("build")
             if sys.platform == 'win32':
-                run_command(f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DLUNASVG_BUILD_EXAMPLES=OFF')
-                run_command(f'"{msbuild}" lunasvg.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DLUNASVG_BUILD_EXAMPLES=OFF')
+                run_command(f'"{msbuild}" lunasvg.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DLUNASVG_BUILD_EXAMPLES=OFF')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
-            shutil.copy(f"{build_type}/lunasvg{LIB_EXT}", os.path.join(lib_output_dir, f"lunasvg{LIB_EXT}"))
+            shutil.copy(f"{build_type}/{LIB_PREFIX}lunasvg{LIB_EXT}", os.path.join(lib_output_dir, f"{LIB_PREFIX}lunasvg{LIB_EXT}"))
+            shutil.copy(f"plutovg/{build_type}/{LIB_PREFIX}plutovg{LIB_EXT}", os.path.join(lib_output_dir, f"{LIB_PREFIX}plutovg{LIB_EXT}"))
             # Header is single file usually
+
+            log("Copying LunaSVG Headers...")
             inc_dir = os.path.join(libs_header_dir, "lunasvg")
             if not os.path.exists(inc_dir): os.makedirs(inc_dir)
             if os.path.exists("../include/lunasvg.h"): shutil.copy("../include/lunasvg.h", inc_dir)
             os.chdir(dependency_dir)
 
     # -------------------------------------------------------------------------
-    # 5. SDL3 (Prebuilt)
+    # 5. SDL3 (Prebuilt on Windows, build on Linux)
     # -------------------------------------------------------------------------
     if feats["SDL3"]:
         if update_all or not os.path.exists(os.path.join(lib_output_dir, f"SDL3{LIB_EXT}")):
             log("Setting up SDL3...")
-            dirname = f"SDL3-{VERSIONS['SDL3']}"
-            if not os.path.exists(dirname):
-                download_file(URLS["SDL3"], "sdl3.zip")
+
+            if sys.platform == 'win32':
+                download_file("https://github.com/libsdl-org/SDL/releases/download/release-3.4.0/SDL3-3.4.0.zip", "sdl3.zip")
                 extract_archive("sdl3.zip", ".")
-            
-            shutil.copy(os.path.join(dirname, "lib", "x64", f"SDL3{LIB_EXT}"), lib_output_dir)
+                os.chdir("SDL3-3.4.0")
+                dirname="SDL3-3.4.0"
+                if not os.path.exists("build"): os.makedirs("build")
+                os.chdir("build")
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type}' 
+                            '-DBUILD_SHARED_LIBS=OFF -DSDL_STATIC=ON '
+                            '-DSDL_SHARED=OFF -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF')
+                run_command(f'"{msbuild}" SDL3.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
+                shutil.copy(os.path.join(build_type, f"SDL3-static.lib"), os.path.join(lib_output_dir, f"{LIB_PREFIX}SDL3{LIB_EXT}"))
+                os.chdir("..")
+            else:
+                download_file("https://github.com/libsdl-org/SDL/releases/download/release-3.4.0/SDL3-3.4.0.tar.gz", "sdl3.tar.gz")
+                extract_archive("sdl3.tar.gz", ".")
+                os.chdir("SDL3-3.4.0")
+                dirname="SDL3-3.4.0"
+                if not os.path.exists("build"): os.makedirs("build")
+                os.chdir("build")
+                run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type}' 
+                            '-DBUILD_SHARED_LIBS=OFF -DSDL_STATIC=ON '
+                            '-DSDL_SHARED=OFF -DSDL_TEST=OFF -DSDL_X11=ON '
+                            '-DSDL_X11_XRANDR=ON -DSDL_X11_XSCRNSAVER=ON '
+                            '-DSDL_X11_XTEST=OFF -DSDL_WAYLAND=OFF '
+                            '-DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF'
+                            '-DSDL_OPENGL=ON')
+                run_command('make -j$(nproc)')
+                shutil.copy(os.path.join("src", f"libSDL3{LIB_EXT}"), os.path.join(lib_output_dir, f"{LIB_PREFIX}SDL3{LIB_EXT}"))
+                os.chdir("..")
+
+            log("Copying SDL3 Headers...")
             copy_tree(os.path.join(dirname, "include", "SDL3"), os.path.join(libs_header_dir, "SDL3"))
 
     # -------------------------------------------------------------------------
-    # 6. GLFW (Prebuilt)
+    # 6. GLFW (Prebuilt on Windows, build on Linux)
     # -------------------------------------------------------------------------
     if feats["GLFW"]:
         if update_all or not os.path.exists(os.path.join(lib_output_dir, f"glfw3{LIB_EXT}")):
             log("Setting up GLFW...")
-            dirname = f"glfw-{VERSIONS['GLFW']}.bin.WIN64"
-            if not os.path.exists(dirname):
-                download_file(URLS["GLFW"], "glfw.zip")
-                extract_archive("glfw.zip", ".")
-            
-            shutil.copy(os.path.join(dirname, "lib-vc2022", f"glfw3{LIB_EXT}"), lib_output_dir)
-            shutil.copy(os.path.join(dirname, "lib-vc2022", f"glfw3_mt{LIB_EXT}"), lib_output_dir)
+
+            if sys.platform == 'win32':
+                dirname = f"glfw-{VERSIONS['GLFW']}.bin.WIN64"
+                if not os.path.exists(dirname):
+                    download_file(URLS["GLFW"], "glfw.zip")
+                    extract_archive("glfw.zip", ".")
+                
+                shutil.copy(os.path.join(dirname, "lib-vc2022", f"glfw3{LIB_EXT}"), os.path.join(lib_output_dir, f"{LIB_PREFIX}glfw3{LIB_EXT}"))
+                shutil.copy(os.path.join(dirname, "lib-vc2022", f"glfw3_mt{LIB_EXT}"), os.path.join(lib_output_dir, f"{LIB_PREFIX}glfw3_mt{LIB_EXT}"))
+            else:
+                download_file("https://github.com/glfw/glfw/archive/refs/tags/3.4.tar.gz", "glfw.tar.gz")
+                extract_archive("glfw.tar.gz", ".")
+                dirname="glfw-3.4"
+                os.chdir("glfw-3.4")
+                if not os.path.exists("build"): os.makedirs("build")
+                os.chdir("build")
+                run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_DOCS=OFF')
+                run_command('make -j$(nproc)')
+                shutil.copy(os.path.join("src", f"libglfw3{LIB_EXT}"), os.path.join(lib_output_dir, f"{LIB_PREFIX}glfw3{LIB_EXT}"))
+                os.chdir("..")
+                
+            log("Copying GLFW Headers...")
             copy_tree(os.path.join(dirname, "include", "GLFW"), os.path.join(libs_header_dir, "GLFW"))
 
     # -------------------------------------------------------------------------
@@ -403,12 +467,12 @@ def main():
             os.chdir("build")
             
             if sys.platform == 'win32':
-                cmake_cmd = (f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} '
+                cmake_cmd = (f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} '
                          '-DBUILD_SHARED_LIBS=OFF -DBLEND2D_STATIC=ON -DBLEND2D_TEST=OFF '
                          '-DBL_BUILD_OPT_AVX512=ON -DASMJIT_NO_FOREIGN=ON -DASMJIT_NO_STDCXX=ON '
                          '-DASMJIT_ABI_NAMESPACE=abi_bl -DASMJIT_STATIC=ON -DASMJIT_NO_AARCH64=ON')
                 run_command(cmake_cmd)
-                run_command(f'"{msbuild}" blend2d.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'"{msbuild}" blend2d.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 cmake_cmd = (f'cmake .. -DCMAKE_BUILD_TYPE={build_type} '
                          '-DBUILD_SHARED_LIBS=OFF -DBLEND2D_STATIC=ON -DBLEND2D_TEST=OFF '
@@ -417,13 +481,14 @@ def main():
                 run_command(cmake_cmd)
                 run_command('cmake --build . --config {0}'.format(build_type))
             
-            shutil.copy(f"{build_type}/blend2d{LIB_EXT}", os.path.join(lib_output_dir, f"blend2d{LIB_EXT}"))
+            shutil.copy(f"{build_type}/{LIB_PREFIX}blend2d{LIB_EXT}", os.path.join(lib_output_dir, f"{LIB_PREFIX}blend2d{LIB_EXT}"))
             
             # Headers
+            log("Copying Blend2D Headers...")
             b2d_inc = os.path.join(libs_header_dir, "blend2d")
             os.chdir("..")
             # Logic from batch file: check root blend2d or src/blend2d
-            if os.path.exists("blend2d/blend2d.h"):
+            if os.path.exists("blend2d/blend2d.h") and not os.path.exists(b2d_inc):
                 shutil.copytree(
                     "blend2d",
                     b2d_inc,
@@ -473,7 +538,7 @@ def main():
             # Build CMake Arguments
             cmake_args = [
                 f'cmake "{source_cmake_path}"',
-                '-G "Visual Studio 17 2022" -A x64' if sys.platform == 'win32' else '',
+                f'-G "{cmake_generator}" -A x64' if sys.platform == 'win32' else '',
                 f'-DCMAKE_BUILD_TYPE={build_type}',
                 f'-DIMGUI_DIR="{abs_imgui_dir}"',
                 f'-DINCLUDE_DIR="{abs_include_dir}"', # Where SDL3/GLFW headers live
@@ -489,6 +554,8 @@ def main():
             if args.platform == "sdl3":
                 cmake_args.append('-DBUILD_WITH_SDL3=ON')
                 cmake_args.append('-DBUILD_WITH_GLFW=OFF')
+                if (args.enable_blend2d):
+                    cmake_args.append('-DENABLE_BLEND2D=ON')
             elif args.platform == "glfw":
                 cmake_args.append('-DBUILD_WITH_SDL3=OFF')
                 cmake_args.append('-DBUILD_WITH_GLFW=ON')
@@ -503,16 +570,16 @@ def main():
             # Execute Build
             # Note: The target name is 'imgui_static' as defined in CMakeLists.txt
             if sys.platform == 'win32':
-                run_command(f'"{msbuild}" ImGuiStaticLib.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'"{msbuild}" ImGuiStaticLib.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command('cmake --build . --config {0}'.format(build_type))
 
             # 5. Copy Artifacts
             # CMake output is usually in Release/ or Debug/ subdir
-            built_lib = os.path.join("lib", build_type, f"imgui_static{LIB_EXT}")
+            built_lib = os.path.join("lib", build_type, f"{LIB_PREFIX}imgui_static{LIB_EXT}")
             if not os.path.exists(built_lib):
                 # Fallback check
-                built_lib = f"imgui_static{LIB_EXT}"
+                built_lib = f"{LIB_PREFIX}imgui_static{LIB_EXT}"
             
             if os.path.exists(built_lib):
                 shutil.copy(built_lib, lib_output_dir)
@@ -523,7 +590,7 @@ def main():
                 error_exit("Build successful but imgui.lib not found.")
 
             # 6. Copy Headers (Manual Step required as Static Libs don't carry headers)
-            log("Copying Headers...")
+            log("Copying ImGui (ImPlot) Headers...")
             
             # A. ImGui Headers
             dest_inc_imgui = os.path.join(libs_header_dir, "imgui")
@@ -577,21 +644,21 @@ def main():
             
             # Build
             if sys.platform == 'win32':
-                run_command(f'cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DNFD_BUILD_TESTS=OFF')
-                run_command(f'"{msbuild}" nfd.sln /p:Configuration={build_type} /p:Platform=x64 /m')
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DNFD_BUILD_TESTS=OFF')
+                run_command(f'"{msbuild}" nfd.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DNFD_BUILD_TESTS=OFF')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
             # Copy Lib
             # Note: The output is usually in src/Release/nfd.lib
-            lib_src = f"src/{build_type}/nfd{LIB_EXT}"
+            lib_src = f"src/{build_type}/{LIB_PREFIX}nfd{LIB_EXT}"
             if not os.path.exists(lib_src):
                 # Fallback for different CMake generator structures
-                lib_src = f"{build_type}/nfd{LIB_EXT}"
+                lib_src = f"{build_type}/{LIB_PREFIX}nfd{LIB_EXT}"
             
             if os.path.exists(lib_src):
-                shutil.copy(lib_src, os.path.join(lib_output_dir, f"nfd{LIB_EXT}"))
+                shutil.copy(lib_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}nfd{LIB_EXT}"))
                 if is_debug and LIB_EXT == ".lib":
                     pdb_src = lib_src.replace(".lib", ".pdb")
                     if os.path.exists(pdb_src):
@@ -699,7 +766,7 @@ def main():
     cmake_cmd = ["cmake", "..", f"-DCMAKE_BUILD_TYPE={build_type}", f"-DGLIMMER_PLATFORM={args.platform}"]
     
     if sys.platform == "win32":
-        cmake_cmd.extend(['-G', 'Visual Studio 17 2022', '-A', 'x64'])
+        cmake_cmd.extend(['-G', cmake_generator, '-A', 'x64'])
     
     # Feature Flags
     if args.disable_svg: cmake_cmd.append("-DGLIMMER_DISABLE_SVG=ON")

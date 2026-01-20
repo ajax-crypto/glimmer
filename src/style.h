@@ -419,7 +419,4 @@ namespace glimmer
     [[nodiscard]] std::optional<std::string_view> GetQuotedString(const char* text, int& idx, int end);
 
 #endif
-
-#define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
-#define RECT_FMT "(%f, %f) x (%f, %f)"
 }
