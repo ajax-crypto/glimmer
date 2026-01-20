@@ -1,7 +1,7 @@
 #include "../src/glimmer.h"
 #include "../src/custom/PathInput.h"
 
-#if !defined(_DEBUG) && defined(WIN32)
+#if !defined(_DEBUG) && defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>

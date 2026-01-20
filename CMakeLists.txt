@@ -20,6 +20,7 @@ if(WIN32)
     set(LIB_EXT ".lib")
     set(LIB_PREFIX "") # Windows libs usually don't have 'lib' prefix in this project
     add_definitions(-D_CRT_SECURE_NO_WARNINGS) # Silence MSVC warnings
+    add_definitions(-DUNICODE -D_UNICODE) # Ensure Unicode character set
 elseif(UNIX AND NOT APPLE)
     set(GLIMMER_OS_DIR "linux")
     set(LIB_EXT ".a")
@@ -65,9 +66,6 @@ if(MSVC)
     
     set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Ob0 /Od /RTC1")
     set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /Ob2 /DNDEBUG")
-    
-    # Add /WHOLEARCHIVE linker option for MSVC
-    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} /WHOLEARCHIVE")
 else()
     # GCC/Clang specific flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")

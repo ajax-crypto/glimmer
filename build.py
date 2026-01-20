@@ -552,9 +552,9 @@ def main():
             copy_tree(os.path.join(dirname, "include", "GLFW"), os.path.join(libs_header_dir, "GLFW"))
 
     # -------------------------------------------------------------------------
-    # 7. Blend2D
+    # 7. Blend2D (disabled on Windows for now)
     # -------------------------------------------------------------------------
-    if feats["BLEND2D"]:
+    if feats["BLEND2D"] and sys.platform != 'win32':
         if update_all or not os.path.exists(os.path.join(lib_output_dir, f"blend2d{LIB_EXT}")):
             log("Building Blend2D...")
             dirname = "blend2d"
@@ -890,7 +890,7 @@ def main():
     if feats["NFD"]: cmake_cmd.append("-DGLIMMER_ENABLE_NFDEXT=ON")
     if feats["BLEND2D"]: cmake_cmd.append("-DGLIMMER_ENABLE_BLEND2D=ON")
     if args.update: cmake_cmd.append("-DGLIMMER_FORCE_UPDATE=ON")
-    if args.clean: shutil.rmtree(os.path.join(BUILD_DIR, "dependency"), ignore_errors=True)
+    if args.clean: shutil.rmtree(os.path.join(BUILD_DIR, "..", "dependency"), ignore_errors=True)
 
     run_command(cmake_cmd)
 
@@ -903,6 +903,38 @@ def main():
     
     log(f"Glimmer ({build_type}) build complete!", GREEN)
     log(f"Output located in {BUILD_DIR}", YELLOW)
+    if os.path.exists(os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type)) == False:
+        os.makedirs(os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type))
+
+    # Combine all libs into one glimmer.lib
+    if sys.platform == 'win32':
+        libs = glob.glob(os.path.join(lib_output_dir, "*.lib"))
+        glimmer_lib = os.path.join(BUILD_DIR, "..", "staticlib", build_type, f"glimmer_{args.platform}.lib")
+        if os.path.exists(glimmer_lib):
+            libs.append(glimmer_lib)
+            combined_lib = os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type, "glimmer.lib")
+            cmd = ["lib.exe", "/OUT:" + combined_lib] + libs
+            run_command(cmd, env=vc_env)
+            log(f"Combined lib created: {combined_lib}", GREEN)
+        else:
+            log(f"Glimmer lib not found: {glimmer_lib}", YELLOW)
+    else:
+        # Linux: combine .a files using ar
+        import tempfile
+        libs = glob.glob(os.path.join(lib_output_dir, "*.a"))
+        glimmer_lib = os.path.join(BUILD_DIR, "..", "staticlib", build_type, f"libglimmer_{args.platform}.a")
+        if os.path.exists(glimmer_lib):
+            libs.append(glimmer_lib)
+            combined_lib = os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type, "libglimmer.a")
+            with tempfile.TemporaryDirectory() as tmpdir:
+                os.chdir(tmpdir)
+                for lib in libs:
+                    run_command(f"ar x {lib}")
+                run_command("ar rcs libglimmer.a *.o")
+                shutil.copy("libglimmer.a", combined_lib)
+            log(f"Combined lib created: {combined_lib}", GREEN)
+        else:
+            log(f"Glimmer lib not found: {glimmer_lib}", YELLOW)
 
 if __name__ == "__main__":
     main()

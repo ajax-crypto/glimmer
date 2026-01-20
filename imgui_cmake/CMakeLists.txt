@@ -34,6 +34,8 @@ option(INCLUDE_DIR "" "${CMAKE_CURRENT_SOURCE_DIR}/../src/libs/inc")
 # Compiler Flags
 #==============================================================================
 if(MSVC)
+    add_definitions(-DUNICODE -D_UNICODE) # Ensure Unicode character set
+    
     # MSVC specific flags
     # /W4: High warning level, /MP: Multi-processor build, /utf-8: Source encoding
     add_compile_options(/MP /utf-8)
