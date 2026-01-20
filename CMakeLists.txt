@@ -232,7 +232,13 @@ if(WIN32)
     endif()
     set(CORE_LIBS ${IMGUI_LIB_NAME} freetype yoga)
 else()
-    set(CORE_LIBS libimgui libfreetype libyoga)
+    # Prefer imgui_static if present, fallback to libimgui
+    if(EXISTS "${PLATFORM_LIB_DIR}/libimgui_static.a")
+        set(IMGUI_LIB_NAME "libimgui_static")
+    else()
+        set(IMGUI_LIB_NAME "libimgui")
+    endif()
+    set(CORE_LIBS ${IMGUI_LIB_NAME} libfreetype libyoga)
 endif()
 
 # Link Core Libs
