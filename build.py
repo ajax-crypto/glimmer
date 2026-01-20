@@ -8,6 +8,7 @@ import urllib.request
 import tarfile
 import zipfile
 import glob
+import multiprocessing
 
 # ==============================================================================
 # Configuration
@@ -70,7 +71,11 @@ def error_exit(msg):
 
 def run_command(cmd, cwd=None, env=None, shell=True):
     try:
-        subprocess.check_call(cmd, cwd=cwd, env=env, shell=shell)
+        # List-form commands must avoid shell mode; fixes CMake list args parsing.
+        if isinstance(cmd, (list, tuple)):
+            subprocess.check_call(cmd, cwd=cwd, env=env, shell=False)
+        else:
+            subprocess.check_call(cmd, cwd=cwd, env=env, shell=shell)
     except subprocess.CalledProcessError:
         error_exit(f"Command failed: {cmd}")
 
@@ -196,6 +201,9 @@ def setup_linux_toolchain():
                         env[key] = val
         except:
             pass
+        # Ensure cmake/gcc use the toolset compiler from the updated PATH.
+        env["CC"] = env.get("CC", "gcc")
+        env["CXX"] = env.get("CXX", "g++")
     else:
         # 2. Ubuntu/Fedora/Arch check
         try:
@@ -274,8 +282,10 @@ def main():
     if sys.platform == 'win32':
         msbuild = find_msbuild()
         vc_env, cmake_generator, sln_ext = get_vc_env()
+        os.environ.update(vc_env)  # Apply VS environment to subprocesses.
     else:
         vc_env = setup_linux_toolchain()
+        os.environ.update(vc_env)  # Apply toolset env to pick newer GCC for C++20.
         cmake_generator = None
         sln_ext = None
     
@@ -303,6 +313,9 @@ def main():
             os.chdir(dirname)
             if not os.path.exists("build"): os.makedirs("build")
             os.chdir("build")
+            # Force CMake to re-detect compilers when switching toolsets
+            if os.path.exists("CMakeCache.txt"):
+                os.remove("CMakeCache.txt")
             if sys.platform == 'win32':
                 run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
                 run_command(f'"{msbuild}" freetype.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
@@ -310,8 +323,22 @@ def main():
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
-            # Copy Lib
-            lib_src = f"{build_type}/{LIB_PREFIX}freetype{LIB_EXT}" if build_type == "Release" else f"{build_type}/{LIB_PREFIX}freetyped{LIB_EXT}"
+            # Copy Lib (single-config generators may not create Release/ subdir).
+            if sys.platform == 'win32':
+                lib_src = f"{build_type}/{LIB_PREFIX}freetype{LIB_EXT}" if build_type == "Release" else f"{build_type}/{LIB_PREFIX}freetyped{LIB_EXT}"
+            else:
+                # Single-config generators put outputs in the build dir (no Release/Debug subdir).
+                candidates = [
+                    f"{build_type}/{LIB_PREFIX}freetype{LIB_EXT}",
+                    f"{LIB_PREFIX}freetype{LIB_EXT}",
+                    f"{build_type}/{LIB_PREFIX}freetyped{LIB_EXT}",
+                    f"{LIB_PREFIX}freetyped{LIB_EXT}",
+                ]
+                lib_src = next((p for p in candidates if os.path.exists(p)), None)
+                if lib_src is None:
+                    raise FileNotFoundError(
+                        f"FreeType library not found. Tried: {', '.join(candidates)}"
+                    )
             shutil.copy(lib_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}freetype{LIB_EXT}"))
                     
             log("Copying FreeType Headers...")
@@ -335,11 +362,29 @@ def main():
                 run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
                 run_command(f'"{msbuild}" yoga/yogacore.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
-                run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF')
-                run_command('cmake --build . --config {0}'.format(build_type))
+                # Use toolset compiler to ensure C++20 headers like <bit> are available.
+                cc = vc_env.get("CC", "gcc")
+                cxx = vc_env.get("CXX", "g++")
+                run_command(
+                    f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF '
+                    f'-DCMAKE_C_COMPILER={cc} -DCMAKE_CXX_COMPILER={cxx}',
+                    env=vc_env
+                )
+                run_command('cmake --build . --config {0}'.format(build_type), env=vc_env)
             
-            # Copy
-            lib_src = f"yoga/{build_type}/{LIB_PREFIX}yogacore{LIB_EXT}"
+            # Copy (single-config generators may output in yoga/ instead of yoga/Release).
+            if sys.platform == 'win32':
+                lib_src = f"yoga/{build_type}/{LIB_PREFIX}yogacore{LIB_EXT}"
+            else:
+                candidates = [
+                    f"yoga/{build_type}/{LIB_PREFIX}yogacore{LIB_EXT}",
+                    f"yoga/{LIB_PREFIX}yogacore{LIB_EXT}",
+                ]
+                lib_src = next((p for p in candidates if os.path.exists(p)), None)
+                if lib_src is None:
+                    raise FileNotFoundError(
+                        f"Yoga library not found. Tried: {', '.join(candidates)}"
+                    )
             shutil.copy(lib_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}yoga{LIB_EXT}"))
             
             # Header
@@ -369,8 +414,31 @@ def main():
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DLUNASVG_BUILD_EXAMPLES=OFF')
                 run_command('cmake --build . --config {0}'.format(build_type))
             
-            shutil.copy(f"{build_type}/{LIB_PREFIX}lunasvg{LIB_EXT}", os.path.join(lib_output_dir, f"{LIB_PREFIX}lunasvg{LIB_EXT}"))
-            shutil.copy(f"plutovg/{build_type}/{LIB_PREFIX}plutovg{LIB_EXT}", os.path.join(lib_output_dir, f"{LIB_PREFIX}plutovg{LIB_EXT}"))
+            # Copy (single-config generators may output in build root).
+            if sys.platform == 'win32':
+                luna_src = f"{build_type}/{LIB_PREFIX}lunasvg{LIB_EXT}"
+                pluto_src = f"plutovg/{build_type}/{LIB_PREFIX}plutovg{LIB_EXT}"
+            else:
+                luna_candidates = [
+                    f"{build_type}/{LIB_PREFIX}lunasvg{LIB_EXT}",
+                    f"{LIB_PREFIX}lunasvg{LIB_EXT}",
+                ]
+                pluto_candidates = [
+                    f"plutovg/{build_type}/{LIB_PREFIX}plutovg{LIB_EXT}",
+                    f"plutovg/{LIB_PREFIX}plutovg{LIB_EXT}",
+                ]
+                luna_src = next((p for p in luna_candidates if os.path.exists(p)), None)
+                pluto_src = next((p for p in pluto_candidates if os.path.exists(p)), None)
+                if luna_src is None:
+                    raise FileNotFoundError(
+                        f"LunaSVG library not found. Tried: {', '.join(luna_candidates)}"
+                    )
+                if pluto_src is None:
+                    raise FileNotFoundError(
+                        f"PlutoVG library not found. Tried: {', '.join(pluto_candidates)}"
+                    )
+            shutil.copy(luna_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}lunasvg{LIB_EXT}"))
+            shutil.copy(pluto_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}plutovg{LIB_EXT}"))
             # Header is single file usually
 
             log("Copying LunaSVG Headers...")
@@ -406,19 +474,52 @@ def main():
                 dirname="SDL3-3.4.0"
                 if not os.path.exists("build"): os.makedirs("build")
                 os.chdir("build")
-                run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type}' 
-                            '-DBUILD_SHARED_LIBS=OFF -DSDL_STATIC=ON '
-                            '-DSDL_SHARED=OFF -DSDL_TEST=OFF -DSDL_X11=ON '
-                            '-DSDL_X11_XRANDR=ON -DSDL_X11_XSCRNSAVER=ON '
-                            '-DSDL_X11_XTEST=OFF -DSDL_WAYLAND=OFF '
-                            '-DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF'
-                            '-DSDL_OPENGL=ON')
-                run_command('make -j$(nproc)')
-                shutil.copy(os.path.join("src", f"libSDL3{LIB_EXT}"), os.path.join(lib_output_dir, f"{LIB_PREFIX}SDL3{LIB_EXT}"))
+                # Force CMake to re-detect compilers when switching toolsets.
+                if os.path.exists("CMakeCache.txt"):
+                    os.remove("CMakeCache.txt")
+                # Use toolset compiler for consistency with Yoga and C++20 support.
+                cc = vc_env.get("CC", "gcc")
+                cxx = vc_env.get("CXX", "g++")
+                run_command(
+                    f'cmake .. -DCMAKE_BUILD_TYPE={build_type} '
+                    f'-DCMAKE_C_COMPILER={cc} -DCMAKE_CXX_COMPILER={cxx} '
+                    '-DBUILD_SHARED_LIBS=OFF -DSDL_STATIC=ON '
+                    '-DSDL_SHARED=OFF -DSDL_TEST=OFF -DSDL_X11=ON '
+                    '-DSDL_X11_XRANDR=ON -DSDL_X11_XSCRNSAVER=ON '
+                    '-DSDL_X11_XTEST=OFF -DSDL_WAYLAND=OFF '
+                    '-DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF '
+                    '-DSDL_OPENGL=ON',
+                    env=vc_env
+                )
+                run_command('make -j$(nproc)', env=vc_env)
+                # SDL3 static lib is built in build root, not always in src/.
+                sdl_candidates = [
+                    os.path.join("src", f"libSDL3{LIB_EXT}"),
+                    f"libSDL3{LIB_EXT}",
+                ]
+                sdl_src = next((p for p in sdl_candidates if os.path.exists(p)), None)
+                if sdl_src is None:
+                    raise FileNotFoundError(
+                        f"SDL3 library not found. Tried: {', '.join(sdl_candidates)}"
+                    )
+                shutil.copy(sdl_src, os.path.join(lib_output_dir, f"{LIB_PREFIX}SDL3{LIB_EXT}"))
                 os.chdir("..")
 
             log("Copying SDL3 Headers...")
-            copy_tree(os.path.join(dirname, "include", "SDL3"), os.path.join(libs_header_dir, "SDL3"))
+            # SDL3 include layout differs between archive and build tree.
+            sdl_include_candidates = [
+                os.path.join(dirname, "include", "SDL3"),
+                os.path.join("include", "SDL3"),
+                os.path.join(dirname, "include"),
+                "include",
+            ]
+            sdl_include_src = next((p for p in sdl_include_candidates if os.path.exists(p)), None)
+            if sdl_include_src is None:
+                raise FileNotFoundError(
+                    f"SDL3 headers not found. Tried: {', '.join(sdl_include_candidates)}"
+                )
+            copy_tree(sdl_include_src, os.path.join(libs_header_dir, "SDL3"))
+            os.chdir(dependency_dir)  # Return to dependency root so later downloads go to dependency/.
 
     # -------------------------------------------------------------------------
     # 6. GLFW (Prebuilt on Windows, build on Linux)
@@ -507,19 +608,31 @@ def main():
         if update_all or not os.path.exists(os.path.join(lib_output_dir, f"imgui_static{LIB_EXT}")):
             log("Building ImGui (and ImPlot if enabled) via CMake...")
             
-            # 1. Download/Extract ImGui
+            # 1. Download/Extract ImGui (re-extract if partial to avoid missing imgui.cpp).
             imgui_ver = VERSIONS['IMGUI']
             imgui_dir_name = f"imgui-{imgui_ver}"
-            if not os.path.exists(imgui_dir_name):
-                download_file(URLS["IMGUI"], "imgui.tar.gz")
+            imgui_cpp = os.path.join(imgui_dir_name, "imgui.cpp")
+            if not os.path.exists(imgui_dir_name) or not os.path.exists(imgui_cpp):
+                if os.path.exists(imgui_dir_name):
+                    shutil.rmtree(imgui_dir_name)
+                if not os.path.exists("imgui.tar.gz"):
+                    download_file(URLS["IMGUI"], "imgui.tar.gz")
                 extract_archive("imgui.tar.gz", ".")
+            if not os.path.exists(imgui_cpp):
+                error_exit(f"ImGui source missing: {imgui_cpp}")
             
-            # 2. Download/Extract ImPlot (if enabled)
+            # 2. Download/Extract ImPlot (re-extract if partial to avoid missing implot.cpp).
             implot_dir_name = f"implot-{VERSIONS['IMPLOT']}"
+            implot_cpp = os.path.join(implot_dir_name, "implot.cpp")
             if feats["IMPLOT"]:
-                if not os.path.exists(implot_dir_name):
-                    download_file(URLS["IMPLOT"], "implot.tar.gz")
+                if not os.path.exists(implot_dir_name) or not os.path.exists(implot_cpp):
+                    if os.path.exists(implot_dir_name):
+                        shutil.rmtree(implot_dir_name)
+                    if not os.path.exists("implot.tar.gz"):
+                        download_file(URLS["IMPLOT"], "implot.tar.gz")
                     extract_archive("implot.tar.gz", ".")
+                if not os.path.exists(implot_cpp):
+                    error_exit(f"ImPlot source missing: {implot_cpp}")
 
             # 4. Run CMake
             # We create a specific build directory for this CMake project
@@ -575,13 +688,14 @@ def main():
                 run_command('cmake --build . --config {0}'.format(build_type))
 
             # 5. Copy Artifacts
-            # CMake output is usually in Release/ or Debug/ subdir
-            built_lib = os.path.join("lib", build_type, f"{LIB_PREFIX}imgui_static{LIB_EXT}")
-            if not os.path.exists(built_lib):
-                # Fallback check
-                built_lib = f"{LIB_PREFIX}imgui_static{LIB_EXT}"
-            
-            if os.path.exists(built_lib):
+            # CMake output is usually in Release/ or Debug/ subdir, but can be in lib/.
+            built_candidates = [
+                os.path.join("lib", build_type, f"{LIB_PREFIX}imgui_static{LIB_EXT}"),
+                os.path.join("lib", f"{LIB_PREFIX}imgui_static{LIB_EXT}"),
+                f"{LIB_PREFIX}imgui_static{LIB_EXT}",
+            ]
+            built_lib = next((p for p in built_candidates if os.path.exists(p)), None)
+            if built_lib:
                 shutil.copy(built_lib, lib_output_dir)
                 if is_debug:
                     for pdb in glob.glob(f"{build_type}/*.pdb"):
