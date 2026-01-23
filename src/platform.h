@@ -290,6 +290,7 @@ namespace glimmer
 
         virtual bool DetermineInitialKeyStates(IODescriptor& desc) { return false; }
         virtual bool RegisterHotkey(const HotKeyEvent& hotkey);
+        virtual bool ToggleTextInputMode(bool isTextInputMode) { return false; }
 
         void SetMouseCursor(MouseCursor cursor);
 

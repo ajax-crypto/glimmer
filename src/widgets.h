@@ -139,6 +139,7 @@ namespace glimmer
     bool BeginTabBar(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
+    void AddTab(int32_t resflags, std::string_view icon, int32_t flags = 0, ImVec2 iconsz = {});
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
 
     bool BeginNavDrawer(int32_t id, bool expandable, Direction dir = DIR_Vertical, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});

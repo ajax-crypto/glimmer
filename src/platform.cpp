@@ -1541,6 +1541,16 @@ namespace glimmer {
 
 #endif
 
+        bool ToggleTextInputMode(bool isTextInputMode) override
+        {
+            if (!SDL_HasKeyboard())
+            {
+                isTextInputMode ? SDL_StartTextInput(window) : SDL_StopTextInput(window);
+                return true;
+            }
+            else return false;
+        }
+
         SDL_Window* window = nullptr;
         SDL_GPUDevice* device = nullptr;
         SDL_Renderer* fallback = nullptr;

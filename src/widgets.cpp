@@ -3294,6 +3294,8 @@ namespace glimmer
 
                 if (state.state & WS_Focused)
                 {
+                    Config.platform->ToggleTextInputMode(true);
+
                     if (input.lastCaretShowTime > 0.5f && state.selection.second == -1)
                     {
                         input.caretVisible = !input.caretVisible;
@@ -3543,7 +3545,11 @@ namespace glimmer
 
                     ShowTooltip(state._hoverDuration, content, state.tooltip, io);
                 }
-                else input.caretVisible = false;
+                else
+                {
+                    input.caretVisible = false;
+                    Config.platform->ToggleTextInputMode(false);
+                }
             }
 
             if (result.event == WidgetEvent::Edited && state.ShowList != nullptr)
@@ -4941,6 +4947,18 @@ namespace glimmer
         auto& item = tab.items.emplace_back();
         item.name = text;
         item.nameType = extype;
+        item.icon = icon;
+        item.iconType = resflags;
+        item.itemflags = flags;
+        item.iconsz = iconsz;
+    }
+
+    void AddTab(int32_t resflags, std::string_view icon, int32_t flags, ImVec2 iconsz)
+    {
+        auto& context = GetContext();
+        auto& tab = context.layoutStack.empty() ? context.currentTab :
+            context.layouts[context.layoutStack.top()].tabbar;
+        auto& item = tab.items.emplace_back();
         item.icon = icon;
         item.iconType = resflags;
         item.itemflags = flags;
