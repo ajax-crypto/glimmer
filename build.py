@@ -317,7 +317,7 @@ def main():
             if os.path.exists("CMakeCache.txt"):
                 os.remove("CMakeCache.txt")
             if sys.platform == 'win32':
-                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
+                run_command(f'cmake .. -G "{cmake_generator}" -A x64 -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
                 run_command(f'"{msbuild}" freetype.{sln_ext} /p:Configuration={build_type} /p:Platform=x64 /m')
             else:
                 run_command(f'cmake .. -DCMAKE_BUILD_TYPE={build_type} -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=OFF -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON')
