@@ -848,6 +848,12 @@ namespace glimmer
         }
     }
 
+    void BeginScrollableRegion(std::string_view id, int32_t flags, int32_t geometry, const NeighborWidgets& neighbors, ImVec2 maxsz)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_Scrollable);
+        BeginScrollableRegion(iid, flags, geometry, neighbors);
+    }
+
     ImRect EndScrollableImpl(int32_t id, IRenderer& renderer)
     {
         auto& context = GetContext();
@@ -4910,6 +4916,12 @@ namespace glimmer
         return true;
     }
 
+    bool BeginTabBar(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_TabBar);
+        return BeginTabBar(iid, geometry, neighbors);
+    }
+
     void AddTab(std::string_view name, std::string_view tooltip, int32_t flags)
     {
         auto& context = GetContext();
@@ -5291,6 +5303,12 @@ namespace glimmer
         return true;
     }
 
+    bool BeginNavDrawer(std::string_view id, bool expandable, Direction dir, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_NavDrawer);
+        return BeginNavDrawer(iid, expandable, dir, geometry, neighbors);
+    }
+
     void AddNavDrawerEntry(int32_t resflags, std::string_view icon, TextType extype, 
         std::string_view text, bool atStart, float iconFontSzRatio)
     {
@@ -5356,6 +5374,12 @@ namespace glimmer
         BEGIN_LOG_ARRAY("accordion-section");
 
         return true;
+    }
+
+    bool BeginAccordion(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_Accordion);
+        return BeginAccordion(iid, geometry, neighbors);
     }
 
     bool BeginAccordionHeader()
@@ -5931,6 +5955,12 @@ namespace glimmer
         el.source = NestedContextSourceType::ItemGrid;
 
         return true;
+    }
+
+    bool BeginItemGrid(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_ItemGrid);
+        return BeginItemGrid(iid, geometry, neighbors);
     }
 
     bool BeginItemGridHeader(int levels)
@@ -7549,6 +7579,12 @@ namespace glimmer
         }
         END_LOG_ARRAY();
         BEGIN_LOG_ARRAY("split-panes");
+    }
+
+    void BeginSplitRegion(std::string_view id, Direction dir, const std::initializer_list<SplitRegion>& splits, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto [iid, __] = GetIdFromString(id, WT_Splitter);
+        BeginSplitRegion(iid, dir, splits, geometry, neighbors);
     }
 
     void NextSplitRegion()

@@ -112,6 +112,8 @@ namespace glimmer
 
     void BeginSplitRegion(int32_t id, Direction dir, const std::initializer_list<SplitRegion>& splits,
         int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginSplitRegion(std::string_view id, Direction dir, const std::initializer_list<SplitRegion>& splits,
+        int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void NextSplitRegion();
     void EndSplitRegion();
 
@@ -120,6 +122,8 @@ namespace glimmer
     WidgetDrawResult EndPopUp(bool alwaysVisible = true, std::optional<uint32_t> bgcolor = std::nullopt, bool occlude = false);
 
     void BeginScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
+        const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
+    void BeginScrollableRegion(std::string_view id, int32_t flags, int32_t geometry = ToBottomRight,
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
     ImRect EndScrollableRegion();
 
@@ -132,16 +136,19 @@ namespace glimmer
     WidgetDrawResult EndContextMenu();
 
     bool BeginTabBar(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginTabBar(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddTab(std::string_view name, std::string_view tooltip = "", int32_t flags = 0);
     void AddTab(int32_t resflags, std::string_view icon, TextType extype, std::string_view text, int32_t flags = 0, ImVec2 iconsz = {});
     WidgetDrawResult EndTabBar(std::optional<bool> canAddTab = std::nullopt);
 
     bool BeginNavDrawer(int32_t id, bool expandable, Direction dir = DIR_Vertical, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginNavDrawer(std::string_view id, bool expandable, Direction dir = DIR_Vertical, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void AddNavDrawerEntry(int32_t resflags, std::string_view icon, TextType textype, std::string_view text, bool atStart = true, float iconFontSzRatio = 1.f);
     void AddNavDrawerEntry(int32_t resflags, std::string_view icon, std::string_view text, bool atStart = true, float iconFontSzRatio = 1.f);
     WidgetDrawResult EndNavDrawer();
 
     bool BeginAccordion(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginAccordion(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool BeginAccordionHeader();
     void AddAccordionHeaderExpandedIcon(int32_t resflags, std::string_view res);
     void AddAccordionHeaderCollapsedIcon(int32_t resflags, std::string_view res);
@@ -152,6 +159,7 @@ namespace glimmer
     WidgetDrawResult EndAccordion();
 
     bool BeginItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginItemGrid(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool BeginItemGridHeader(int levels = 1);
     void AddHeaderColumn(const ItemGridConfig::ColumnConfig& config);
     void CategorizeColumns();
