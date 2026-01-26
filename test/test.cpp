@@ -112,15 +112,15 @@ void TestWindow(glimmer::UIConfig& config)
 
     auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
     auto& grid = glimmer::CreateWidgetConfig(gridid).state.grid;
-    grid.cellwidget = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) {
+    grid.cellwidget = [](const glimmer::ItemGridConfig::CellGeometry& cell) {
         static char buffer[128];
-        auto sz = std::snprintf(buffer, 127, "Test-%d-%d", row, col);
+        auto sz = std::snprintf(buffer, 127, "Test-%d-%d", cell.row, cell.col);
 
         auto id = glimmer::GetNextId(glimmer::WT_Label);
         glimmer::CreateWidgetConfig(id).state.label.text = std::string_view{ buffer, (size_t)sz };
         auto result = glimmer::Label(id);
 
-        if (col == 1000)
+        if (cell.col == 0)
         {
             glimmer::Move(glimmer::FD_Horizontal);
             id = glimmer::GetNextId(glimmer::WT_Checkbox);
@@ -130,9 +130,9 @@ void TestWindow(glimmer::UIConfig& config)
 
         PopStyle(1, glimmer::WS_Default);
         };
-    grid.cellprops = [](int32_t row, int16_t, int16_t, int32_t, int32_t) {
+    grid.cellprops = [](const glimmer::ItemGridConfig::CellProperties& cell) {
         glimmer::ItemGridItemProps props;
-        row % 2 ? glimmer::PushStyle("background-color: white") :
+        cell.row % 2 ? glimmer::PushStyle("background-color: white") :
             glimmer::PushStyle("background-color: rgb(200, 200, 200)");
         return props;
         };
@@ -299,6 +299,18 @@ void TestWindow(glimmer::UIConfig& config)
             EndItemGridHeader();
             AddFilterRow();
             PopulateItemGrid(100, ItemGridPopulateMethod::ByRows);
+           /* AddEpilogueRows(2, ItemGridConfig::EpilogueRowProviders{
+				.cellprops = [](const ItemGridConfig::CellProperties& cell) {
+                    ItemGridItemProps props;
+                    props.textType = TextType::PlainText;
+                    return props;
+                },
+                .cellwidget = [](const ItemGridConfig::CellGeometry& cell) {
+                    auto id = glimmer::GetNextId(glimmer::WT_Label);
+                    glimmer::CreateWidgetConfig(id).state.label.text = "Epilogue";
+                    glimmer::Label(id);
+                }
+            });*/
             EndItemGrid();
         }
 

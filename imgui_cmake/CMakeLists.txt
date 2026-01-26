@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.24)
 
 # Project Configuration
 project(ImGuiStaticLib VERSION 1.0.0 LANGUAGES CXX)
@@ -137,14 +137,14 @@ endif()
 # ==============================================================================
 if(MSVC)
     target_compile_options(imgui_static PRIVATE
-        /std:c++17
+        /std:c++20
         /EHsc
         /MP  # Multi-processor compilation
     )
     # Debug/Release flags are handled automatically by CMake's CMAKE_CXX_FLAGS configuration
 else()
     target_compile_options(imgui_static PRIVATE
-        -std=c++17
+        -std=c++20
         -fPIC # Important for linking static lib into shared libs later
     )
 endif()

@@ -233,7 +233,7 @@ namespace glimmer
 
     enum class ItemGridConstructPhase
     {
-        None, Headers, HeaderCells, HeaderPlacement, FilterRow, Rows, Columns
+        None, Headers, HeaderCells, HeaderPlacement, FilterRow, Rows, Columns, EpilogRows
     };
 
     struct WidgetContextData;
@@ -245,6 +245,7 @@ namespace glimmer
         ImVec2 size;
         WidgetContextData* context = nullptr;
         int32_t geometry = 0; 
+        int32_t parentId = -1;
         int16_t levels = 0;
         int16_t currlevel = 0;
         int16_t selectedCol = -1;
@@ -259,7 +260,9 @@ namespace glimmer
         float filterRowHeight = 0.f;
         float maxColWidth = 0.f;
         float btnsz = 0.f;
+        float epilogueHeight = 0.f;
         int32_t rowcount = 0;
+        int32_t epilogueRowCount = 0;
         int16_t resizecol = -1;
         NeighborWidgets neighbors;
         ItemGridConstructPhase phase = ItemGridConstructPhase::None;

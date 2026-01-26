@@ -97,6 +97,8 @@ def extract_archive(path, dest_dir):
 
 def find_msbuild():
     """Locate MSBuild.exe via vswhere"""
+    if "VSCMD_VER" in os.environ:
+        pass  # Already in VS dev command prompt
     vswhere = os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe")
     if not os.path.exists(vswhere):
         error_exit("vswhere.exe not found. Install Visual Studio (2022 or later).")
@@ -114,6 +116,8 @@ def find_msbuild():
 
 def get_vc_env():
     """Get Visual Studio environment variables for CL.exe and CMake generator"""
+    if "VSCMD_VER" in os.environ:
+        pass  # Already in VS dev command prompt
     vswhere = os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe")
     try:
         install_path = subprocess.check_output([vswhere, "-latest", "-property", "installationPath"], encoding='utf-8').strip()
@@ -299,6 +303,28 @@ def main():
                 copy_tree(os.path.join(src, item), os.path.join(dst, item))
         else:
             shutil.copy2(src, dst)
+
+    # Remove previous artifacts for Windows
+    if sys.platform == 'win32':
+        obj_files_dir = os.path.join(PROJECT_ROOT, "build\\glimmer_sdl3.dir", build_type)
+        lib_files = os.listdir(obj_files_dir)
+        for item in lib_files:
+            if item.endswith(".obj") or item.endswith(".lib"):
+                try:
+                    os.remove(os.path.join(obj_files_dir, item))
+                except:
+                    pass
+
+        try:
+            os.remove(os.path.join(PROJECT_ROOT, "staticlib", build_type, "glimmer_sdl3.lib"))
+            os.remove(os.path.join(PROJECT_ROOT, "staticlib", build_type, "glimmer_sdl3.pdb"))
+        except:
+            pass
+
+        try:
+            os.remove(os.path.join(PROJECT_ROOT, "staticlib", "combined", build_type, "glimmer.lib"))
+        except:
+            pass
 
     # -------------------------------------------------------------------------
     # 1. FreeType
@@ -880,7 +906,7 @@ def main():
     cmake_cmd = ["cmake", "..", f"-DCMAKE_BUILD_TYPE={build_type}", f"-DGLIMMER_PLATFORM={args.platform}"]
     
     if sys.platform == "win32":
-        cmake_cmd.extend(['-G', cmake_generator, '-A', 'x64'])
+        cmake_cmd.extend(['-G', cmake_generator, '-A', 'x64', "--fresh" ])
     
     # Feature Flags
     if args.disable_svg: cmake_cmd.append("-DGLIMMER_DISABLE_SVG=ON")

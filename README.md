@@ -54,19 +54,7 @@ Glimmer is a C++20 library for creating graphical user interfaces using an immed
 | ContextMenu      | Popup menu for context-specific actions (usually on right-click).                    |
 | Chart/Plot       | (If enabled) Displays data visualizations using ImPlot integration.                  |
 
-Custom widgets can be implemented using the following interface:
-
-```c++
-struct ICustomWidget
-{
-    virtual StyleDescriptor GetStyle(int32_t id, const StyleStackT& stack) = 0;
-    virtual ImRect ComputeGeometry(const ImVec2& pos, const LayoutItemDescriptor& layoutItem, 
-        const NeighborWidgets& neighbors, ImVec2 maxsz) = 0;
-    virtual WidgetDrawResult DrawWidget(const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem, 
-        IRenderer& renderer, const IODescriptor& io) = 0;
-    virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
-};
-```
+Take a look at `src/custom/PathInput.h` to see how custom widgets can be written.
 
 <h2> Platform & Rendering </h2>
 
@@ -74,8 +62,8 @@ Glimmer abstracts the rendering process through the `glimmer::IRenderer` interfa
   - **ImGui Renderer** which uses ImGui to generate geometry primitives and use some ImGui platform integration to render.
   - **SVG Renderer** which dumps each frame as SVG markup in some SVG file.
   - (Internal) **Deferred Renderer** which enqueues draw commands and can be dequed at any point.
-  - (Planned) **Blend2D Renderer** which uses the [Blend2D](https://blend2d.com/) library to render which works without any GPU in the system.
-  - (Planned) **Test Renderer** which will enable creating automated tests (along with a test platform interface to pump events).
+  - **Blend2D Renderer** which uses the [Blend2D](https://blend2d.com/) library to render which works without any GPU in the system.
+  - **Test Renderer** which will enable creating automated tests (along with a test platform interface to pump events).
 The following is the interface:
 
 ```c++
@@ -86,6 +74,9 @@ struct IRenderer
 
     virtual void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect = true) = 0;
     virtual void ResetClipRect() = 0;
+
+    virtual void BeginDefer() {}
+    virtual void EndDefer() {}
 
     virtual void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) = 0;
     virtual void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) = 0;
@@ -131,10 +122,10 @@ struct IPlatform
 {
     enum FileDialogTarget
     {
-		  OneFile = 1, 
-      OneDirectory = 2, 
-      MultipleFiles = 4,
-		  MultipleDirectories = 8
+        OneFile = 1, 
+        OneDirectory = 2, 
+        MultipleFiles = 4,
+        MultipleDirectories = 8
     };
 
     struct DialogProperties
@@ -154,17 +145,20 @@ struct IPlatform
     virtual int32_t ShowFileDialog(std::string_view* out, int32_t outsz, int32_t target,
         std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,
         int totalFilters = 0, const DialogProperties& props = DialogProperties{});
+
+    virtual bool DetermineInitialKeyStates(IODescriptor& desc) { return false; }
+    virtual bool RegisterHotkey(const HotKeyEvent& hotkey);
+    virtual bool ToggleTextInputMode(bool isTextInputMode) { return false; }
 };
 ```
 
-<h2>	Getting Started</h2>
+<h2> Getting Started</h2>
 
 Add `glimmer.h` to your project. The application structure will be the following:
 
 ```c++
-auto& config = glimmer::GetUIConfig(true);
-config.renderer = glimmer::CreateImGuiRenderer();
-config.platform = glimmer::GetPlatform();
+auto& config = glimmer::CreateUIConfig(true);
+config.platform = glimmer::InitPlatform();
 
 if (config.platform->CreateWindow({ .title = "Glimmer Demo" }))
 {
@@ -206,3 +200,48 @@ Look at `GlimmerTest/test.cpp` file for an example.
 | `GLIMMER_DEFAULT_FONTFAMILY` | String value | Default font family name for the UI |
 | `IM_COL32_A_MASK` | 0xFF000000 | Alpha channel mask for 32-bit colors |
 | `IM_COL32_WHITE` | 0xFFFFFFFF | White color constant |
+
+<h2> Building the library </h2>
+
+Use `build.py` file to build the library. The following options are available:
+
+| Option | Description |
+|--------|-------------|
+| `--platform` | Specify the platform to build for (choices: test, sdl3, glfw). Default is sdl3. |
+| `--release`, `-r` | Build in release mode. |
+| `--debug`, `-d` | Build in debug mode. |
+| `--update` | Force update of all dependencies. |
+| `--disable-plots` | Disable ImPlot support. |
+| `--disable-svg` | Disable SVG support. |
+| `--disable-images` | Disable image support. |
+| `--disable-icon-font` | Disable icon font support. |
+| `--disable-richtext` | Disable rich text support. |
+| `--enable-blend2d` | Enable Blend2D support. |
+| `--clean` | Clean the build directory before building. |
+
+The script will download dependencies and build a static library out of glimmer. The library will be located in `staticlib/combined/glimmer.lib`. X11 development libraries are required to build on Linux. *Wayland is work in progress* 
+
+Supported platforms include Windows and Linux. (Mac support will come in future)
+Tested compilers include GCC (Linux) and MSVC (Windows).
+
+<h2> TODO(s) </h2>
+
+- [ ] **Improved Focus Handling** : Focus handling for input widgets and handling focus shifts with tab button. (This also enables keyboard navigation of UI)
+
+- [ ] **Wayland support on Linux** : Currently, X11 libraries are used on Linux for window handling, wayland support has to be added. (This might require small changes as SDL3 already integrates that)
+
+- **Support for more Platforms** : 
+  - [ ] Use emscripten to compile glimmer for web as a web-assembly file.
+  - [ ] Add support for Mac (OS X).
+
+- [ ] **Internationalization** : Support full Unicode standard with Unicode bidirectional text. This will require something like [Harfbuzz](https://github.com/harfbuzz/harfbuzz) and [SheenBidi](https://github.com/Tehreer/SheenBidi).
+
+- [ ] **Accessibility** : Implement platform specific interfaces for accessbility i.e. UIA for Windows, etc.
+
+- [ ] **Improve CSS-based Styling** : Widget specific and more CSS-based properties can be added i.e. animations, color schemes, etc.
+
+- [ ] **Improved platform integration** : Add support for more platform specific dialogs and other features.
+
+- [ ] **SDF Text Rendering** : SDF-based text rendering and explore further improvements.
+
+At least 3 of the above items should be implemented for a 1.0 release.

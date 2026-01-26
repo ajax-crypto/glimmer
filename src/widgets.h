@@ -161,6 +161,10 @@ namespace glimmer
 
     bool BeginItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool BeginItemGrid(std::string_view id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void SetItemGridBehavior(int16_t sortedcol, int32_t highlights, int32_t selection, int32_t scrollprops,
+        bool uniformRowHeights = true, bool isTree = false);
+    void SetItemGridProviders(ItemGridConfig::CellPropertiesProviderT cellprops, ItemGridConfig::CellWidgetProviderT cellwidget,
+        ItemGridConfig::CellContentProviderT cellcontent, ItemGridConfig::HeaderProviderT header);
     bool BeginItemGridHeader(int levels = 1);
     void AddHeaderColumn(const ItemGridConfig::ColumnConfig& config);
     void CategorizeColumns();
@@ -168,6 +172,7 @@ namespace glimmer
     WidgetDrawResult EndItemGridHeader();
     WidgetDrawResult AddFilterRow();
     void PopulateItemGrid(int totalRows, ItemGridPopulateMethod method = ItemGridPopulateMethod::ByRows);
+    void AddEpilogueRows(int count, const ItemGridConfig::EpilogueRowProviders& providers);
     WidgetDrawResult EndItemGrid();
 
 #ifndef GLIMMER_DISABLE_PLOTS
@@ -185,6 +190,7 @@ namespace glimmer
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
 
         static StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack);
+        static bool IsInState(int32_t id, WidgetState state);
         static ImRect GetBounds(int32_t id);
         static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style);
         static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,

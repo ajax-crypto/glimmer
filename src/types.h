@@ -69,7 +69,7 @@ namespace glimmer
     {
         auto [r, g, b, _] = DecomposeColor(rgba);
         return ToRGBA(r, g, b, a);
-	}
+    }
 
     enum Direction
     {
@@ -156,14 +156,14 @@ namespace glimmer
         float animationDuration = 0.3f;
         float minGripSz = 20.f;
         float gripwidth = 15.f;
-		
+        
         struct Colors
         {
             uint32_t track = ToRGBA(240, 240, 240);
             uint32_t grip = ToRGBA(200, 200, 200);
             uint32_t buttonbg = ToRGBA(200, 200, 200);
             uint32_t buttonfg = ToRGBA(150, 150, 150);
-		} colors[WSI_Total];
+        } colors[WSI_Total];
     };
 
     struct StyleDescriptor;
@@ -171,20 +171,20 @@ namespace glimmer
     struct IWidgetLogger
     {
         virtual void EnterFrame(ImVec2 size) = 0;
-		virtual void ExitFrame() = 0;
+        virtual void ExitFrame() = 0;
         virtual void Finish() = 0;
 
         virtual void StartWidget(int32_t id, ImRect extent) = 0;
         virtual void StartWidget(WidgetType type, int16_t index, ImRect extent) = 0;
         virtual void Log(std::string_view fmt, ...) = 0;
         virtual void LogStyle(const StyleDescriptor& style) = 0;
-		virtual void EndWidget() = 0;
+        virtual void EndWidget() = 0;
 
-		virtual void StartObject(std::string_view name) = 0;
-		virtual void EndObject() = 0;
+        virtual void StartObject(std::string_view name) = 0;
+        virtual void EndObject() = 0;
         
-		virtual void StartArray(std::string_view name) = 0;
-		virtual void EndArray() = 0;
+        virtual void StartArray(std::string_view name) = 0;
+        virtual void EndArray() = 0;
 
         virtual void RegisterId(int32_t id, std::string_view name) {}
         virtual void RegisterId(int32_t id, void* ptr) {}
@@ -223,7 +223,7 @@ namespace glimmer
         ScrollbarStyleDescriptor scrollbar;
         ICustomWidget* customWidget = nullptr;
         void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
-		IWidgetLogger* logger = nullptr;
+        IWidgetLogger* logger = nullptr;
         void* iconFont = nullptr;
         void* userData = nullptr;
     };
@@ -421,12 +421,12 @@ namespace glimmer
         std::pair<int, int> selection{ -1, -1 };
         std::string_view prefix, suffix;
         int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
-		std::string_view maskchar = "�";
+        std::string_view maskchar = "�";
         void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
         SymbolIcon suffixIcon = SymbolIcon::None;
         bool isMasked = false;
-		bool isSelectable = true;
+        bool isSelectable = true;
     };
 
     struct DropDownState : public CommonWidgetData
@@ -636,20 +636,47 @@ namespace glimmer
         uint32_t selectionBgColor = ToRGBA(0, 0, 120);
         uint32_t selectionFgColor = ToRGBA(255, 255, 255);
         
-        int16_t sortedcol = -1;
-        int16_t coldrag = -1;
-        int16_t frozencols = -1;
-        int32_t highlights = 0;
-        int32_t selection = 0;
+        int16_t sortedcol = -1; // current sorted column
+        int16_t coldrag = -1; // current column being dragged
+        int16_t frozencols = -1; // number of frozen/pinned columns from left
+        int32_t highlights = 0; // bitmask of ItemGridHighlightType 
+        int32_t selection = 0; // bitmask of ItemGridSelectionType
         int32_t scrollprops = ST_Always_H | ST_Always_V;
         ItemGridPopulateMethod populateMethod = ItemGridPopulateMethod::ByRows;
         bool uniformRowHeights = false;
         bool isTree = false;
 
-        ItemGridItemProps (*cellprops)(int32_t, int16_t, int16_t, int32_t, int32_t) = nullptr;
-        void (*cellwidget)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
-        std::pair<std::string_view, TextType> (*cellcontent)(std::pair<float, float>, int32_t, int16_t, int16_t) = nullptr;
-        void (*header)(ImVec2, float, int16_t, int16_t, int16_t) = nullptr;
+        struct CellProperties
+        {
+            int32_t parent = -1; // parent row id
+            int32_t id = -1; // current row id
+            int32_t props = 0; // current cell's properties i.e. ItemGridNodeProperty bitmask
+            int32_t row = -1; // row index
+            int16_t col = -1; // column index
+            int16_t depth = 0; // depth in tree
+        };
+
+        struct CellGeometry : public CellProperties
+        {
+            std::pair<float, float> xbounds;
+        };
+
+        using CellPropertiesProviderT = ItemGridItemProps (*)(const CellProperties& props);
+        using CellWidgetProviderT = void (*)(const CellGeometry& cell);
+        using CellContentProviderT = std::pair<std::string_view, TextType> (*)(const CellGeometry& cell);
+        using HeaderProviderT = void (*)(ImVec2, float, int16_t, int16_t, int16_t);
+
+        CellPropertiesProviderT cellprops = nullptr;
+        CellWidgetProviderT cellwidget = nullptr;
+        CellContentProviderT cellcontent = nullptr;
+        HeaderProviderT header = nullptr;
+
+        struct EpilogueRowProviders
+        {
+            CellPropertiesProviderT cellprops = nullptr;
+            CellWidgetProviderT cellwidget = nullptr;
+            CellContentProviderT cellcontent = nullptr;
+        } epilogue;
 
         void setColumnResizable(int16_t col, bool resizable);
         void setColumnProps(int16_t col, ColumnProperty prop, bool set = true);

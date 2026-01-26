@@ -5981,6 +5981,41 @@ namespace glimmer
         return BeginItemGrid(iid, geometry, neighbors);
     }
 
+    void SetItemGridBehavior(int16_t sortedcol, int32_t highlights, int32_t selection, int32_t scrollprops,
+        bool uniformRowHeights, bool isTree)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& builder = context.itemGrids.top();
+        auto& config = context.GetState(builder.id).state.grid;
+        auto& state = context.GridState(builder.id);
+        assert(builder.phase == ItemGridConstructPhase::None);
+
+        config.highlights = highlights;
+        config.selection = selection;
+        config.scrollprops = scrollprops;
+        config.uniformRowHeights = uniformRowHeights;
+        config.isTree = isTree;
+        state.sortedCol = sortedcol;
+    }
+
+    void SetItemGridProviders(ItemGridConfig::CellPropertiesProviderT cellprops,
+        ItemGridConfig::CellWidgetProviderT cellwidget,
+        ItemGridConfig::CellContentProviderT cellcontent,
+        ItemGridConfig::HeaderProviderT header)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& builder = context.itemGrids.top();
+        auto& config = context.GetState(builder.id).state.grid;
+        assert(builder.phase == ItemGridConstructPhase::None);
+        assert(cellprops != nullptr);
+        assert(cellwidget != nullptr || cellcontent != nullptr);
+
+        config.cellprops = cellprops;
+        config.cellwidget = cellwidget;
+        config.cellcontent = cellcontent;
+        config.header = header;
+    }
+
     bool BeginItemGridHeader(int levels)
     {
         assert(levels > 0 && levels <= GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL);
@@ -6579,6 +6614,15 @@ namespace glimmer
         builder.rowcount = totalRows;
     }
 
+    void AddEpilogueRows(int count, const ItemGridConfig::EpilogueRowProviders& providers)
+    {
+        auto& context = *WidgetContextData::CurrentItemGridContext;
+        auto& builder = context.itemGrids.top();
+        auto& config = context.GetState(builder.id).state.grid;
+        builder.epilogueRowCount = count;
+        config.epilogue = providers;
+    }
+
     static float HAlignCellContent(ItemGridBuilder& builder, const ItemGridConfig& config, int16_t col,
         float required, float available)
     {
@@ -6725,17 +6769,18 @@ namespace glimmer
 
     static std::string_view InvokeItemGridCellContent(WidgetContextData& context, ItemGridBuilder& builder,
         const ItemGridPersistentState& state, const ItemGridConfig& config, const ItemGridItemProps& props,
-        ColumnProps& colprops, const std::pair<float, float>& bounds, int16_t col, int32_t row)
+        ColumnProps& colprops, const std::pair<float, float>& bounds, int16_t col, int32_t row, int32_t rowid,
+        int32_t itemprops, ItemGridConfig::CellWidgetProviderT cellwidget, ItemGridConfig::CellContentProviderT cellcontent)
     {
-        assert(config.cellwidget || config.cellcontent);
-        assert(!props.isContentWidget || (props.isContentWidget && config.cellwidget));
+        assert(cellwidget || cellcontent);
+        assert(cellwidget || (!props.isContentWidget && cellcontent));
         std::string_view result;
 
-        if (props.isContentWidget || (!config.cellcontent && config.cellwidget))
-            config.cellwidget(bounds, row, col, builder.depth);
+        if (props.isContentWidget || (!cellcontent && cellwidget))
+            cellwidget({ builder.parentId, rowid, itemprops, row, col, builder.depth, bounds });
         else
         {
-            auto [text, txtype] = config.cellcontent(bounds, row, col, builder.depth);
+            auto [text, txtype] = cellcontent({ builder.parentId, rowid, itemprops, row, col, builder.depth, bounds });
             auto style = context.GetStyle(props.disabled ? WS_Disabled :
                 colprops.selected ? WS_Selected : colprops.highlighted ? WS_Hovered : WS_Default);
             auto textsz = GetTextSize(txtype, text, style.font, props.wrapText ? 
@@ -6879,28 +6924,36 @@ namespace glimmer
         LOG_NUM2("selected-row-count", state.selections.size());
     }
 
-    static int32_t GetRowId(const ItemGridBuilder& builder, const ItemGridConfig& config, int32_t row)
+    static int32_t GetRowId(const ItemGridBuilder& builder, const ItemGridConfig& config, int32_t row, bool epilogue)
     {
-        return config.isTree ? builder.perDepthRowCount[builder.depth] : row;
+        return epilogue ? builder.rowcount + row - 1 : config.isTree ? builder.perDepthRowCount[builder.depth] : row;
     }
 
     static ImVec2 RenderItemGridCell(WidgetContextData& context, ItemGridBuilder& builder,
         ItemGridPersistentState& state, const ItemGridConfig& config, float maxh, int16_t col,
-        int32_t row, WidgetDrawResult& result)
+        int32_t row, bool inverted, WidgetDrawResult& result)
     {
         const auto& header = builder.headers[builder.levels - 1][col];
         auto& cellGeometry = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
         ImVec2 available{ header.content.GetWidth(), maxh }, required = cellGeometry.offset;
         if (col == 0) available.x -= builder.cellIndent;
+
         cellGeometry.extent.Max.y = cellGeometry.extent.Min.y + maxh + (2.f * config.cellpadding.y);
         cellGeometry.content.Max.y = cellGeometry.content.Min.y + maxh;
 
         auto hdiff = HAlignCellContent(builder, config, col, required.x, available.x);
         auto vdiff = VAlignCellContent(builder, config, col, required.y, available.y);
-        auto hshift = 0.f;
         const auto& range = header.range;
 
-        ImVec2 shift{ hshift, 0.f }, gridline{ config.gridwidth, config.gridwidth };
+        if (inverted)
+        {
+            auto shifty = -(maxh + (2.f * config.cellpadding.y));
+            cellGeometry.extent.TranslateY(shifty);
+            cellGeometry.content.TranslateY(shifty);
+			vdiff += shifty;
+        }
+
+        ImVec2 shift{ 0.f, 0.f }, gridline{ config.gridwidth, config.gridwidth };
         Config.renderer->DrawRect(cellGeometry.extent.Min - gridline + shift, cellGeometry.extent.Max + gridline + shift,
             config.gridcolor, false, config.gridwidth);
 
@@ -6909,12 +6962,12 @@ namespace glimmer
                 cellGeometry.bgcolor, true);
 
         Config.renderer->SetClipRect(cellGeometry.content.Min + shift, cellGeometry.content.Max + shift);
-        context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff + hshift, vdiff },
+        context.deferedRenderer->Render(*Config.renderer, ImVec2{ hdiff, vdiff },
             range.primitives.first, range.primitives.second);
         Config.renderer->ResetClipRect();
 
-        auto res = context.HandleEvents(ImVec2{ hdiff + hshift, vdiff }, range.events.first, range.events.second);
-        cellGeometry.extent.TranslateX(hshift); cellGeometry.content.TranslateX(hshift);
+        auto res = context.HandleEvents(ImVec2{ hdiff, vdiff }, range.events.first, range.events.second);
+        //cellGeometry.extent.TranslateX(hshift); cellGeometry.content.TranslateX(hshift);
         if (res.event != WidgetEvent::None) result = res;
         else
         {
@@ -6926,7 +6979,7 @@ namespace glimmer
 
                 if (col == 0)
                 {
-                    auto offset = ImVec2{ hdiff + hshift, vdiff };
+                    auto offset = ImVec2{ hdiff, vdiff };
                     auto btnstart = cellGeometry.content.Min + offset;
                     if (ImRect{ btnstart, btnstart + ImVec2{ builder.btnsz, builder.btnsz } }.Contains(io.mousepos))
                     {
@@ -6946,7 +6999,7 @@ namespace glimmer
                         state.lastSelection = state.currentSelection;
                         state.currentSelection = io.mousepos.y - builder.startY;
                         state.cellstate.state |= WS_Selected;
-                        builder.clickedItem.row = GetRowId(builder, config, row);
+                        builder.clickedItem.row = GetRowId(builder, config, row, inverted);
                         builder.clickedItem.col = col;
                         builder.clickedItem.depth = builder.depth;
                     }
@@ -6954,7 +7007,7 @@ namespace glimmer
                         state.cellstate.state = io.isLeftMouseDown() ? WS_Pressed : WS_Hovered;
 
                     result.event = isClicked ? WidgetEvent::Clicked : WidgetEvent::Hovered;
-                    result.row = row; result.col = col;
+                    result.row = row; result.col = col; result.depth = builder.depth;
                     state.cellstate.row = row; state.cellstate.col = col;
                     state.cellstate.depth = builder.depth;
                 }
@@ -7032,13 +7085,13 @@ namespace glimmer
         return cellGeometry.extent.GetSize();
     }
 
-    static void RecordRowYRange(ItemGridBuilder& builder, const ItemGridConfig& config, float height, int32_t totalRows, int32_t row)
+    static void RecordRowYRange(ItemGridBuilder& builder, const ItemGridConfig& config, float height, int32_t totalRows, int32_t row, bool epilogue)
     {
         if (config.selection & IG_SelectRow)
         {
             if (builder.rowYs.empty()) builder.rowYs.expand(totalRows, true);
             auto& range = builder.rowYs.emplace_back();
-            range.depth = builder.depth; range.row = GetRowId(builder, config, row);
+            range.depth = builder.depth; range.row = GetRowId(builder, config, row, epilogue);
             range.from = builder.currentY - builder.startY; range.to = range.from + height + config.cellpadding.y;
             builder.currentY = range.to;
             builder.perDepthRowCount[builder.depth]++;
@@ -7080,6 +7133,7 @@ namespace glimmer
         {
             auto coloffset = 1;
             auto maxh = 0.f;
+            auto rowid = GetRowId(builder, config, row, false);
             builder.currentY = builder.nextpos.y;
             builder.nextpos.y += config.cellpadding.y;
 
@@ -7090,12 +7144,12 @@ namespace glimmer
 
                 if (col < builder.movingCols.first || col > builder.movingCols.second)
                 {
-                    auto rowid = GetRowId(builder, config, row);
                     auto selected = IsItemSelected(state, config, rowid, col, builder.depth);
                     auto highlighted = IsItemHighlighted(state, config, row, col, builder.depth);
                     auto itemprops = selected ? IG_Selected : 0;
                     itemprops |= highlighted ? IG_Highlighted : 0;
-                    auto props = config.cellprops ? config.cellprops(row, col, builder.depth, rowid, itemprops) : ItemGridItemProps{};
+                    auto props = config.cellprops ? config.cellprops({ builder.parentId, rowid, itemprops, row, col, builder.depth })
+                        : ItemGridItemProps{};
                     auto& colprops = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
 
                     builder.currCol = col;
@@ -7119,7 +7173,8 @@ namespace glimmer
                         builder.nextpos.x += config.cellpadding.x;
                     }
 
-                    auto text = InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
+                    auto text = InvokeItemGridCellContent(context, builder, state, config, props, 
+                        colprops, bounds, col, row, rowid, itemprops, config.cellwidget, config.cellcontent);
                     builder.cellvals.emplace_back(text, props.vstate);
                     context.RecordDeferRange(header.range, false);
 
@@ -7147,7 +7202,7 @@ namespace glimmer
                 auto col = state.colmap[builder.levels - 1].vtol[vcol];
                 if (col < config.frozencols)
                 {
-                    auto sz = RenderItemGridCell(context, builder, state, config, maxh, col, row, result);
+                    auto sz = RenderItemGridCell(context, builder, state, config, maxh, col, row, false, result);
                     frozensz = ImMax(frozensz, sz);
                 }
                 else break;
@@ -7159,7 +7214,7 @@ namespace glimmer
             {
                 auto col = state.colmap[builder.levels - 1].vtol[vcol];
                 if (col < builder.movingCols.first || col > builder.movingCols.second)
-                    RenderItemGridCell(context, builder, state, config, maxh, col, row, result);
+                    RenderItemGridCell(context, builder, state, config, maxh, col, row, false, result);
             }
             
             END_LOG_ARRAY();
@@ -7168,7 +7223,7 @@ namespace glimmer
             builder.nextpos.x = startx;
             context.adhocLayout.top().nextpos = builder.nextpos;
 
-            RecordRowYRange(builder, config, maxh, totalRows, row);
+            RecordRowYRange(builder, config, maxh, totalRows, row, false);
 
             // Draw child rows
             if (builder.childState.first == ItemDescendentVisualState::Expanded &&
@@ -7176,6 +7231,7 @@ namespace glimmer
             {
                 builder.cellIndent += config.config.indent;
                 builder.depth++;
+				builder.parentId = rowid;
                 auto res = PopulateData(builder.childState.second);
                 if (res.event != WidgetEvent::None) result = res;
                 builder.cellIndent -= config.config.indent;
@@ -7192,6 +7248,119 @@ namespace glimmer
         builder.totalsz.x = builder.headers[builder.currlevel].back().extent.Max.x + config.gridwidth;
     }
 
+    static void PopulateEpilogueRows(WidgetContextData& context, ItemGridBuilder& builder,
+        ItemGridPersistentState& state, const ItemGridConfig& config, WidgetDrawResult& result)
+    {
+        auto row = builder.epilogueRowCount;
+        auto startx = builder.headers[builder.levels - 1][0].content.Min.x;
+		auto nextpos = builder.nextpos;
+        auto maxh = 0.f;
+        builder.phase = ItemGridConstructPhase::EpilogRows;
+        if (builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].empty())
+            builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL].resize(builder.headers[builder.levels - 1].size());
+
+        builder.cellvals.resize(builder.headers[builder.levels - 1].size(), true);
+        builder.currentY = builder.origin.y + builder.size.y;
+		builder.epilogueHeight = builder.currentY;
+        BEGIN_LOG_ARRAY("itemgrid-epilogue-rows");
+
+        while (row > 0)
+        {
+            auto coloffset = 1;
+            auto rowid = GetRowId(builder, config, row, true);
+            nextpos.y = builder.currentY - (config.cellpadding.y + config.gridwidth);
+
+            // Determine cell geometry for current row
+            for (auto vcol = 0; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = state.colmap[builder.levels - 1].vtol[vcol];
+
+                if (col < builder.movingCols.first || col > builder.movingCols.second)
+                {
+                    auto selected = IsItemSelected(state, config, rowid, col, builder.depth);
+                    auto highlighted = IsItemHighlighted(state, config, row, col, builder.depth);
+                    auto itemprops = selected ? IG_Selected : 0;
+                    itemprops |= highlighted ? IG_Highlighted : 0;
+                    auto props = config.epilogue.cellprops ? config.epilogue.cellprops({ builder.parentId, rowid, itemprops, row, col, builder.depth })
+                        : ItemGridItemProps{};
+                    auto& colprops = builder.headers[GLIMMER_MAX_ITEMGRID_COLUMN_CATEGORY_LEVEL][col];
+
+                    builder.currCol = col;
+                    builder.currRow = row;
+                    context.ToggleDeferedRendering(true, false);
+                    context.deferEvents = true;
+                    std::pair<float, float> bounds;
+
+                    auto& header = builder.headers[builder.levels - 1][col];
+                    bounds.first = header.extent.Min.x + ((col == 0) ? builder.cellIndent : 0.f) + config.cellpadding.x;
+                    bounds.second = header.extent.Max.x - config.cellpadding.x;
+                    ExtractColumnProps(colprops, state, builder, config, props, bounds, col, row, builder.depth, selected, highlighted);
+
+                    builder.nextpos.x = bounds.first;
+                    context.adhocLayout.top().nextpos = nextpos;
+                    context.RecordDeferRange(header.range, true);
+
+                    auto text = InvokeItemGridCellContent(context, builder, state, config, props, 
+                        colprops, bounds, col, row, rowid, itemprops, config.epilogue.cellwidget, config.epilogue.cellcontent);
+                    builder.cellvals.emplace_back(text, props.vstate);
+                    context.RecordDeferRange(header.range, false);
+
+                    auto height = builder.maxCellExtent.y - nextpos.y;
+                    maxh = std::max(maxh, height);
+                    RecordCellContentDimension(builder, colprops, config, bounds, header.extent, height);
+                    header.alignment = props.alignment;
+
+                    if (vcol == 0)
+                        builder.childState = std::make_pair(props.vstate, props.children);
+                    coloffset = props.colspan;
+                    builder.maxCellExtent = ImVec2{};
+                }
+            }
+
+            context.ToggleDeferedRendering(false, false);
+            context.deferEvents = false;
+            BEGIN_LOG_ARRAY("itemgrid-epilogue-columns");
+
+            // Draw frozen columns first
+            ImVec2 frozensz;
+            auto vcol = 0;
+            for (; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = state.colmap[builder.levels - 1].vtol[vcol];
+                if (col < config.frozencols)
+                {
+                    auto sz = RenderItemGridCell(context, builder, state, config, maxh, col, row, true, result);
+                    frozensz = ImMax(frozensz, sz);
+                }
+                else break;
+            }
+
+            // Draw non-frozen columns after setting appropriate clipping rect for frozen part
+            Config.renderer->SetClipRect(builder.origin + ImVec2{ frozensz.x, 0.f }, builder.origin + builder.size);
+            for (; vcol < builder.headers[builder.levels - 1].size(); vcol += coloffset)
+            {
+                auto col = state.colmap[builder.levels - 1].vtol[vcol];
+                if (col < builder.movingCols.first || col > builder.movingCols.second)
+                    RenderItemGridCell(context, builder, state, config, maxh, col, row, true, result);
+            }
+            
+            END_LOG_ARRAY();
+            Config.renderer->ResetClipRect();
+            builder.nextpos.y -= (maxh + config.cellpadding.y + config.gridwidth);
+            builder.nextpos.x = startx;
+            context.adhocLayout.top().nextpos = builder.nextpos;
+
+            RecordRowYRange(builder, config, maxh, builder.epilogueRowCount, row, true);
+            context.ClearDeferredData();
+            --row; maxh = 0.f;
+        }
+
+        END_LOG_ARRAY();
+		builder.epilogueHeight -= (builder.nextpos.y - maxh);
+		builder.nextpos = nextpos;
+		builder.totalsz.y += builder.epilogueHeight;
+    }
+
     static void AddColumnData(WidgetContextData& context, ItemGridBuilder& builder,
         ItemGridPersistentState& state, const ItemGridConfig& config, WidgetDrawResult& result,
         const IODescriptor& io, int totalRows, int col)
@@ -7206,12 +7375,13 @@ namespace glimmer
 
         for (auto row = 0; row < totalRows; ++row)
         {
-            auto rowid = GetRowId(builder, config, row);
+            auto rowid = GetRowId(builder, config, row, false);
             auto selected = IsItemSelected(state, config, rowid, col, builder.depth);
             auto highlighted = IsItemHighlighted(state, config, row, col, builder.depth);
             auto itemprops = selected ? IG_Selected : 0;
             itemprops |= highlighted ? IG_Highlighted : 0;
-            auto props = config.cellprops ? config.cellprops(row, col, builder.depth, rowid, itemprops) : ItemGridItemProps{};
+            auto props = config.cellprops ? config.cellprops({ builder.parentId, rowid, itemprops, row, (int16_t)col, builder.depth }) 
+                : ItemGridItemProps{};
 
             builder.currCol = col;
             builder.currRow = row;
@@ -7225,15 +7395,16 @@ namespace glimmer
             context.deferEvents = true;
 
             context.RecordDeferRange(header.range, true);
-            InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row);
+            InvokeItemGridCellContent(context, builder, state, config, props, colprops, bounds, col, row, 
+                rowid, itemprops, config.cellwidget, config.cellcontent);
             context.RecordDeferRange(header.range, false);
 
             auto rowh = builder.maxCellExtent.y - builder.nextpos.y;
             RecordCellContentDimension(builder, colprops, config, bounds, extent, rowh);
             header.alignment = props.alignment;
 
-            RenderItemGridCell(context, builder, state, config, rowh, col, row, result);
-            RecordRowYRange(builder, config, rowh, totalRows, row);
+            RenderItemGridCell(context, builder, state, config, rowh, col, row, false, result);
+            RecordRowYRange(builder, config, rowh, totalRows, row, false);
 
             builder.nextpos.y += rowh + config.cellpadding.y + config.gridwidth;
             builder.maxCellExtent = ImVec2{};
@@ -7254,6 +7425,7 @@ namespace glimmer
         auto io = Config.platform->CurrentIO();
         auto& ctx = GetContext();
         assert(config.cellwidget != nullptr || config.cellcontent != nullptr);
+        builder.rowcount = totalRows;
 
         if (builder.method == ItemGridPopulateMethod::ByRows) 
             AddRowData(ctx, builder, state, config, result, totalRows);
@@ -7310,6 +7482,10 @@ namespace glimmer
             Config.renderer->ResetClipRect();
             END_LOG_ARRAY();
         }
+
+        // Add epilogue rows
+        if (builder.epilogueRowCount > 0)
+		    PopulateEpilogueRows(ctx, builder, state, config, result);
 
         // Fix column dragging
         /*if (state.drag.column != -1)
@@ -7399,7 +7575,9 @@ namespace glimmer
         END_WIDGET_LOG();
 
         builder.phase = ItemGridConstructPhase::None;
-        AddItemGridScrollBars(builder, state, config, renderer, viewport, io);
+        auto scrollable = viewport;
+		scrollable.Max.y -= builder.epilogueHeight;
+        AddItemGridScrollBars(builder, state, config, renderer, scrollable, io);
         if (!ImRect{ builder.origin, builder.origin + builder.size }.Contains(io.mousepos))
             state.cellstate.state &= ~WS_Hovered;
 
@@ -7508,7 +7686,7 @@ namespace glimmer
 
         auto wid = GetIdFromString(id, WT_ItemGrid).first;
         auto& grid = CreateWidgetConfig(wid).state.grid;
-        grid.cellcontent = [](std::pair<float, float>, int32_t row, int16_t col, int16_t) { return fptr(row, col); };
+        grid.cellcontent = [](const ItemGridConfig::CellGeometry& cell) { return fptr(cell.row, cell.col); };
 
         BeginItemGrid(wid, geometry, neighbors);
         BeginItemGridHeader(1);
@@ -8086,6 +8264,25 @@ namespace glimmer
     StyleDescriptor ICustomWidget::GetStyle(int32_t id, int32_t state, const StyleStackT& stack)
     {
         return glimmer::GetStyle(GetContext(), id, &stack, state);
+    }
+
+    bool ICustomWidget::IsInState(int32_t id, WidgetState state)
+    {
+        auto& sdata = GetContext().GetState(id).state;
+        switch (id >> WidgetTypeBits)
+        {
+            case WT_Region: return (sdata.region.state & state) != 0;
+            case WT_Button: return (sdata.button.state & state) != 0;
+            case WT_Label: return (sdata.label.state & state) != 0;
+            case WT_Checkbox: return (sdata.checkbox.state & state) != 0;
+            case WT_RadioButton: return (sdata.radio.state & state) != 0;
+            case WT_ToggleButton: return (sdata.toggle.state & state) != 0;
+            case WT_Slider: return (sdata.slider.state & state) != 0;
+            case WT_RangeSlider: return (sdata.rangeSlider.state & state) != 0;
+            case WT_TextInput: return (sdata.input.state & state) != 0;
+            case WT_MediaResource: return (sdata.media.state & state) != 0;
+            default: return false;
+        }
     }
 
     ImRect ICustomWidget::GetBounds(int32_t id)

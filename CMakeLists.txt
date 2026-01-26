@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.24)
 
 project(Glimmer VERSION 1.0.0 LANGUAGES CXX)
 
@@ -129,6 +129,7 @@ set(GLIMMER_SOURCES
     src/renderer.cpp
     src/style.cpp
     src/widgets.cpp
+    src/custom/PathInput.cpp
 )
 
 set(EXTRA_SOURCES)
