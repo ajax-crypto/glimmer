@@ -246,6 +246,7 @@ def main():
     build_type = "Debug" if is_debug else "Release"
     lib_subdir = "debug" if is_debug else "release"
     update_all = args.update
+    args.clean = True if update_all else args.clean
     
     # Library extension by platform
     LIB_EXT = ".lib" if sys.platform == 'win32' else ".a"
