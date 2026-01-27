@@ -308,13 +308,14 @@ def main():
     # Remove previous artifacts for Windows
     if sys.platform == 'win32':
         obj_files_dir = os.path.join(PROJECT_ROOT, "build\\glimmer_sdl3.dir", build_type)
-        lib_files = os.listdir(obj_files_dir)
-        for item in lib_files:
-            if item.endswith(".obj") or item.endswith(".lib"):
-                try:
-                    os.remove(os.path.join(obj_files_dir, item))
-                except:
-                    pass
+        if os.path.exists(obj_files_dir):
+            lib_files = os.listdir(obj_files_dir)
+            for item in lib_files:
+                if item.endswith(".obj") or item.endswith(".lib"):
+                    try:
+                        os.remove(os.path.join(obj_files_dir, item))
+                    except:
+                        pass
 
         try:
             os.remove(os.path.join(PROJECT_ROOT, "staticlib", build_type, "glimmer_sdl3.lib"))
