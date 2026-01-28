@@ -474,7 +474,7 @@ namespace glimmer
 
     enum TabItemState
     {
-        TI_Pinned = 1, TI_Disabled = 2
+        TI_Pinned = 1 << 20
     };
 
     enum class TabBarItemSizing
@@ -557,7 +557,7 @@ namespace glimmer
 
     enum class TabButtonType
     {
-        None, AddedTab, NewTab, PinTab, CloseTab, ExpandTabs, MoreTabs, MoveBackward, MoveForward
+        None, AddedTab, NewTab, PinTab, CloseTab, ExpandTabs, MoreTabs, MoveBackward, MoveForward, EndTab
     };
 
     struct WidgetDrawResult

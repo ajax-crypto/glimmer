@@ -89,7 +89,7 @@ namespace glimmer
         geometry = 0;
         sizing = TabBarItemSizing::ResizeToFit;
         neighbors = NeighborWidgets{};
-        items.clear(true);
+        items.clear(true); endItems.clear(true);
         newTabButton = false;
     }
 

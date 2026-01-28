@@ -187,7 +187,11 @@ void TestWindow(glimmer::UIConfig& config)
         AddTab("Tab 1", "", TI_Closeable);
         AddTab("Tab 2", "", TI_Closeable);
         AddTab("Tab 3", "", TI_Closeable);
-        EndTabBar(true);
+
+        PushStyle("background-color: blue; color: white;");
+        AddTab("Settings", "", TI_AnchoredToEnd);
+        PopStyle();
+        EndTabBar(nullptr, true);
         PopStyle(1, WS_Default);
         Move(FD_Vertical);
 
@@ -197,7 +201,7 @@ void TestWindow(glimmer::UIConfig& config)
         AddNavDrawerEntry(RT_SYMBOL, "warning", "First!!!");
         AddNavDrawerEntry(RT_SYMBOL, "error", "Second!!!");
         AddNavDrawerEntry(RT_SYMBOL, "home", "Third!!!");
-        EndNavDrawer();
+        EndNavDrawer(nullptr);
         PopStyle(1, WS_Default | WS_Hovered);
         Move(FD_Horizontal);
 

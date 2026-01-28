@@ -400,6 +400,7 @@ namespace glimmer
         int32_t iconType = ResourceType::RT_SVG;
         int32_t itemflags = 0;
         ImVec2 iconsz{};
+        StyleDescriptor style;
     };
 
     struct TabBarBuilder
@@ -409,8 +410,7 @@ namespace glimmer
         TabBarItemSizing sizing = TabBarItemSizing::ResizeToFit;
         NeighborWidgets neighbors;
         Vector<TabItemDescriptor, int16_t, 16> items{ false };
-        std::string_view expand = "Expand";
-        TextType expandType = TextType::PlainText;
+        Vector<TabItemDescriptor, int16_t, 16> endItems{ false };
         bool newTabButton = false;
 
         TabBarBuilder() {}
@@ -429,7 +429,8 @@ namespace glimmer
     {
         struct ItemDescriptor
         {
-            int16_t state = 0;
+            int32_t state = 0;
+            int32_t closeState = 0, pinState = 0;
             int16_t pos = -1;
             ImRect extent, close, pin, text, icon;
             float tabHoverDuration = 0.f, pinHoverDuration = 0.f, closeHoverDuration = 0.f;
@@ -437,11 +438,12 @@ namespace glimmer
             bool pinned = false;
         };
 
+        int32_t* tabidx = nullptr;
         int16_t current = InvalidTabIndex;
         int16_t hovered = InvalidTabIndex;
+        int32_t previous = InvalidTabIndex;
         Vector<ItemDescriptor, int16_t, 16> tabs;
-        std::string_view expandContent = "Expand";
-        TextType expandType = TextType::PlainText;
+        Vector<ItemDescriptor, int16_t, 16> endTabs{ false };
         ImRect create;
         ImRect dropdown;
         ImRect expand;
@@ -493,6 +495,7 @@ namespace glimmer
         int32_t current = -1;
         int32_t selected = -1;
         int32_t state = WS_Default;
+        int32_t* index = nullptr;
         float visiblew = 0.f;
         float currw = 0.f;
         bool isOpen = false;

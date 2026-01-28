@@ -848,7 +848,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawLine(startpos, endpos, color, thickness);
         else
         {
@@ -859,7 +859,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawPolyline(points, sz, color, thickness);
         else
             ((ImDrawList*)UserData)->AddPolyline(points, sz, color, 0, thickness);
@@ -867,7 +867,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawTriangle(pos1, pos2, pos3, color, filled, thickness);
         else
         {
@@ -881,7 +881,7 @@ namespace glimmer
     {
         if (thickness > 0.f || filled)
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRect(startpos, endpos, color, filled, thickness);
             else
             {
@@ -895,7 +895,7 @@ namespace glimmer
     void ImGuiRenderer::DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled,
         float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawRoundedRect(startpos, endpos, color, filled, topleftr, 
                 toprightr, bottomrightr, bottomleftr, thickness);
         else
@@ -933,7 +933,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawRectGradient(startpos, endpos, colorfrom, colorto, dir);
         else
         {
@@ -946,7 +946,7 @@ namespace glimmer
     void ImGuiRenderer::DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr, 
         uint32_t colorfrom, uint32_t colorto, Direction dir)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawRoundedRectGradient(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr, colorfrom, colorto, dir);
         else
         {
@@ -959,7 +959,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawCircle(center, radius, color, filled, thickness);
         else
         {
@@ -971,7 +971,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawSector(center, radius, start, end, color, filled, thickness);
         else
         {
@@ -1020,7 +1020,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawPolygon(points, sz, color, filled, thickness);
         else
             filled ? ((ImDrawList*)UserData)->AddConvexPolyFilled(points, sz, color) :
@@ -1029,7 +1029,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawPolyGradient(points, colors, sz);
         else
         {
@@ -1131,7 +1131,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawRadialGradient(center, radius, in, out, start, end);
         else
         {
@@ -1170,7 +1170,7 @@ namespace glimmer
 
     bool ImGuiRenderer::SetCurrentFont(std::string_view family, float sz, FontType type)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.SetCurrentFont(family, sz, type);
         else
         {
@@ -1189,7 +1189,7 @@ namespace glimmer
 
     bool ImGuiRenderer::SetCurrentFont(void* fontptr, float sz)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.SetCurrentFont(fontptr, sz);
         else
         {
@@ -1206,7 +1206,7 @@ namespace glimmer
 
     void ImGuiRenderer::ResetFont()
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.ResetFont();
         else
             ImGui::PopFont();
@@ -1219,7 +1219,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawText(text, pos, color, wrapWidth);
         else
         {
@@ -1232,7 +1232,7 @@ namespace glimmer
 
     void ImGuiRenderer::DrawTooltip(ImVec2 pos, std::string_view text)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawTooltip(pos, text);
         else
         {
@@ -1305,7 +1305,7 @@ namespace glimmer
 
     bool ImGuiRenderer::DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id)
     {
-        if (deferDrawCalls) [[likely]]
+        if (deferDrawCalls) [[unlikely]]
             deferredContents.back().second.DrawResource(resflags, pos, size, color, content, id);
         else
         {
@@ -2855,7 +2855,7 @@ namespace glimmer
 
         void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawPolyline(points, sz, color, thickness);
             else
             {
@@ -2873,7 +2873,7 @@ namespace glimmer
 
         void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawTriangle(pos1, pos2, pos3, color, filled, thickness);
             else
             {
@@ -2902,7 +2902,7 @@ namespace glimmer
 
         void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRect(startpos, endpos, color, filled, thickness);
             else
             {
@@ -2926,7 +2926,7 @@ namespace glimmer
 
         void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr, float bottomrightr, float bottomleftr, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRoundedRect(startpos, endpos, color, filled, topleftr,
                     toprightr, bottomrightr, bottomleftr, thickness);
             else
@@ -2999,7 +2999,7 @@ namespace glimmer
 
         void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRectGradient(startpos, endpos, colorfrom, colorto, dir);
             else
             {
@@ -3024,7 +3024,7 @@ namespace glimmer
         void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr, float bottomleftr,
             uint32_t colorfrom, uint32_t colorto, Direction dir) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRoundedRectGradient(startpos, endpos, topleftr, toprightr, bottomrightr, bottomleftr, colorfrom, colorto, dir);
             else
             {
@@ -3049,7 +3049,7 @@ namespace glimmer
 
         void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawPolygon(points, sz, color, filled, thickness);
             else
             {
@@ -3081,7 +3081,7 @@ namespace glimmer
 
         void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawCircle(center, radius, color, filled, thickness);
             else
             {
@@ -3105,7 +3105,7 @@ namespace glimmer
 
         void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawSector(center, radius, start, end, color, filled, thickness);
             else
             {
@@ -3136,7 +3136,7 @@ namespace glimmer
 
         void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawRadialGradient(center, radius, in, out, start, end);
             else
             {
@@ -3157,7 +3157,7 @@ namespace glimmer
 
         bool SetCurrentFont(std::string_view family, float sz, FontType type) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.SetCurrentFont(family, sz, type);
             else
             {
@@ -3170,7 +3170,7 @@ namespace glimmer
 
         bool SetCurrentFont(void* fontptr, float sz) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.SetCurrentFont(fontptr, sz);
             else
             {
@@ -3193,7 +3193,7 @@ namespace glimmer
 
         void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawText(text, pos, color, wrapWidth);
             else
             {
@@ -3396,7 +3396,7 @@ namespace glimmer
 
         bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id = -1) override
         {
-            if (deferDrawCalls) [[likely]]
+            if (deferDrawCalls) [[unlikely]]
                 deferredContents.back().second.DrawResource(resflags, pos, size, color, content, id);
             else
             {

@@ -1141,32 +1141,43 @@ namespace glimmer
             auto root = GetNewYogaNode(layout, context.layouts.size() - 1, false, isParentFlexLayout);
             layout.implData = root;
 
-            if ((layout.fill & FD_Horizontal) && (available.Max.x != FLT_MAX) && (available.Max.x > 0.f))
+            if (context.layoutStack.size() == 1)
             {
-                auto width = available.GetWidth() - (2.f * layout.spacing.x);
-                if (regionIdx != -1)
+                if ((layout.fill & FD_Horizontal) && (available.Max.x != FLT_MAX) && (available.Max.x > 0.f))
                 {
-                    auto rid = context.regions[regionIdx].id;
-                    auto& state = context.GetState(rid).state.region;
-                    auto style = context.GetStyle(state.state, rid);
-                    width -= (style.margin.left + style.margin.right);
+                    auto width = available.GetWidth() - (2.f * layout.spacing.x);
+                    if (regionIdx != -1)
+                    {
+                        auto rid = context.regions[regionIdx].id;
+                        auto& state = context.GetState(rid).state.region;
+                        auto style = context.GetStyle(state.state, rid);
+                        width -= (style.margin.left + style.margin.right);
+                    }
+
+                    YGNodeStyleSetWidth(root, width);
                 }
 
-                YGNodeStyleSetWidth(root, width);
+                if ((layout.fill & FD_Vertical) && (available.Max.y != FLT_MAX) && (available.Max.y > 0.f))
+                {
+                    auto height = available.GetHeight() - (2.f * layout.spacing.y);
+                    if (regionIdx != -1)
+                    {
+                        auto rid = context.regions[regionIdx].id;
+                        auto& state = context.GetState(rid).state.region;
+                        auto style = context.GetStyle(state.state, rid);
+                        height -= (style.margin.top + style.margin.bottom);
+                    }
+
+                    YGNodeStyleSetHeight(root, height);
+                }
             }
-
-            if ((layout.fill & FD_Vertical) && (available.Max.y != FLT_MAX) && (available.Max.y > 0.f))
+            else
             {
-                auto height = available.GetHeight() - (2.f * layout.spacing.y);
-                if (regionIdx != -1)
-                {
-                    auto rid = context.regions[regionIdx].id;
-                    auto& state = context.GetState(rid).state.region;
-                    auto style = context.GetStyle(state.state, rid);
-                    height -= (style.margin.top + style.margin.bottom);
-                }
+                if (layout.fill & FD_Horizontal)
+                    YGNodeStyleSetWidthPercent(root, 100);
 
-                YGNodeStyleSetHeight(root, height);
+                if (layout.fill & FD_Vertical)
+                    YGNodeStyleSetHeightPercent(root, 100);
             }
 
             YGNodeStyleSetFlexDirection(root, layout.type == Layout::Horizontal ? YGFlexDirectionRow : YGFlexDirectionColumn);

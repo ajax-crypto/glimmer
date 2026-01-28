@@ -144,6 +144,39 @@ endif()
 set(ALL_SOURCES ${GLIMMER_SOURCES} ${EXTRA_SOURCES})
 
 #==============================================================================
+# Visual Studio Code Oragnization
+#==============================================================================
+if (WIN32)
+    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+    
+    set(GLIMMER_HEADERS
+        src/context.h
+        src/draw.h
+        src/im_font_manager.h
+        src/layout.h
+        src/platform.h
+        src/renderer.h
+        src/style.h
+        src/widgets.h
+        src/custom/PathInput.h
+    )
+
+    set(EXTRA_HEADERS)
+    if(NOT GLIMMER_DISABLE_RICHTEXT)
+        list(APPEND EXTRA_HEADERS
+            src/imrichtext/imrichtext.h
+            src/imrichtext/imrichtextimpl.h
+            src/imrichtext/imrichtextutils.h
+        )
+    endif()
+
+    set(ALL_HEADERS ${GLIMMER_HEADERS} ${EXTRA_HEADERS})
+
+    SOURCE_GROUP("Header Files" FILES ${ALL_HEADERS})
+    SOURCE_GROUP("Source Files" FILES ${ALL_SOURCES})
+endif()
+
+#==============================================================================
 # Create Static Library
 #==============================================================================
 add_library(${LIBRARY_NAME} STATIC ${ALL_SOURCES})
@@ -189,7 +222,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(${LIBRARY_NAME} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 
 # OpenGL (required for graphical platforms)
-if(GLIMMER_PLATFORM MATCHES "sdl3|glfw")
+if(GLIMMER_PLATFORM MATCHES "glfw")
     find_package(OpenGL REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC OpenGL::GL)
 endif()
@@ -296,15 +329,17 @@ elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
     endforeach()
 
     # Blend2D
-    # if(GLIMMER_ENABLE_BLEND2D)
-    #     set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
-    #     if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
-    #         target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
-    #         message(STATUS "✓ Linking ${b2d_name}")
-    #     else()
-    #         message(WARNING "Blend2D requested but ${b2d_name} not found")
-    #     endif()
-    # endif()
+    if(UNIX AND NOT APPLE)
+        if(GLIMMER_ENABLE_BLEND2D)
+            set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
+            if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
+                target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
+                message(STATUS "✓ Linking ${b2d_name}")
+            else()
+                message(WARNING "Blend2D requested but ${b2d_name} not found")
+            endif()
+        endif()
+    endif()
 
 elseif(GLIMMER_PLATFORM STREQUAL "glfw")
     # GLFW + SVG + Plots + NFD
