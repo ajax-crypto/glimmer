@@ -293,12 +293,16 @@ namespace glimmer
 
     struct TabBarStyleDescriptor
     {
+        ImVec2 spacing{ 2.f, 2.f };
         uint32_t pincolor = 0;
         uint32_t pinbgcolor = 0;
         uint32_t closecolor = 0;
         uint32_t closebgcolor = 0;
         float pinPadding = 2.f;
         float closePadding = 2.f;
+        float btnspacing = 5.f;
+        float btnsize = 0.75f; // 75% of tab text height
+        bool circularButtons = true;
 
         static TabBarStyleDescriptor ParseFrom(std::string_view css);
     };

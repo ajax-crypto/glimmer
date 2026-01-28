@@ -4308,6 +4308,7 @@ namespace glimmer
             for (auto& item : currentTab.endItems)
             {
                 auto& tab = state.endTabs[tabidx];
+                const auto& specificStyle = context.tabBarStyles[log2((unsigned)tab.state)].top();
                 const auto& style = item.style;
                 auto txtsz = GetTextSize(item.nameType, item.name, style.font, tab.extent.GetWidth(), renderer);
 
@@ -4319,7 +4320,7 @@ namespace glimmer
                 tab.text.Min.x = offset.x;
                 tab.text.Min.y = content.Min.y + style.padding.top + style.border.top.thickness + style.margin.top;
                 tab.text.Max.y = tab.text.Min.y + txtsz.y;
-                offset.x -= config.btnspacing;
+                offset.x -= specificStyle.btnspacing;
 
                 if (!item.icon.empty())
                 {
@@ -4347,6 +4348,7 @@ namespace glimmer
             {
                 auto& tab = state.tabs[tabidx];
                 const auto& style = item.style;
+                const auto& specificStyle = context.tabBarStyles[log2((unsigned)tab.state)].top();
                 auto txtsz = GetTextSize(item.nameType, item.name, style.font, tab.extent.GetWidth(), renderer);
                 tab.extent.Min = offset;
 
@@ -4354,9 +4356,9 @@ namespace glimmer
                 {
                     if (item.iconsz == ImVec2{})
                         item.iconsz = ImVec2{ txtsz.y, txtsz.y };
-                    tab.icon.Min = offset + ImVec2{ config.btnspacing, 0.f };
+                    tab.icon.Min = offset + ImVec2{ specificStyle.btnspacing, 0.f };
                     tab.icon.Max = tab.icon.Min + item.iconsz;
-                    tab.text.Min.x = tab.icon.Max.x + config.btnspacing;
+                    tab.text.Min.x = tab.icon.Max.x + specificStyle.btnspacing;
                     tab.text.Min.y = offset.y;
                     tab.text.Max = tab.text.Min + txtsz;
                     offset.x = tab.text.Min.x;
@@ -4372,7 +4374,7 @@ namespace glimmer
                 case TabBarItemSizing::Scrollable:
                 {
                     auto txtorigin = result.Max.x;
-                    offset.x += style.padding.h() + txtsz.x + config.spacing.x;
+                    offset.x += style.padding.h() + txtsz.x + specificStyle.spacing.x;
                     height = std::max(height, style.padding.v() + txtsz.y);
                     tab.extent.Max = ImVec2{ offset.x, offset.y + height };
                     break;
@@ -4381,7 +4383,7 @@ namespace glimmer
                 case TabBarItemSizing::DropDown:
                 {
                     auto txtorigin = result.Max.x;
-                    offset.x += style.padding.h() + txtsz.x + config.spacing.x;
+                    offset.x += style.padding.h() + txtsz.x + specificStyle.spacing.x;
 
                     if (txtorigin + txtsz.x > content.Max.x - txtsz.y)
                     {
@@ -4410,7 +4412,7 @@ namespace glimmer
                             state.tabs[idx].extent.Max.y = state.tabs[idx].extent.Min.y + height;
                         }
 
-                        offset.y += height + config.spacing.y;
+                        offset.y += height + specificStyle.spacing.y;
                         offset.x = content.Min.x;
                         height = style.padding.v() + txtsz.y;
                         lastRowStart = tabidx;
@@ -4421,7 +4423,7 @@ namespace glimmer
                     else
                     {
                         height = std::max(height, style.padding.v() + txtsz.y);
-                        offset.x += txtsz.x + style.padding.h() + config.spacing.x;
+                        offset.x += txtsz.x + style.padding.h() + specificStyle.spacing.x;
                         tab.extent.Max.x = offset.x;
                     }
                     break;
@@ -4437,17 +4439,17 @@ namespace glimmer
 
                 if (item.itemflags & TI_Pinnable)
                 {
-                    offset.x += config.btnspacing;
+                    offset.x += specificStyle.btnspacing;
                     tab.pin.Min = ImVec2{ offset.x, offset.y + style.padding.top };
-                    offset.x += config.btnsize * style.font.size;
+                    offset.x += specificStyle.btnsize * style.font.size;
                     tab.pin.Max = ImVec2{ offset.x, tab.pin.Min.y + style.font.size };
                 }
 
                 if (item.itemflags & TI_Closeable)
                 {
-                    offset.x += config.btnspacing;
+                    offset.x += specificStyle.btnspacing;
                     tab.close.Min = ImVec2{ offset.x, offset.y + style.padding.top };
-                    offset.x += config.btnsize * style.font.size;
+                    offset.x += specificStyle.btnsize * style.font.size;
                     tab.close.Max = ImVec2{ offset.x, tab.close.Min.y + style.font.size };
                 }
 
@@ -4456,7 +4458,7 @@ namespace glimmer
                 tab.extent.Max.y += style.padding.bottom;
                 tab.text.Min = tab.extent.Min + ImVec2{ style.padding.left, style.padding.top };
                 tab.text.Max = tab.text.Min + txtsz;
-                offset.x += config.spacing.x;
+                offset.x += specificStyle.spacing.x;
                 fontsz = std::max(fontsz, style.font.size);
                 tabidx++;
 
@@ -4464,11 +4466,13 @@ namespace glimmer
                     state.lastRowStarty = offset.y;
             }
 
+            const auto& specificStyle = context.tabBarStyles[WSI_Default].top();
+
             if (currentTab.newTabButton)
             {
                 const auto style = context.GetStyle(WS_Default, id);
 
-                offset.x += config.spacing.x;
+                offset.x += specificStyle.spacing.x;
                 state.create = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
                 offset.x += state.create.GetWidth();
             }
@@ -4479,16 +4483,16 @@ namespace glimmer
 
                 if (config.addNavigationButtons)
                 {
-                    offset.x += config.spacing.x;
+                    offset.x += specificStyle.spacing.x;
                     state.moveBackward = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
                     offset.x += state.create.GetWidth();
 
-                    offset.x += config.spacing.x;
+                    offset.x += specificStyle.spacing.x;
                     state.moveForward = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
                     offset.x += state.create.GetWidth();
                 }
 
-                offset.x += config.spacing.x;
+                offset.x += specificStyle.spacing.x;
                 state.dropdown = ImRect{ offset, offset + ImVec2{ fontsz + style.padding.h(), fontsz + style.padding.v() } };
                 offset.x += state.create.GetWidth();
             }
@@ -4519,7 +4523,7 @@ namespace glimmer
                     {
                         const auto& last = state.tabs.back();
                         auto sz = state.create.GetSize();
-                        state.create.Min.x = last.extent.Max.x + config.spacing.x;
+                        state.create.Min.x = last.extent.Max.x + specificStyle.spacing.x;
                         state.create.Min.y = last.extent.Min.y;
                         state.create.Max = state.create.Min + sz;
                     }
@@ -4855,9 +4859,9 @@ namespace glimmer
         {
             auto startpos = tab.text.Min, endpos = tab.extent.Max;
             if (currtab.itemflags & TI_Pinnable)
-                endpos.x = tab.pin.Min.x - config.btnspacing;
+                endpos.x = tab.pin.Min.x - specificStyle.btnspacing;
             else if (currtab.itemflags & TI_Closeable)
-                endpos.x = tab.close.Min.x - config.btnspacing;
+                endpos.x = tab.close.Min.x - specificStyle.btnspacing;
             DrawText(startpos, endpos, tab.text, currtab.name, tab.state & WS_Disabled, style, renderer);
         }
 
@@ -4866,7 +4870,7 @@ namespace glimmer
         {
             const auto& pinBtnStyle = context.tabBarStyles[log2((unsigned)tab.pinState)].top();
 
-            if (config.circularButtons)
+            if (specificStyle.circularButtons)
             {
                 ImVec2 center{ tab.pin.Min.x + (tab.pin.GetWidth() * 0.5f), tab.pin.Min.y +
                     (tab.pin.GetHeight() * 0.5f) };
@@ -4886,7 +4890,7 @@ namespace glimmer
         {
             const auto& closeBtnStyle = context.tabBarStyles[log2((unsigned)tab.closeState)].top();
 
-            if (config.circularButtons)
+            if (specificStyle.circularButtons)
             {
                 ImVec2 center{ tab.close.Min.x + (tab.close.GetWidth() * 0.5f), tab.close.Min.y +
                     (tab.close.GetHeight() * 0.5f) };

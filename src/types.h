@@ -484,15 +484,11 @@ namespace glimmer
 
     struct TabBarState
     {
-        TabBarItemSizing sizing;
-        ImVec2 spacing;
-        Direction direction = DIR_Horizontal;
         std::string_view newTabTooltip;
-        float btnspacing = 5.f;
-        float btnsize = 0.75f; // 75% of tab text height
+        TabBarItemSizing sizing = TabBarItemSizing::DropDown;
+        Direction direction = DIR_Horizontal;
         int selected = -1;
         bool expandTabs = false;
-        bool circularButtons = true;
         bool createNewTabs = false;
         bool addNavigationButtons = false;
     };
