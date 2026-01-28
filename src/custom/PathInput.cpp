@@ -180,7 +180,6 @@ namespace glimmer
 
         WidgetDrawResult MultiPathInput(std::string_view id,
             PathSet& paths,
-            bool isDirectory,
             std::string_view initialPath,
             std::string_view placeholder,
             int32_t geometry,
