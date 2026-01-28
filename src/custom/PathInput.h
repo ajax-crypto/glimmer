@@ -20,8 +20,8 @@ namespace glimmer
             bool isDirectory = false;
         };
 
-        glimmer::WidgetDrawResult MultiPathInput(std::string_view id, PathSet& paths, 
-            std::string_view initialPath, std::string_view placeholder = "",bool isDirectory , int32_t geometry = ToBottomRight, 
+        glimmer::WidgetDrawResult MultiPathInput(std::string_view id, PathSet& paths, bool isDirectory,
+            std::string_view initialPath, std::string_view placeholder = "" , int32_t geometry = ToBottomRight, 
             const NeighborWidgets& neighbors = NeighborWidgets{});
     }
 }
