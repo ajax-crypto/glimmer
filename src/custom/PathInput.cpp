@@ -1,3 +1,4 @@
+
 #include "PathInput.h"
 
 #include "widgets.h"
@@ -22,8 +23,8 @@ namespace glimmer
         };
         static std::unordered_map<int32_t, PathInputData> PathInputConfigs;
 
-        WidgetDrawResult PathInput(std::string_view id, char* out, int size, bool isDirectory, 
-            std::string_view path, std::string_view placeholder, int32_t geometry, 
+        WidgetDrawResult PathInput(std::string_view id, char* out, int size, bool isDirectory,
+            std::string_view path, std::string_view placeholder, int32_t geometry,
             const NeighborWidgets& neighbors)
         {
             // You can customize the behavior here if needed
@@ -66,7 +67,7 @@ namespace glimmer
                     }
 
                     return true;
-                }, data);
+                    }, data);
             }
 
             return EndLayout();
@@ -74,7 +75,7 @@ namespace glimmer
 
         constexpr float ANIMATION_DURATION_MS = 300.0f;
 
-        enum class AnimState 
+        enum class AnimState
         {
             None,
             Appearing,
@@ -82,7 +83,7 @@ namespace glimmer
             Flashing
         };
 
-        struct PathInfo 
+        struct PathInfo
         {
             std::string path;
             AnimState state = AnimState::Appearing;
@@ -90,10 +91,10 @@ namespace glimmer
             int32_t closeButtonId = -1;
         };
 
-        struct MultiPathInputData 
+        struct MultiPathInputData
         {
             std::vector<PathInfo> pathsInfo;
-            char textInputBuffer[1024]{0};
+            char textInputBuffer[1024]{ 0 };
             bool isDirectory = false;
             std::string initialPath;
             PathSet* userPaths = nullptr;
@@ -108,17 +109,17 @@ namespace glimmer
         static void SyncUserPaths(MultiPathInputData& data)
         {
             int i = 0;
-            for (const auto& pInfo : data.pathsInfo) 
-                if (pInfo.state != AnimState::Disappearing && i < data.userPaths->count) 
+            for (const auto& pInfo : data.pathsInfo)
+                if (pInfo.state != AnimState::Disappearing && i < data.userPaths->count)
                     strncpy_s(data.userPaths->out[i], data.userPaths->size, pInfo.path.c_str(), _TRUNCATE);
-                    i++;
-            
+            i++;
+
             data.currentPathCount = i;
-            for (; i < data.userPaths->count; ++i) 
+            for (; i < data.userPaths->count; ++i)
                 data.userPaths->out[i][0] = '\0';
         }
 
-        static void AddPath(MultiPathInputData& data, std::string_view newPath) 
+        static void AddPath(MultiPathInputData& data, std::string_view newPath)
         {
             if (newPath.empty() || data.currentPathCount >= data.userPaths->count) return;
 
@@ -129,44 +130,44 @@ namespace glimmer
                     return;
                 }
             }
-            
+
             data.pathsInfo.insert(data.pathsInfo.begin(), { std::string(newPath), AnimState::Appearing, 0.0f });
             SyncUserPaths(data);
         }
 
-        bool HandleMultiPathInputEvents(void* data, const IODescriptor& desc) 
+        bool HandleMultiPathInputEvents(void* data, const IODescriptor& desc)
         {
             auto& widgetData = *static_cast<MultiPathInputData*>(data);
 
-            if (desc.clicked() && widgetData.browseButtonId != -1 && 
-                ICustomWidget::GetBounds(widgetData.browseButtonId).Contains(desc.mousepos)) 
+            if (desc.clicked() && widgetData.browseButtonId != -1 &&
+                ICustomWidget::GetBounds(widgetData.browseButtonId).Contains(desc.mousepos))
             {
-                char selectedPath[1024] = {0};
-                std::span<char> out{selectedPath, sizeof(selectedPath)};
+                char selectedPath[1024] = { 0 };
+                std::span<char> out{ selectedPath, sizeof(selectedPath) };
                 auto target = widgetData.isDirectory ? IPlatform::FileDialogTarget::OneDirectory : IPlatform::FileDialogTarget::OneFile;
-                int32_t res = GetUIConfig().platform->ShowFileDialog(&out, 1, (int32_t)target, widgetData.initialPath, nullptr, 0, {"Select Path", "Select", "Cancel"});
-                if (res > 0) 
+                int32_t res = GetUIConfig().platform->ShowFileDialog(&out, 1, (int32_t)target, widgetData.initialPath, nullptr, 0, { "Select Path", "Select", "Cancel" });
+                if (res > 0)
                 {
                     AddPath(widgetData, selectedPath);
                     widgetData.textInputBuffer[0] = '\0';
                 }
                 return true;
             }
-            
-            if (widgetData.textInputId != -1 && ICustomWidget::IsInState(widgetData.textInputId, WS_Focused) && 
-                desc.isKeyPressed(Key::Key_Enter)) 
+
+            if (widgetData.textInputId != -1 && ICustomWidget::IsInState(widgetData.textInputId, WS_Focused) &&
+                desc.isKeyPressed(Key::Key_Enter))
             {
                 AddPath(widgetData, widgetData.textInputBuffer);
                 widgetData.textInputBuffer[0] = '\0';
                 return true;
             }
 
-            for (auto& pathInfo : widgetData.pathsInfo) 
+            for (auto& pathInfo : widgetData.pathsInfo)
             {
-                if (pathInfo.closeButtonId != -1 && ICustomWidget::GetBounds(pathInfo.closeButtonId).Contains(desc.mousepos) 
-                    && desc.clicked()) 
+                if (pathInfo.closeButtonId != -1 && ICustomWidget::GetBounds(pathInfo.closeButtonId).Contains(desc.mousepos)
+                    && desc.clicked())
                 {
-                    if (pathInfo.state == AnimState::None) 
+                    if (pathInfo.state == AnimState::None)
                     {
                         pathInfo.state = AnimState::Disappearing;
                         pathInfo.animProgress = 0.0f;
@@ -174,70 +175,71 @@ namespace glimmer
                     }
                 }
             }
-            
+
             return true;
         }
 
         WidgetDrawResult MultiPathInput(std::string_view id,
             PathSet& paths,
+            bool isDirectory,
             std::string_view initialPath,
             std::string_view placeholder,
-            bool isDirectory,
+            
             int32_t geometry,
             const NeighborWidgets& neighbors)
         {
             auto& data = MultiPathData[id];
 
-            if (!data.isInitialized) 
+            if (!data.isInitialized)
             {
                 data.isDirectory = isDirectory;
                 data.initialPath = initialPath;
                 data.userPaths = &paths;
-                for (int i=0; i < paths.count && paths.out[i][0] != '\0'; ++i) 
+                for (int i = 0; i < paths.count && paths.out[i][0] != '\0'; ++i)
                 {
-                    data.pathsInfo.push_back({std::string(paths.out[i]), AnimState::None, 1.0f});
+                    data.pathsInfo.push_back({ std::string(paths.out[i]), AnimState::None, 1.0f });
                     data.currentPathCount++;
                 }
                 GetUIConfig().platform->PushEventHandler(HandleMultiPathInputEvents, &data);
                 data.isInitialized = true;
             }
-            
+
             data.userPaths = &paths;
-            
+
             BeginFlexLayout(DIR_Vertical, geometry, false, {}, {}, neighbors);
             BeginFlexLayout(DIR_Horizontal, geometry, false, {}, {}, neighbors);
             auto inputResult = TextInput(data.textInputBuffer, sizeof(data.textInputBuffer), placeholder, geometry, neighbors);
             data.textInputId = inputResult.id;
-            
+
             auto browseResult = Icon(id, SymbolIcon::Browse, IconSizingType::CurrentFontSz);
             data.browseButtonId = browseResult.id;
             EndLayout();
 
-            for (auto it = data.pathsInfo.begin(); it != data.pathsInfo.end(); ) 
+            for (auto it = data.pathsInfo.begin(); it != data.pathsInfo.end(); )
             {
                 auto& pathInfo = *it;
                 float itemHeight = 24.0f;
                 float opacity = 1.0f;
 
                 BeginFlexLayout(DIR_Horizontal, geometry, false, {}, {}, neighbors);
-                
-                if (pathInfo.state == AnimState::Appearing) 
+
+                if (pathInfo.state == AnimState::Appearing)
                 {
                     anim::EaseOut(pathInfo.animProgress, ANIMATION_DURATION_MS);
                     itemHeight = anim::Interpolate(0.f, 24.f, pathInfo.animProgress);
                     opacity = pathInfo.animProgress;
-                    if (pathInfo.animProgress >= 1.0f) 
+                    if (pathInfo.animProgress >= 1.0f)
                     {
                         pathInfo.state = AnimState::None;
                         pathInfo.animProgress = 1.0f;
                     }
-                } 
-                else if (pathInfo.state == AnimState::Disappearing) 
+                }
+                else if (pathInfo.state == AnimState::Disappearing)
                 {
                     anim::EaseIn(pathInfo.animProgress, ANIMATION_DURATION_MS);
                     itemHeight = anim::Interpolate(24.f, 0.f, 1.0f - pathInfo.animProgress);
                     opacity = 1.0f - pathInfo.animProgress;
-                    if (pathInfo.animProgress >= 1.0f) 
+                    if (pathInfo.animProgress >= 1.0f)
                     {
                         it = data.pathsInfo.erase(it);
                         SyncUserPaths(data);
@@ -253,7 +255,7 @@ namespace glimmer
                         pathInfo.animProgress = 1.0f;
                     }
                 }
-                
+
                 if (pathInfo.state == AnimState::Flashing)
                 {
                     float flashAmount = 1.0f - pathInfo.animProgress;
@@ -269,11 +271,11 @@ namespace glimmer
                 auto closeButtonResult = Icon(pathInfo.path, SymbolIcon::Cross, IconSizingType::CurrentFontSz);
                 pathInfo.closeButtonId = closeButtonResult.id;
                 PopStyle();
-                
+
                 ++it;
                 EndLayout();
             }
-            
+
             return EndLayout();
         }
     }
