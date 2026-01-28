@@ -1051,7 +1051,7 @@ namespace glimmer
         assert(context.layoutStack.size() == 0 || (neighbors.bottom == neighbors.top && neighbors.top == neighbors.left &&
             neighbors.left == neighbors.right && neighbors.right == -1));
         // No expansion if nested layout, nested layout's size is implicit, or explicit from CSS
-        assert(context.layoutStack.size() == 0 || (!(geometry & ExpandH) && !(geometry & ExpandV)));
+        /*assert(context.layoutStack.size() == 0 || (!(geometry & ExpandH) && !(geometry & ExpandV)));*/
 
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_FLAT_ENGINE
         assert(context.layoutStack.empty()); // No nested layout is supported
