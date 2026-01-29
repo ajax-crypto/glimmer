@@ -16,6 +16,7 @@ endif()
 # OS & Path Configuration
 #==============================================================================
 if(WIN32)
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
     set(GLIMMER_OS_DIR "win32")
     set(LIB_EXT ".lib")
     set(LIB_PREFIX "") # Windows libs usually don't have 'lib' prefix in this project
@@ -69,8 +70,8 @@ if(MSVC)
 else()
     # GCC/Clang specific flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -Og")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -fno-math-errno -fdevirtualize-speculatively")
 
     # Allow implicit fallthrough
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -172,14 +173,14 @@ if (WIN32)
 
     set(ALL_HEADERS ${GLIMMER_HEADERS} ${EXTRA_HEADERS})
 
-    SOURCE_GROUP("Header Files" FILES ${ALL_HEADERS})
-    SOURCE_GROUP("Source Files" FILES ${ALL_SOURCES})
+    source_group("Header Files" FILES ${ALL_HEADERS})
+    source_group("Source Files" FILES ${ALL_SOURCES})
 endif()
 
 #==============================================================================
 # Create Static Library
 #==============================================================================
-add_library(${LIBRARY_NAME} STATIC ${ALL_SOURCES})
+add_library(${LIBRARY_NAME} STATIC ${ALL_HEADERS} ${ALL_SOURCES})
 
 target_compile_definitions(${LIBRARY_NAME} PRIVATE 
     IMGUI_ENABLE_FREETYPE
@@ -233,7 +234,7 @@ if(WIN32)
     target_link_libraries(${LIBRARY_NAME} PUBLIC
         user32 gdi32 shell32 advapi32 ole32 oleaut32 imm32 version winmm setupapi shlwapi
     )
-elseif(UNIX AND NOT APPLE AND GLIMMER_PLATFORM MATCHES "sdl3|glfw|tui")
+elseif(UNIX AND NOT APPLE AND GLIMMER_PLATFORM MATCHES "sdl3|glfw")
     # Linux X11
     find_package(X11 REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC ${X11_LIBRARIES})

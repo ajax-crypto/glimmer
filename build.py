@@ -9,6 +9,7 @@ import tarfile
 import zipfile
 import glob
 import multiprocessing
+from timeit import default_timer as timer
 
 # ==============================================================================
 # Configuration
@@ -239,6 +240,8 @@ def main():
     parser.add_argument("--disable-richtext", action="store_true")
     parser.add_argument("--enable-blend2d", action="store_true")
     parser.add_argument("--clean", action="store_true")
+    parser.add_argument("--fast", action="store_false")
+    parser.add_argument("--output", type=str, help="Copy the combined static library to the specified path (absolute or relative)")
     args = parser.parse_args()
 
     # Settings
@@ -260,8 +263,9 @@ def main():
     for d in [lib_output_dir, libs_header_dir, dependency_dir]:
         if not os.path.exists(d): os.makedirs(d)
 
+    log(f"========== Building Glimmer ===========")
     log(f"Platform: {args.platform} | Type: {build_type}")
-    log(f"Output: {lib_output_dir}")
+    log("========================================")
 
     # Feature Flags
     feats = {
@@ -282,6 +286,9 @@ def main():
     if args.disable_images: feats["STB"] = False
     if args.disable_icon_font: feats["ICONS"] = False
     if not args.enable_blend2d: feats["BLEND2D"] = False
+
+    log("\nSetting up environment...")
+    ts = timer()
 
     # Setup Tools
     if sys.platform == 'win32':
@@ -307,6 +314,7 @@ def main():
 
     # Remove previous artifacts for Windows
     if sys.platform == 'win32':
+        log("Cleaning previous build artifacts...")
         obj_files_dir = os.path.join(PROJECT_ROOT, "build\\glimmer_sdl3.dir", build_type)
         if os.path.exists(obj_files_dir):
             lib_files = os.listdir(obj_files_dir)
@@ -327,6 +335,13 @@ def main():
             os.remove(os.path.join(PROJECT_ROOT, "staticlib", "combined", build_type, "glimmer.lib"))
         except:
             pass
+        log("Clean complete...")
+
+    duration = timer() - ts;
+    log(f"Setup completed in {duration:.2f} seconds.", GREEN)
+
+    ts = timer()
+    log("\nBuilding Dependencies...")
 
     # -------------------------------------------------------------------------
     # 1. FreeType
@@ -893,9 +908,11 @@ def main():
                 if os.path.exists(src_file):
                     shutil.copy(src_file, icon_header_dir)
 
-    log("[SUCCESS] Done building dependencies...")
+    duration = timer() - ts;
+    log(f"Dependency setup completed in {duration:.2f} seconds.", GREEN)
 
-    log("\n=== Building Glimmer ===", BLUE)
+    log("\n=== Building Glimmer ===", GREEN)
+    ts = timer()
     BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
     
     if os.path.exists(BUILD_DIR) and args.clean:
@@ -908,7 +925,9 @@ def main():
     cmake_cmd = ["cmake", "..", f"-DCMAKE_BUILD_TYPE={build_type}", f"-DGLIMMER_PLATFORM={args.platform}"]
     
     if sys.platform == "win32":
-        cmake_cmd.extend(['-G', cmake_generator, '-A', 'x64', "--fresh" ])
+        cmake_cmd.extend(['-G', cmake_generator, '-A', 'x64' ])
+        if not args.fast:
+            cmake_cmd.extend(["--fresh"])
     
     # Feature Flags
     if args.disable_svg: cmake_cmd.append("-DGLIMMER_DISABLE_SVG=ON")
@@ -931,8 +950,21 @@ def main():
     
     log(f"Glimmer ({build_type}) build complete!", GREEN)
     log(f"Output located in {BUILD_DIR}", YELLOW)
-    if os.path.exists(os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type)) == False:
-        os.makedirs(os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type))
+
+    if args.output:
+        output_path = args.output
+        # Convert to absolute path if relative
+        if not os.path.isabs(output_path):
+            output_path = os.path.abspath(output_path)
+        
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+    else:
+        output_dir = os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type)
+        if os.path.exists(output_dir) == False:
+            os.makedirs(output_dir)
 
     # Combine all libs into one glimmer.lib
     if sys.platform == 'win32':
@@ -940,7 +972,7 @@ def main():
         glimmer_lib = os.path.join(BUILD_DIR, "..", "staticlib", build_type, f"glimmer_{args.platform}.lib")
         if os.path.exists(glimmer_lib):
             libs.append(glimmer_lib)
-            combined_lib = os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type, "glimmer.lib")
+            combined_lib = os.path.join(output_dir, "glimmer.lib")
             cmd = ["lib.exe", "/OUT:" + combined_lib] + libs
             run_command(cmd, env=vc_env)
             log(f"Combined lib created: {combined_lib}", GREEN)
@@ -953,16 +985,19 @@ def main():
         glimmer_lib = os.path.join(BUILD_DIR, "..", "staticlib", build_type, f"libglimmer_{args.platform}.a")
         if os.path.exists(glimmer_lib):
             libs.append(glimmer_lib)
-            combined_lib = os.path.join(BUILD_DIR, "..", "staticlib", "combined", build_type, "libglimmer.a")
+            combined_lib = os.path.join(output_dir, "libglimmer.a")
             with tempfile.TemporaryDirectory() as tmpdir:
                 os.chdir(tmpdir)
                 for lib in libs:
                     run_command(f"ar x {lib}")
                 run_command("ar rcs libglimmer.a *.o")
-                shutil.copy("libglimmer.a", combined_lib)
+                shutil.move("libglimmer.a", combined_lib)
             log(f"Combined lib created: {combined_lib}", GREEN)
         else:
             log(f"Glimmer lib not found: {glimmer_lib}", YELLOW)
+
+    duration = timer() - ts;
+    log(f"Glimmer static library built in {duration:.2f} seconds.", GREEN)
 
 if __name__ == "__main__":
     main()
