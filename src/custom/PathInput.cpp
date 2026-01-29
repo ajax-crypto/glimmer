@@ -182,7 +182,6 @@ namespace glimmer
             PathSet& paths,
             std::string_view initialPath,
             std::string_view placeholder,
-            bool isDirectory,
             int32_t geometry,
             const NeighborWidgets& neighbors)
         {
