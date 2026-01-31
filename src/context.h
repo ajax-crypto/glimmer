@@ -591,6 +591,7 @@ namespace glimmer
         OverflowMode vofmode = OverflowMode::Scroll;
         ScrollableRegion scroll;
         int32_t regionIdx = -1;
+        int32_t parentIdx = -1; // parent index in context.layouts
         void* implData = nullptr;
         bool popSizingOnEnd = false;
 
@@ -598,11 +599,7 @@ namespace glimmer
         FixedSizeStack<int32_t, 16> containerStack;
         TabBarBuilder tabbar;
 
-        LayoutBuilder()
-        {
-            for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
-        }
-
+        LayoutBuilder();
         void reset();
     };
 

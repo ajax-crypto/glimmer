@@ -4261,4 +4261,23 @@ namespace glimmer
         static thread_local SVGRenderer renderer(tmfunc, dimensions);
         return &renderer;
     }
+
+    IRenderer* CreateNewRenderer(RendererType type)
+    {
+        switch (type)
+        {
+            case RendererType::Deferred:
+            {
+                return ::new DeferredRenderer{
+    #ifndef GLIMMER_DISABLE_BLEND2D_RENDERER
+                    Config.renderer->Type() == RendererType::ImGui ? &ImGuiMeasureText : &Blend2DMeasureText
+    #else
+                    & ImGuiMeasureText
+    #endif
+                };
+            }
+        }
+
+        return nullptr;
+    }
 }

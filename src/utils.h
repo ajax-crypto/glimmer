@@ -160,6 +160,19 @@ namespace glimmer
             Fill(_data, _data + _capacity, el);
         }
 
+        Vector(Vector<T, Sz, blocksz>&& source)
+            : _data{ source._data }, _size{ source._size }, _capacity{ source._capacity }
+        {
+            source._capacity = source._size = 0; source._data = nullptr;
+        }
+
+        Vector& operator=(Vector<T, Sz, blocksz>&& source)
+        {
+            _data = source._data; _size = source._size; _capacity = source._capacity;
+            source._capacity = source._size = 0; source._data = nullptr;
+            return *this;
+        }
+
         void assign(Iterator from, Iterator to)
         {
             auto count = to - from;

@@ -47,6 +47,11 @@ namespace glimmer
     void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
     void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
 
+    LayoutBuilder::LayoutBuilder()
+    {
+        for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
+    }
+
     void LayoutBuilder::reset()
     {
         type = Layout::Invalid;

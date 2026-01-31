@@ -3678,8 +3678,8 @@ namespace glimmer
                 std::string_view text{ state.isMasked ? buffer : state.text.data(), 
                     state.isMasked ? std::min((std::size_t)255, state.text.size()) : state.text.size() };
                 auto selection = state.selection;
-                selection = { std::min(state.selection.first, state.selection.second),
-                    std::max(state.selection.first, state.selection.second) };
+                selection = { std::max(0, std::min(state.selection.first, state.selection.second)),
+                    std::min(std::max(state.selection.first, state.selection.second), (int32_t)text.size()) };
                 std::string_view parts[3] = { text.substr(0, selection.first),
                     text.substr(selection.first, selection.second - selection.first + 1),
                     text.substr(selection.second + 1) };

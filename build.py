@@ -240,7 +240,7 @@ def main():
     parser.add_argument("--disable-richtext", action="store_true")
     parser.add_argument("--enable-blend2d", action="store_true")
     parser.add_argument("--clean", action="store_true")
-    parser.add_argument("--fast", action="store_false")
+    parser.add_argument("--fast", action="store_true")
     parser.add_argument("--output", type=str, help="Copy the combined static library to the specified path (absolute or relative)")
     args = parser.parse_args()
 
@@ -951,6 +951,8 @@ def main():
     log(f"Glimmer ({build_type}) build complete!", GREEN)
     log(f"Output located in {BUILD_DIR}", YELLOW)
 
+    output_dir = ""
+
     if args.output:
         output_path = args.output
         # Convert to absolute path if relative
@@ -958,7 +960,7 @@ def main():
             output_path = os.path.abspath(output_path)
         
         # Create output directory if it doesn't exist
-        output_dir = os.path.dirname(output_path)
+        output_dir = output_path
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir)
     else:
@@ -973,6 +975,8 @@ def main():
         if os.path.exists(glimmer_lib):
             libs.append(glimmer_lib)
             combined_lib = os.path.join(output_dir, "glimmer.lib")
+            if os.path.exists(combined_lib):
+                os.remove(combined_lib)
             cmd = ["lib.exe", "/OUT:" + combined_lib] + libs
             run_command(cmd, env=vc_env)
             log(f"Combined lib created: {combined_lib}", GREEN)
