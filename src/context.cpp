@@ -239,7 +239,6 @@ namespace glimmer
                 for (auto idx = 0; idx < WT_TotalTypes; ++idx)
                 {
                     context.itemGeometries[idx].reset(ImRect{ {0.f, 0.f}, {0.f, 0.f} });
-                    context.itemSizes[idx].reset(ImVec2{});
                 }
 
                 context.regions.clear(true);
@@ -515,13 +514,17 @@ namespace glimmer
         auto index = id & WidgetIndexMask;
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
 
-        if (index >= itemGeometries[wtype].size())
+        if (wtype < WT_TotalTypes)
         {
-            auto sz = std::max((int16_t)128, (int16_t)(index - itemGeometries[wtype].size() + 1));
-            itemGeometries[wtype].expand_and_create(sz, true);
+            if (index >= itemGeometries[wtype].size())
+            {
+                auto sz = std::max((int16_t)128, (int16_t)(index - itemGeometries[wtype].size() + 1));
+                itemGeometries[wtype].expand_and_create(sz, true);
+            }
+
+            itemGeometries[wtype][index] = geometry;
         }
 
-        itemGeometries[wtype][index] = geometry;
         adhocLayout.top().lastItemId = id;
 
         if (!containerStack.empty() && !ignoreParent)
@@ -549,20 +552,6 @@ namespace glimmer
             spans[currSpanDepth] = ElementSpan{};
             --currSpanDepth;
         }*/
-    }
-
-    void WidgetContextData::AddItemSize(int id, ImVec2 sz)
-    {
-        auto index = id & WidgetIndexMask;
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-
-        if (index >= itemSizes[wtype].size())
-        {
-            auto sz = std::max((int16_t)128, (int16_t)(index - itemSizes[wtype].size() + 1));
-            itemSizes[wtype].expand_and_create(sz, true);
-        }
-
-        itemSizes[wtype][index] = sz;
     }
 
     EventDeferInfo EventDeferInfo::ForRegion(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content)
@@ -849,7 +838,7 @@ namespace glimmer
                 HandleMediaResourceEvent(ev.id, ev.params.media.padding, ev.params.media.content, io, result);
                 break;
             case WT_Custom:
-                Config.customWidget->HandleEvents(ev.id, origin, io, result);
+                Config.CustomWidgetProvider((int16_t)(ev.id >> WidgetTypeBits))->HandleEvents(ev.id, origin, io, result);
                 break;
             default:
                 break;
@@ -880,14 +869,8 @@ namespace glimmer
     {
         auto index = id & WidgetIndexMask;
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        return itemGeometries[wtype][index];
-    }
-
-    ImVec2 WidgetContextData::GetSize(int32_t id) const
-    {
-        auto index = id & WidgetIndexMask;
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        return itemSizes[wtype][index];
+        return wtype < WT_TotalTypes ? itemGeometries[wtype][index] : Config.CustomWidgetProvider ?
+            Config.CustomWidgetProvider(wtype)->GetGeometry(id) : ImRect{};
     }
 
     ImRect WidgetContextData::GetLayoutSize() const
@@ -928,7 +911,9 @@ namespace glimmer
             }
             else
             {
-                return itemGeometries[wtype][index].GetSize();
+                return wtype < WT_TotalTypes ? itemGeometries[wtype][index].GetSize() :
+                    Config.CustomWidgetProvider ? Config.CustomWidgetProvider(wtype)->GetGeometry(id).GetSize() : 
+                        ImVec2{};
             }
         }
         else
@@ -976,7 +961,9 @@ namespace glimmer
             }
             else
             {
-                return itemGeometries[wtype][index].Max;
+                return wtype < WT_TotalTypes ? itemGeometries[wtype][index].Max :
+                    Config.CustomWidgetProvider ? Config.CustomWidgetProvider(wtype)->GetGeometry(id).Max :
+                    ImVec2{};
             }
         }
         else
@@ -1213,26 +1200,36 @@ namespace glimmer
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state)
     {
         StyleDescriptor res;
-        StyleDescriptor const* defstyle = nullptr;
+        StyleDescriptor defstyle;
         auto style = (WidgetStateIndex)log2((unsigned)state);
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
         auto index = id & WidgetIndexMask;
 
-        defstyle = &glimmer::GetWidgetStyle(wtype, WidgetStateIndex::WSI_Default);
-        res.From(glimmer::GetWidgetStyle(wtype, style));
+        if (wtype < WT_TotalTypes)
+        {
+            defstyle = glimmer::GetWidgetStyle(wtype, WidgetStateIndex::WSI_Default);
+            res.From(glimmer::GetWidgetStyle(wtype, style));
 
-        if (defstyle->specified == 0) defstyle = &(context.WidgetStyles[wtype][index][WSI_Default]);
-        res.From(context.WidgetStyles[wtype][index][style]);
+            if (defstyle.specified == 0) defstyle = context.WidgetStyles[wtype][index][WSI_Default];
+            res.From(context.WidgetStyles[wtype][index][style]);
+        }
+        else if (Config.CustomWidgetProvider)
+        {
+            auto wfactory = Config.CustomWidgetProvider(wtype);
+            defstyle = wfactory->GetStyle(id, state, *StyleStack);
+            res.From(glimmer::GetWidgetStyle(wtype, style));
+            res.From(defstyle);
+        }
 
         if ((IgnoreStyleStackBits == -1) || !(IgnoreStyleStackBits & (1 << wtype)))
         {
             res.From(StyleStack[style].top());
-            defstyle = &(StyleStack[WSI_Default].top());
+            defstyle = StyleStack[WSI_Default].top();
         }
-        else if (defstyle->specified == 0)
-            defstyle = StyleStack[WSI_Default].begin();
+        else if (defstyle.specified == 0)
+            defstyle = *StyleStack[WSI_Default].begin();
 
-        if (style != WSI_Default) CopyStyle(*defstyle, res);
+        if (style != WSI_Default) CopyStyle(defstyle, res);
         AddFontPtr(res.font);
         return res;
     }

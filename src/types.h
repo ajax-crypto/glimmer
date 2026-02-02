@@ -122,7 +122,7 @@ namespace glimmer
         WT_NavDrawer,
         WT_TotalTypes,
 
-        WT_Custom = 1 << 15,
+        WT_Custom = 1 << 14,
 
         WT_ContextMenu = WT_TotalTypes,
         WT_TotalNestedContexts
@@ -221,7 +221,7 @@ namespace glimmer
             "text", "dropdown", "tab", "itemgrid", "chart", "icon"
         };
         ScrollbarStyleDescriptor scrollbar;
-        ICustomWidget* customWidget = nullptr;
+        ICustomWidget* (*CustomWidgetProvider)(int16_t) = nullptr;
         void (*RecordWidgetId)(std::string_view, int32_t) = nullptr;
         IWidgetLogger* logger = nullptr;
         void* iconFont = nullptr;

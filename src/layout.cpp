@@ -211,7 +211,7 @@ namespace glimmer
         const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
         IRenderer& renderer, const IODescriptor& io);
-    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
+    void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
 
 #pragma region Layout functions
@@ -1634,236 +1634,242 @@ namespace glimmer
         auto& renderer =  context.GetRenderer();
         renderer.SetClipRect(bbox.Min, bbox.Max);
 
-        switch (wtype)
+        if (wtype < WT_TotalTypes)
         {
-        case glimmer::WT_Label: {
-            auto& state = context.GetState(item.id).state.label;
-            auto flags = ToTextFlags(state.type);
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
+            switch (wtype)
             {
-                context.AddItemGeometry(item.id, bbox);
-                result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_Button: {
-            auto& state = context.GetState(item.id).state.button;
-            auto flags = ToTextFlags(state.type);
-            const auto style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_RadioButton: {
-            auto& state = context.GetState(item.id).state.radio;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_ToggleButton: {
-            auto& state = context.GetState(item.id).state.toggle;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_Checkbox: {
-            auto& state = context.GetState(item.id).state.checkbox;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case WT_Spinner: {
-            auto& state = context.GetState(item.id).state.spinner;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_Slider: {
-            auto& state = context.GetState(item.id).state.slider;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = SliderImpl(item.id, state, style, item.border, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_RangeSlider: {
-            auto& state = context.GetState(item.id).state.rangeSlider;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = RangeSliderImpl(item.id, state, style, item.border, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_TextInput: {
-            auto& state = context.GetState(item.id).state.input;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_DropDown: {
-            auto& state = context.GetState(item.id).state.dropdown;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case glimmer::WT_ItemGrid: {
-            /*auto& state = context.GetState(item.id).state.grid;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-            context.AddItemGeometry(item.id, bbox);
-            result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
-            */
-            assert(false);
-            break;
-        }
-        case WT_Scrollable: {
-            auto& region = context.ScrollRegion(item.id);
-            const auto style = context.GetStyle(WS_Default, item.id);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result.geometry = EndScrollableImpl(item.id, renderer);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-
-            break;
-        }
-        case WT_TabBar: {
-            auto& state = context.GetState(item.id).state.tab;
-            const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = TabBarImpl(item.id, item.margin, style, io, renderer);
-                if (result.event != WidgetEvent::Clicked) 
-                    result.tabidx = context.TabBarState(item.id).current;
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-            
-            break;
-        }
-        case WT_MediaResource: {
-            auto& state = context.GetState(item.id).state.media;
-            const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-            ComputeBoxModelGeometry(item, bbox, style);
-
-            if (render)
-            {
-                context.AddItemGeometry(item.id, bbox);
-                result = MediaResourceImpl(item.id, style, item.margin, item.border, item.padding, item.content, renderer, io);
-                if (!context.nestedContextStack.empty())
-                    RecordItemGeometry(item, style);
-            }
-
-            break;
-        }
-        case WT_Custom: {
-            if (Config.customWidget != nullptr)
-            {
-                const auto style = Config.customWidget->GetStyle(item.id, StyleStack[WSI_Default]);
+            case glimmer::WT_Label: {
+                auto& state = context.GetState(item.id).state.label;
+                auto flags = ToTextFlags(state.type);
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
                 ComputeBoxModelGeometry(item, bbox, style);
 
                 if (render)
                 {
                     context.AddItemGeometry(item.id, bbox);
+                    result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_Button: {
+                auto& state = context.GetState(item.id).state.button;
+                auto flags = ToTextFlags(state.type);
+                const auto style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_RadioButton: {
+                auto& state = context.GetState(item.id).state.radio;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_ToggleButton: {
+                auto& state = context.GetState(item.id).state.toggle;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_Checkbox: {
+                auto& state = context.GetState(item.id).state.checkbox;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case WT_Spinner: {
+                auto& state = context.GetState(item.id).state.spinner;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_Slider: {
+                auto& state = context.GetState(item.id).state.slider;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = SliderImpl(item.id, state, style, item.border, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_RangeSlider: {
+                auto& state = context.GetState(item.id).state.rangeSlider;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = RangeSliderImpl(item.id, state, style, item.border, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_TextInput: {
+                auto& state = context.GetState(item.id).state.input;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_DropDown: {
+                auto& state = context.GetState(item.id).state.dropdown;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case glimmer::WT_ItemGrid: {
+                /*auto& state = context.GetState(item.id).state.grid;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+                context.AddItemGeometry(item.id, bbox);
+                result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
+                */
+                assert(false);
+                break;
+            }
+            case WT_Scrollable: {
+                auto& region = context.ScrollRegion(item.id);
+                const auto style = context.GetStyle(WS_Default, item.id);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result.geometry = EndScrollableImpl(item.id, renderer);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case WT_TabBar: {
+                auto& state = context.GetState(item.id).state.tab;
+                const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = TabBarImpl(item.id, item.margin, style, io, renderer);
+                    if (result.event != WidgetEvent::Clicked)
+                        result.tabidx = context.TabBarState(item.id).current;
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            case WT_MediaResource: {
+                auto& state = context.GetState(item.id).state.media;
+                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    context.AddItemGeometry(item.id, bbox);
+                    result = MediaResourceImpl(item.id, style, item.margin, item.border, item.padding, item.content, renderer, io);
+                    if (!context.nestedContextStack.empty())
+                        UpdateParentWidgetGeometry(item, style);
+                }
+
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        else if (Config.CustomWidgetProvider != nullptr)
+        {
+            auto customType = (int16_t)(item.id >> WidgetTypeBits);
+            auto wfactory = Config.CustomWidgetProvider(customType);
+
+            if (wfactory != nullptr)
+            {
+                auto state = wfactory->GetState(item.id);
+                const auto style = wfactory->GetStyle(item.id, state, StyleStack[WSI_Default]);
+                ComputeBoxModelGeometry(item, bbox, style);
+
+                if (render)
+                {
+                    wfactory->RecordItemGeometry(item.id, bbox);
                     result = DrawCustomWidget(item.id, style, item, renderer, io);
                     if (!context.nestedContextStack.empty())
-                        RecordItemGeometry(item, style);
+                        UpdateParentWidgetGeometry(item, style);
                 }
             }
-
-            break;
-        }
-        default:
-            break;
         }
 
         renderer.ResetClipRect();

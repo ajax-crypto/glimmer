@@ -271,6 +271,18 @@ namespace glimmer
             std::string_view cancelBtnText;
         };
 
+        enum class EventHandlerTarget
+        {
+            ForUI, Generic
+        };
+
+        struct EventHandlerDescriptor
+        {
+            bool (*handler)(void* data, const IODescriptor& desc) = nullptr;
+            void* data = nullptr;
+            EventHandlerTarget target = EventHandlerTarget::ForUI;
+        };
+
         friend int64_t FramesRendered();
 
         IPlatform();
@@ -282,7 +294,7 @@ namespace glimmer
         virtual bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data) = 0;
         virtual ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels) = 0;
 
-        virtual void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) {}
+        virtual void PushEventHandler(const EventHandlerDescriptor& descriptor) {}
         virtual void* GetWindowHandle(void* outptr = nullptr);
         virtual int32_t ShowFileDialog(std::span<char>* out, int32_t outsz, int32_t target,
             std::string_view location, std::pair<std::string_view, std::string_view>* filters = nullptr,

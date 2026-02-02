@@ -828,29 +828,6 @@ namespace glimmer
             Vector<ImRect, int16_t>{ true },
             Vector<ImRect, int16_t>{ true }
         };
-        Vector<ImVec2, int16_t> itemSizes[WT_TotalTypes]{
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ false },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ false },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true },
-            Vector<ImVec2, int16_t>{ true }
-        };
         DynamicStack<int32_t, int16_t> containerStack{ 16 };
         FixedSizeStack<SplitterContainerState, 16> splitterStack;
         FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> layoutStack;
@@ -997,7 +974,6 @@ namespace glimmer
         void PushContainer(int32_t parentId, int32_t id);
         void PopContainer(int32_t id);
         void AddItemGeometry(int id, const ImRect& geometry, bool ignoreParent = false);
-        void AddItemSize(int id, ImVec2 sz);
         WidgetDrawResult HandleEvents(ImVec2 origin, int from = 0, int to = -1);
 
         void RegisterWidgetIdClass(WidgetType wt, int32_t index, const WidgetIdClasses& idClasses);
@@ -1008,7 +984,6 @@ namespace glimmer
         void ClearDeferredData();
 
         const ImRect& GetGeometry(int32_t id) const;
-        ImVec2 GetSize(int32_t id) const;
         ImRect GetLayoutSize() const;
         void RecordDeferRange(RendererEventIndexRange& range, bool start) const;
         ImVec2 MaximumSize() const;

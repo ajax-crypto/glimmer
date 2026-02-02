@@ -1439,6 +1439,14 @@ namespace glimmer
             item.content.Min.y = item.padding.Min.y + style.padding.top;
         }
 
+        if (item.text.GetArea() > 0.f)
+        {
+            auto sz = item.text.GetSize();
+            item.text.Min = item.content.Min;
+            item.text.Max = item.text.Min + sz;
+        }
+        else item.text = item.content;
+
         return item.margin.GetSize();
     }
 
@@ -4916,6 +4924,9 @@ namespace glimmer
         auto& state = context.TabBarState(id);
         const auto& config = context.GetState(id).state.tab;
         auto tabidx = 0;
+
+        DrawBackground(content.Min, content.Max, style, renderer);
+        DrawBorderRect(content.Min, content.Max, style.border, style.bgcolor, renderer);
         
         for (const auto& tab : state.tabs)
         {
@@ -5082,6 +5093,7 @@ namespace glimmer
         state.tabs.resize(builder.items.size());
         state.endTabs.resize(builder.endItems.size());
         state.tabidx = outidx;
+        if (outidx) state.current = (int16_t)(*outidx);
 
         auto tabidx = 0;
         for (auto& tab : state.tabs)
@@ -6039,7 +6051,7 @@ namespace glimmer
             std::make_pair(builder.origin.y, builder.origin.y + builder.size.y));
     }
 
-    void RecordItemGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style)
+    void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style)
     {
         auto& context = GetContext();
         
@@ -8082,7 +8094,7 @@ namespace glimmer
             if (alwaysVisible)
             {
                 if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
-                    origin.y = origin.y - size.y - overlayctx.parentContext->GetSize(overlayctx.PopupTarget).y;
+                    origin.y = origin.y - size.y - overlayctx.parentContext->GetGeometry(overlayctx.PopupTarget).GetHeight();
 
                 if ((origin.x + size.x) > available.x)
                     origin.x = origin.x - size.x;
@@ -8372,7 +8384,7 @@ namespace glimmer
     void HandleCustomWidgetEvent(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
     {
         if (!GetContext().deferEvents)
-            Config.customWidget->HandleEvents(id, offset, io, result);
+            Config.CustomWidgetProvider((int16_t)(id >> WidgetTypeBits))->HandleEvents(id, offset, io, result);
         else
             GetContext().deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
     }
@@ -8381,12 +8393,12 @@ namespace glimmer
         IRenderer& renderer, const IODescriptor& io)
     {
         WidgetDrawResult result;
-        Config.customWidget->DrawWidget(style, layoutItem, renderer, io);
+        Config.CustomWidgetProvider((int16_t)(id >> WidgetTypeBits))->DrawWidget(style, layoutItem, renderer, io);
         HandleCustomWidgetEvent(id, layoutItem.margin.Min, io, result);
         return result;
     }
 
-    StyleDescriptor ICustomWidget::GetStyle(int32_t id, int32_t state, const StyleStackT& stack)
+    StyleDescriptor ICustomWidget::ComputeStyle(int32_t id, int32_t state, const StyleStackT& stack)
     {
         return glimmer::GetStyle(GetContext(), id, &stack, state);
     }
@@ -8394,8 +8406,12 @@ namespace glimmer
     bool ICustomWidget::IsInState(int32_t id, WidgetState state)
     {
         auto& sdata = GetContext().GetState(id).state;
-        switch (id >> WidgetTypeBits)
+        auto type = id >> WidgetTypeBits;
+
+        if (type < WT_TotalTypes)
         {
+            switch (type)
+            {
             case WT_Region: return (sdata.region.state & state) != 0;
             case WT_Button: return (sdata.button.state & state) != 0;
             case WT_Label: return (sdata.label.state & state) != 0;
@@ -8407,12 +8423,30 @@ namespace glimmer
             case WT_TextInput: return (sdata.input.state & state) != 0;
             case WT_MediaResource: return (sdata.media.state & state) != 0;
             default: return false;
+            }
         }
+        else
+            return Config.CustomWidgetProvider ? (Config.CustomWidgetProvider(type)->GetState(id) & state) != 0 : false;
     }
 
     ImRect ICustomWidget::GetBounds(int32_t id)
     {
         return GetContext().GetGeometry(id);
+    }
+
+    ImVec2 ICustomWidget::GetMaximumSize()
+    {
+        return GetContext().MaximumSize();
+    }
+
+    ImVec2 ICustomWidget::GetMaximumExtent()
+    {
+        return GetContext().MaximumExtent();
+    }
+
+    std::pair<int16_t, int16_t> ICustomWidget::GetTypeAndIndex(int32_t id)
+    {
+        return { (int16_t)(id >> WidgetTypeBits), (int16_t)(id & WidgetIndexMask) };
     }
 
     std::tuple<ImRect, ImRect, ImRect, ImRect> ICustomWidget::GetBoxModelBounds(ImRect content,
@@ -8524,471 +8558,475 @@ namespace glimmer
             maxxy.x = extent.Max.x; // Bounded in x direction, y is from content
         }
 
-        switch (type)
+        if (type < WT_TotalTypes)
         {
-        case WT_Region: {
-            auto& state = context.GetState(wid).state.region;
-            auto style = context.GetStyle(state.state, wid);
-            const auto& region = context.regions[context.regionBuilders.top()];
-            UpdateTooltip(state.tooltip);
-
-            if (context.layoutStack.empty())
+            switch (type)
             {
-                std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin) =
-                    GetBoxModelBounds(ImRect{ region.origin, region.origin + region.size }, style);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                result = RegionImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, 
-                    layoutItem.content, renderer, io, -1);
-                RecordItemGeometry(layoutItem, style);
+            case WT_Region: {
+                auto& state = context.GetState(wid).state.region;
+                auto style = context.GetStyle(state.state, wid);
+                const auto& region = context.regions[context.regionBuilders.top()];
+                UpdateTooltip(state.tooltip);
+
+                if (context.layoutStack.empty())
+                {
+                    std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin) =
+                        GetBoxModelBounds(ImRect{ region.origin, region.origin + region.size }, style);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    result = RegionImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                        layoutItem.content, renderer, io, -1);
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+                break;
             }
-            break;
-        }
-        case WT_Label: {
-            auto& state = context.GetState(wid).state.label;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(pos,
-                    style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                auto pos = context.NextAdHocPos();
-                std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(
-                    pos, style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                auto flags = ToTextFlags(state.type);
-                result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
-                    layoutItem.content, layoutItem.text, renderer, io, flags);
-                RecordItemGeometry(layoutItem, style);
-            }
-            break;
-        }
-        case WT_Button: {
-            auto& state = context.GetState(wid).state.button;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                ButtonBounds(wid, layout.nextpos, layoutItem, style, renderer, geometry, neighbors, maxxy.x);
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                auto pos = context.NextAdHocPos();
-                ButtonBounds(wid, pos, layoutItem, style, renderer, geometry, neighbors, maxxy.x);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content,
-                    layoutItem.text, layoutItem.prefix, renderer, io);
-                RecordItemGeometry(layoutItem, style);
-            }
-
-            break;
-        }
-        case WT_RadioButton: {
-            auto& state = context.GetState(wid).state.radio;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-            
-            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
-            auto bounds = RadioButtonBounds(state, layoutItem.margin);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = RadioButtonImpl(wid, state, style, bounds, renderer, io);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-
-            break;
-        }
-        case WT_ToggleButton: {
-            auto& state = context.GetState(wid).state.toggle;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-            
-            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
-            auto [bounds, textsz] = ToggleButtonBounds(state, layoutItem.content, renderer);
-
-            if (bounds.GetArea() != layoutItem.margin.GetArea())
-                layoutItem.margin = layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
-
-            layoutItem.text.Min = layoutItem.margin.Min;
-            layoutItem.text.Max = layoutItem.text.Min + textsz;
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                renderer.SetClipRect(bounds.Min, bounds.Max);
-                result = ToggleButtonImpl(wid, state, style, bounds, textsz, renderer, io);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-            
-            break;
-        }
-        case WT_Checkbox: {
-            auto& state = context.GetState(wid).state.checkbox;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-            
-            AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
-            auto bounds = CheckboxBounds(state, layoutItem.margin);
-
-            if (bounds.GetArea() != layoutItem.margin.GetArea())
-            {
-                layoutItem.margin = bounds;
-                layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-                layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-
-                layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-                layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-            }
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = CheckboxImpl(wid, state, style, layoutItem.margin, layoutItem.padding, renderer, io);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-            
-            break;
-        }
-        case WT_Spinner: {
-            auto& state = context.GetState(wid).state.spinner;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-            
-            AddExtent(layoutItem, style, neighbors, { 
-                0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v() }, maxxy);
-            auto bounds = SpinnerBounds(wid, state, renderer, layoutItem.padding);
-
-            layoutItem.border.Max = bounds.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-            layoutItem.margin.Max = layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom };
-            layoutItem.content = layoutItem.padding = bounds;
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = SpinnerImpl(wid, state, style, layoutItem.padding, io, renderer);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-
-            break;
-        }
-        case WT_Slider: {
-            auto& state = context.GetState(wid).state.slider;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-            
-            auto deltav = style.margin.v() + style.border.v() + style.padding.v();
-            auto deltah = style.margin.h() + style.border.h() + style.padding.h();
-            AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
-                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
-            auto bounds = SliderBounds(wid, layoutItem.margin);
-
-            if (bounds.GetArea() != layoutItem.margin.GetArea())
-            {
-                layoutItem.margin = bounds;
-                layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-                layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-
-                layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-                layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-            }
-
-            layoutItem.content = layoutItem.padding;
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
-                if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
-                layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = SliderImpl(wid, state, style, layoutItem.border, renderer, io);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-
-            break;
-        }
-        case WT_RangeSlider: {
-            auto& state = context.GetState(wid).state.rangeSlider;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-
-            auto deltav = style.margin.v() + style.border.v() + style.padding.v();
-            auto deltah = style.margin.h() + style.border.h() + style.padding.h();
-            AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
-                state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
-            auto bounds = RangeSliderBounds(wid, layoutItem.margin);
-
-            if (bounds.GetArea() != layoutItem.margin.GetArea()) 
-            {
-                layoutItem.margin = bounds;
-                layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
-                layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
-                layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
-                layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
-            }
-
-            layoutItem.content = layoutItem.padding;
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty()) 
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
-                if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
-                layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else 
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = RangeSliderImpl(wid, state, style, layoutItem.border, renderer, io);
-                context.AddItemGeometry(wid, bounds);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-            break;
-        }
-        case WT_TextInput: {
-            auto& state = context.GetState(wid).state.input;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.nextpos;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                DetermineBounds({ style.dimension.x, style.font.size }, state.prefix, state.suffix, pos, layoutItem, style, renderer, geometry, neighbors);
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                auto pos = context.NextAdHocPos();
-                DetermineBounds({ style.dimension.x, style.font.size }, state.prefix, state.suffix, pos, layoutItem, style, renderer, geometry, neighbors);
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = TextInputImpl(wid, state, style, layoutItem.border, layoutItem.content, layoutItem.prefix, layoutItem.suffix, renderer, io);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-            
-            break;
-        }
-        case WT_DropDown: {
-            static char DummyString[256];
-            memset(DummyString, 'X', 254);
-            DummyString[255] = 0;
-
-            auto& state = context.GetState(wid).state.dropdown;
-            const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
-            auto style = context.GetStyle(state.state, wid);
-            auto textsz = state.width <= 0 ? GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer) :
-                GetTextSize(TextType::PlainText, std::string_view{ DummyString, (size_t)state.width }, style.font, maxxy.x, renderer);
-            UpdateTooltip(state.tooltip);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
-                    !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
-                    pos, layoutItem, style, renderer, geometry, neighbors);
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                auto pos = context.NextAdHocPos();
-                DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
-                    !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
-                    pos, layoutItem, style, renderer, geometry, neighbors);
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = DropDownImpl(wid, state, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
-                    layoutItem.content, layoutItem.text, renderer, io);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                renderer.ResetClipRect();
-                RecordItemGeometry(layoutItem, style);
-            }
-            
-            break;
-        }
-        case WT_TabBar: {
-            const auto style = context.GetStyle(WS_Default, wid);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                const auto& currentTab = layout.tabbar;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                AddExtent(layoutItem, style, currentTab.neighbors, { 0.f, 0.f }, maxxy);
-                auto bounds = TabBarBounds(currentTab.id, layoutItem.padding, renderer);
-                bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
-                layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                AddExtent(layoutItem, style, context.currentTab.neighbors, { 0.f, 0.f }, maxxy);
-                auto bounds = TabBarBounds(context.currentTab.id, layoutItem.border, renderer);
-                bounds.Max.x = std::min(bounds.Max.x, layoutItem.border.Max.x);
-
-                result = TabBarImpl(wid, bounds, style, io, renderer);
-                context.AddItemGeometry(wid, bounds);
-                RecordItemGeometry(layoutItem, style);
-            }
-
-            break;
-        }
-        case WT_NavDrawer: {
-            auto& navstate = context.NavDrawerState(wid);
-            const auto style = context.GetStyle(navstate.state, wid);
-            assert(context.layoutStack.empty());
-
-            layoutItem.sizing = context.currentNavDrawer.direction == DIR_Vertical ?
-                AlignLeft | ExpandV : AlignTop | ExpandH;
-            AddExtent(layoutItem, style, context.currentNavDrawer.neighbors, { 0.f, 0.f }, maxxy);
-            auto bounds = NavDrawerBounds(context.currentNavDrawer.id, layoutItem.padding, renderer);
-            result = NavDrawerImpl(wid, bounds, style, io, renderer);
-            context.AddItemGeometry(wid, bounds);
-            RecordItemGeometry(layoutItem, style);
-
-            break;
-        }
-        case WT_ItemGrid: {
-            auto& state = context.GetState(wid).state.grid;
-            auto style = context.GetStyle(state.state, wid);
-            
-            AddExtent(layoutItem, style, neighbors);
-
-            if (context.nestedContextStack.empty())
-            {
-                renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
-                result = ItemGridImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
-                    layoutItem.content, layoutItem.text, renderer, io);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                renderer.ResetClipRect();
-            }
-            else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                /*auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                AddItemToLayout(layout, layoutItem, style);*/
-                assert(false); // Not implemented...
-            }
-            else if (nestedCtx.source == NestedContextSourceType::ItemGrid && !nestedCtx.base->itemGrids.empty())
-            {
-                assert(false); // Nested item grid not implemented yet...
-            }
-            
-            break;
-        }
-        case WT_MediaResource: {
-            auto& state = context.GetState(id).state.media;
-            auto style = context.GetStyle(state.state, wid);
-            UpdateTooltip(state.tooltip);
-
-            if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
-            {
-                auto& layout = context.layouts[context.layoutStack.top()];
-                auto pos = layout.geometry.Min;
-
-                if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
-                if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
-                DetermineIconBounds(pos, state, style, layoutItem);
-                AddItemToLayout(layout, layoutItem, style);
-            }
-            else
-            {
-                auto pos = context.NextAdHocPos();
-                DetermineIconBounds(pos, state, style, layoutItem);
-                context.AddItemGeometry(wid, layoutItem.margin);
-                result = MediaResourceImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
-                    layoutItem.content, renderer, io);
-                RecordItemGeometry(layoutItem, style);
-            }
-            break;
-        }
-        case WT_Custom: {
-            if (Config.customWidget != nullptr)
-            {
-                const auto style = Config.customWidget->GetStyle(wid, WidgetContextData::StyleStack[WSI_Default]);
+            case WT_Label: {
+                auto& state = context.GetState(wid).state.label;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
 
                 if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
                 {
                     auto& layout = context.layouts[context.layoutStack.top()];
                     auto pos = layout.geometry.Min;
-                    Config.customWidget->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
+
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                    std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(pos,
+                        style, state.text, renderer, ToBottom | ToRight, state.type, neighbors, maxxy.x, maxxy.y);
                     AddItemToLayout(layout, layoutItem, style);
                 }
                 else
                 {
                     auto pos = context.NextAdHocPos();
-                    Config.customWidget->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
+                    std::tie(layoutItem.content, layoutItem.padding, layoutItem.border, layoutItem.margin, layoutItem.text) = GetBoxModelBounds(
+                        pos, style, state.text, renderer, geometry, state.type, neighbors, maxxy.x, maxxy.y);
                     context.AddItemGeometry(wid, layoutItem.margin);
+                    auto flags = ToTextFlags(state.type);
+                    result = LabelImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                        layoutItem.content, layoutItem.text, renderer, io, flags);
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+                break;
+            }
+            case WT_Button: {
+                auto& state = context.GetState(wid).state.button;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    ButtonBounds(wid, layout.nextpos, layoutItem, style, renderer, geometry, neighbors, maxxy.x);
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    ButtonBounds(wid, pos, layoutItem, style, renderer, geometry, neighbors, maxxy.x);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    result = ButtonImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding, layoutItem.content,
+                        layoutItem.text, layoutItem.prefix, renderer, io);
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_RadioButton: {
+                auto& state = context.GetState(wid).state.radio;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
+                auto bounds = RadioButtonBounds(state, layoutItem.margin);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = RadioButtonImpl(wid, state, style, bounds, renderer, io);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_ToggleButton: {
+                auto& state = context.GetState(wid).state.toggle;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
+                auto [bounds, textsz] = ToggleButtonBounds(state, layoutItem.content, renderer);
+
+                if (bounds.GetArea() != layoutItem.margin.GetArea())
+                    layoutItem.margin = layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
+
+                layoutItem.text.Min = layoutItem.margin.Min;
+                layoutItem.text.Max = layoutItem.text.Min + textsz;
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(bounds.Min, bounds.Max);
+                    result = ToggleButtonImpl(wid, state, style, bounds, textsz, renderer, io);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_Checkbox: {
+                auto& state = context.GetState(wid).state.checkbox;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                AddExtent(layoutItem, style, neighbors, { style.font.size, style.font.size }, maxxy);
+                auto bounds = CheckboxBounds(state, layoutItem.margin);
+
+                if (bounds.GetArea() != layoutItem.margin.GetArea())
+                {
+                    layoutItem.margin = bounds;
+                    layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                    layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+
+                    layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+                    layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+                }
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = CheckboxImpl(wid, state, style, layoutItem.margin, layoutItem.padding, renderer, io);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_Spinner: {
+                auto& state = context.GetState(wid).state.spinner;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                AddExtent(layoutItem, style, neighbors, {
+                    0.f, style.font.size + style.margin.v() + style.border.v() + style.padding.v() }, maxxy);
+                auto bounds = SpinnerBounds(wid, state, renderer, layoutItem.padding);
+
+                layoutItem.border.Max = bounds.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+                layoutItem.margin.Max = layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom };
+                layoutItem.content = layoutItem.padding = bounds;
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = SpinnerImpl(wid, state, style, layoutItem.padding, io, renderer);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_Slider: {
+                auto& state = context.GetState(wid).state.slider;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                auto deltav = style.margin.v() + style.border.v() + style.padding.v();
+                auto deltah = style.margin.h() + style.border.h() + style.padding.h();
+                AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
+                    state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
+                auto bounds = SliderBounds(wid, layoutItem.margin);
+
+                if (bounds.GetArea() != layoutItem.margin.GetArea())
+                {
+                    layoutItem.margin = bounds;
+                    layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                    layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+
+                    layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+                    layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+                }
+
+                layoutItem.content = layoutItem.padding;
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
+                    if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
+                    layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = SliderImpl(wid, state, style, layoutItem.border, renderer, io);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_RangeSlider: {
+                auto& state = context.GetState(wid).state.rangeSlider;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                auto deltav = style.margin.v() + style.border.v() + style.padding.v();
+                auto deltah = style.margin.h() + style.border.h() + style.padding.h();
+                AddExtent(layoutItem, style, neighbors, { state.dir == DIR_Horizontal ? 0.f : style.font.size + deltah,
+                    state.dir == DIR_Vertical ? 0.f : style.font.size + deltav }, maxxy);
+                auto bounds = RangeSliderBounds(wid, layoutItem.margin);
+
+                if (bounds.GetArea() != layoutItem.margin.GetArea())
+                {
+                    layoutItem.margin = bounds;
+                    layoutItem.border.Min = layoutItem.margin.Min + ImVec2{ style.margin.left, style.margin.top };
+                    layoutItem.border.Max = layoutItem.margin.Max - ImVec2{ style.margin.right, style.margin.bottom };
+                    layoutItem.padding.Min = layoutItem.border.Min + ImVec2{ style.border.left.thickness, style.border.top.thickness };
+                    layoutItem.padding.Min = layoutItem.border.Max + ImVec2{ style.border.right.thickness, style.border.bottom.thickness };
+                }
+
+                layoutItem.content = layoutItem.padding;
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    if ((geometry & ExpandH) && (state.dir == DIR_Horizontal)) layoutItem.sizing |= ExpandH;
+                    if ((geometry & ExpandV) && (state.dir == DIR_Vertical)) layoutItem.sizing |= ExpandV;
+                    layoutItem.sizing |= state.dir == DIR_Horizontal ? ShrinkH : ShrinkV;
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = RangeSliderImpl(wid, state, style, layoutItem.border, renderer, io);
+                    context.AddItemGeometry(wid, bounds);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+                break;
+            }
+            case WT_TextInput: {
+                auto& state = context.GetState(wid).state.input;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.nextpos;
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                    DetermineBounds({ style.dimension.x, style.font.size }, state.prefix, state.suffix, pos, layoutItem, style, renderer, geometry, neighbors);
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    DetermineBounds({ style.dimension.x, style.font.size }, state.prefix, state.suffix, pos, layoutItem, style, renderer, geometry, neighbors);
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = TextInputImpl(wid, state, style, layoutItem.border, layoutItem.content, layoutItem.prefix, layoutItem.suffix, renderer, io);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_DropDown: {
+                static char DummyString[256];
+                memset(DummyString, 'X', 254);
+                DummyString[255] = 0;
+
+                auto& state = context.GetState(wid).state.dropdown;
+                const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
+                auto style = context.GetStyle(state.state, wid);
+                auto textsz = state.width <= 0 ? GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer) :
+                    GetTextSize(TextType::PlainText, std::string_view{ DummyString, (size_t)state.width }, style.font, maxxy.x, renderer);
+                UpdateTooltip(state.tooltip);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                        !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                        pos, layoutItem, style, renderer, geometry, neighbors);
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    DetermineBounds(textsz, ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                        !ddstyle.isIndicatorSuffix ? std::string_view{} : ddstyle.indicators[state.opened],
+                        pos, layoutItem, style, renderer, geometry, neighbors);
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = DropDownImpl(wid, state, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                        layoutItem.content, layoutItem.text, renderer, io);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    renderer.ResetClipRect();
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_TabBar: {
+                const auto style = context.GetStyle(WS_Default, wid);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    const auto& currentTab = layout.tabbar;
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    AddExtent(layoutItem, style, currentTab.neighbors, { 0.f, 0.f }, maxxy);
+                    auto bounds = TabBarBounds(currentTab.id, layoutItem.padding, renderer);
+                    bounds.Max.x = std::max(bounds.Max.x, layoutItem.border.Max.x);
+                    layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    AddExtent(layoutItem, style, context.currentTab.neighbors, { 0.f, 0.f }, maxxy);
+                    auto bounds = TabBarBounds(context.currentTab.id, layoutItem.border, renderer);
+                    bounds.Max.x = std::max(bounds.Max.x, layoutItem.border.Max.x);
+
+                    result = TabBarImpl(wid, bounds, style, io, renderer);
+                    context.AddItemGeometry(wid, bounds);
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+
+                break;
+            }
+            case WT_NavDrawer: {
+                auto& navstate = context.NavDrawerState(wid);
+                const auto style = context.GetStyle(navstate.state, wid);
+                assert(context.layoutStack.empty());
+
+                layoutItem.sizing = context.currentNavDrawer.direction == DIR_Vertical ?
+                    AlignLeft | ExpandV : AlignTop | ExpandH;
+                AddExtent(layoutItem, style, context.currentNavDrawer.neighbors, { 0.f, 0.f }, maxxy);
+                auto bounds = NavDrawerBounds(context.currentNavDrawer.id, layoutItem.padding, renderer);
+                result = NavDrawerImpl(wid, bounds, style, io, renderer);
+                context.AddItemGeometry(wid, bounds);
+                UpdateParentWidgetGeometry(layoutItem, style);
+
+                break;
+            }
+            case WT_ItemGrid: {
+                auto& state = context.GetState(wid).state.grid;
+                auto style = context.GetStyle(state.state, wid);
+
+                AddExtent(layoutItem, style, neighbors);
+
+                if (context.nestedContextStack.empty())
+                {
+                    renderer.SetClipRect(layoutItem.margin.Min, layoutItem.margin.Max);
+                    result = ItemGridImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                        layoutItem.content, layoutItem.text, renderer, io);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    renderer.ResetClipRect();
+                }
+                else if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    /*auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                    AddItemToLayout(layout, layoutItem, style);*/
+                    assert(false); // Not implemented...
+                }
+                else if (nestedCtx.source == NestedContextSourceType::ItemGrid && !nestedCtx.base->itemGrids.empty())
+                {
+                    assert(false); // Nested item grid not implemented yet...
+                }
+
+                break;
+            }
+            case WT_MediaResource: {
+                auto& state = context.GetState(id).state.media;
+                auto style = context.GetStyle(state.state, wid);
+                UpdateTooltip(state.tooltip);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+
+                    if (geometry & ExpandH) layoutItem.sizing |= ExpandH;
+                    if (geometry & ExpandV) layoutItem.sizing |= ExpandV;
+                    DetermineIconBounds(pos, state, style, layoutItem);
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    DetermineIconBounds(pos, state, style, layoutItem);
+                    context.AddItemGeometry(wid, layoutItem.margin);
+                    result = MediaResourceImpl(wid, style, layoutItem.margin, layoutItem.border, layoutItem.padding,
+                        layoutItem.content, renderer, io);
+                    UpdateParentWidgetGeometry(layoutItem, style);
+                }
+                break;
+            }
+            default: break;
+            }
+        }
+        else if (Config.CustomWidgetProvider != nullptr)
+        {
+            auto customType = (int16_t)(wid >> WidgetTypeBits);
+            auto wfactory = Config.CustomWidgetProvider(customType);
+
+            if (wfactory != nullptr)
+            {
+                auto state = wfactory->GetState(wid);
+                const auto style = wfactory->GetStyle(wid, state, WidgetContextData::StyleStack[WSI_Default]);
+
+                if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())
+                {
+                    auto& layout = context.layouts[context.layoutStack.top()];
+                    auto pos = layout.geometry.Min;
+                    wfactory->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
+                    AddItemToLayout(layout, layoutItem, style);
+                }
+                else
+                {
+                    auto pos = context.NextAdHocPos();
+                    wfactory->ComputeGeometry(pos, layoutItem, neighbors, maxxy);
                     result = DrawCustomWidget(wid, style, layoutItem, renderer, io);
-                    RecordItemGeometry(layoutItem, style);
+                    UpdateParentWidgetGeometry(layoutItem, style);
                 }
             }
-
-            break;
-        }
-        default: break;
         }
 
-        context.AddItemSize(wid, layoutItem.margin.GetSize());
         result.id = wid;
         PreviousWidget = wid;
         return result;

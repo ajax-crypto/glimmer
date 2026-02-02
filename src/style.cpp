@@ -8,6 +8,7 @@
 #include <variant>
 #include "style.h"
 #include "platform.h"
+#include "widgets.h"
 
 namespace glimmer
 {
@@ -1471,7 +1472,8 @@ namespace glimmer
 
     StyleDescriptor& GetWidgetStyle(WidgetType type, WidgetStateIndex index)
     {
-        auto name = Config.widgetNames[type];
+        auto name = type < WT_TotalTypes ? Config.widgetNames[type] : Config.CustomWidgetProvider ?
+            Config.CustomWidgetProvider((int16_t)type)->GetName() : "invalid";
         return GetStyle(name, index);
     }
 

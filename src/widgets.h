@@ -182,16 +182,24 @@ namespace glimmer
 
     struct ICustomWidget
     {
-        virtual StyleDescriptor GetStyle(int32_t id, const StyleStackT& stack) = 0;
+        virtual StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack) = 0;
         virtual ImRect ComputeGeometry(const ImVec2& pos, const LayoutItemDescriptor& layoutItem, 
             const NeighborWidgets& neighbors, ImVec2 maxsz) = 0;
         virtual WidgetDrawResult DrawWidget(const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem, 
             IRenderer& renderer, const IODescriptor& io) = 0;
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
+        virtual void RecordItemGeometry(int32_t id, const ImRect& rect) = 0;
 
-        static StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack);
+        virtual const ImRect& GetGeometry(int32_t id) const = 0;
+        virtual int32_t GetState(int32_t id) const = 0;
+        virtual std::string_view GetName() const = 0;
+
+        static StyleDescriptor ComputeStyle(int32_t id, int32_t state, const StyleStackT& stack);
         static bool IsInState(int32_t id, WidgetState state);
         static ImRect GetBounds(int32_t id);
+        static ImVec2 GetMaximumSize();
+        static ImVec2 GetMaximumExtent();
+        static std::pair<int16_t, int16_t> GetTypeAndIndex(int32_t id);
         static std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style);
         static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
             std::string_view text, IRenderer& renderer, int32_t geometry, TextType type,

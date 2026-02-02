@@ -1149,9 +1149,9 @@ namespace glimmer {
             return true;
         }
 
-        void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) override
+        void PushEventHandler(const EventHandlerDescriptor& descriptor) override
         {
-            handlers.emplace_back(data, callback);
+            handlers.emplace_back(descriptor);
         }
 
         bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
@@ -1190,6 +1190,11 @@ namespace glimmer {
                         resetCustom = true;
                 }
 
+                // Call generic event handlers
+                for (auto [handler, data, type] : handlers)
+                    if (type == EventHandlerTarget::Generic)
+                        done = !handler(data, desc) && done;
+
                 if (done) break;
 
                 // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
@@ -1207,8 +1212,9 @@ namespace glimmer {
                 {
                     done = !runner(ImVec2{ (float)width, (float)height }, *this, data);
 
-                    for (auto [data, handler] : handlers)
-                        done = !handler(data, desc) && done;
+                    for (auto [handler, data, type] : handlers)
+                        if (type == EventHandlerTarget::ForUI)
+                            done = !handler(data, desc) && done;
                 }
 
                 ExitFrame();
@@ -1558,7 +1564,7 @@ namespace glimmer {
         std::once_flag nfdInitialized;
 #endif
 
-        std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
+        std::vector<EventHandlerDescriptor> handlers;
         std::deque<CustomEventData> custom;
     };
 
@@ -1792,6 +1798,11 @@ namespace glimmer {
                 int width, height;
                 glfwGetWindowSize(window, &width, &height);
 
+                // Call generic event handlers
+                for (auto [handler, data, type] : handlers)
+                    if (type == EventHandlerTarget::Generic)
+                        done = !handler(data, desc) && done;
+
                 // Start the Dear ImGui frame
                 ImGui_ImplOpenGL3_NewFrame();
                 ImGui_ImplGlfw_NewFrame();
@@ -1800,8 +1811,9 @@ namespace glimmer {
                 {
                     close = !runner(ImVec2{ static_cast<float>(width), static_cast<float>(height) }, *this, data);
 
-                    for (auto [data, handler] : handlers)
-                        close = !handler(data, desc) && close;
+                    for (auto [handler, data, type] : handlers)
+                        if (type == EventHandlerTarget::ForUI)
+                            done = !handler(data, desc) && done;
                 }
 
                 ExitFrame();
@@ -1893,16 +1905,16 @@ namespace glimmer {
 
 #endif
 
-        void PushEventHandler(bool (*callback)(void* data, const IODescriptor& desc), void* data) override
+        void PushEventHandler(const EventHandlerDescriptor& descriptor) override
         {
-            handlers.emplace_back(data, callback);
+            handlers.emplace_back(descriptor);
         }
 
         GLFWwindow* window = nullptr;
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
         std::once_flag nfdInitialized;
 #endif
-        std::vector<std::pair<void*, bool(*)(void*, const IODescriptor&)>> handlers;
+        std::vector<EventHandlerDescriptor> handlers;
     };
 
     IPlatform* InitPlatform(ImVec2 size)

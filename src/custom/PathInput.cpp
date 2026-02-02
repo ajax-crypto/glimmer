@@ -47,7 +47,7 @@ namespace glimmer
                 entry.target = isDirectory ? IPlatform::FileDialogTarget::OneDirectory :
                     IPlatform::FileDialogTarget::OneFile;
 
-                GetUIConfig().platform->PushEventHandler([](void* data, const IODescriptor& desc) {
+                GetUIConfig().platform->PushEventHandler({ .handler = [](void* data, const IODescriptor& desc) {
                     auto id = (int32_t)reinterpret_cast<intptr_t>(data);
                     auto bounds = ICustomWidget::GetBounds(id);
                     auto config = PathInputConfigs.at(id);
@@ -67,7 +67,7 @@ namespace glimmer
                     }
 
                     return true;
-                    }, data);
+                    }, .data = data });
             }
 
             return EndLayout();
@@ -200,7 +200,7 @@ namespace glimmer
                     data.pathsInfo.push_back({ std::string(paths.out[i]), AnimState::None, 1.0f });
                     data.currentPathCount++;
                 }
-                GetUIConfig().platform->PushEventHandler(HandleMultiPathInputEvents, &data);
+                GetUIConfig().platform->PushEventHandler({ .handler = &HandleMultiPathInputEvents, .data = &data });
                 data.isInitialized = true;
             }
 
