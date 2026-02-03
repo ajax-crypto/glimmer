@@ -1877,7 +1877,7 @@ namespace glimmer
                 if (render)
                 {
                     context.AddItemGeometry(item.id, bbox);
-                    result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
+                    result = TextInputImpl(item.id, state, style, item.border, item.content, item.prefix, item.suffix, renderer, io);
                     if (!context.nestedContextStack.empty())
                         UpdateParentWidgetGeometry(item, style);
                 }
