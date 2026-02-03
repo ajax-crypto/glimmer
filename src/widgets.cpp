@@ -87,7 +87,7 @@ namespace glimmer
         return result;
     }
 
-    static std::pair<int32_t, bool> GetIdFromString(std::string_view id, WidgetType type)
+    std::pair<int32_t, bool> GetIdFromString(std::string_view id, WidgetType type)
     {
         auto initial = false;
         auto it = NamedIds[type].find(id);
@@ -6091,9 +6091,6 @@ namespace glimmer
         builder.id = id;
         builder.geometry = geometry;
         builder.neighbors = neighbors;
-        builder.origin = context.NextAdHocPos() + ImVec2{ style.margin.left + style.border.left.thickness + style.padding.left,
-            style.margin.top + style.border.top.thickness + style.padding.top };
-        builder.nextpos = builder.origin;
 
         LayoutItemDescriptor item;
         item.wtype = WT_ItemGrid;
@@ -6102,6 +6099,7 @@ namespace glimmer
         if (config.scrollprops & ST_Always_H) item.content.Max.y -= Config.scrollbar.width;
         if (config.scrollprops & ST_Always_V) item.content.Max.x -= Config.scrollbar.width;
         builder.size = item.content.GetSize();
+        builder.origin = builder.nextpos = item.content.Min;
 
         context.CurrentItemGridContext = &context;
         auto& ctx = PushContext(id);
@@ -8935,6 +8933,7 @@ namespace glimmer
                     AlignLeft | ExpandV : AlignTop | ExpandH;
                 AddExtent(layoutItem, style, context.currentNavDrawer.neighbors, { 0.f, 0.f }, maxxy);
                 auto bounds = NavDrawerBounds(context.currentNavDrawer.id, layoutItem.padding, renderer);
+                layoutItem.margin = layoutItem.border = layoutItem.padding = layoutItem.content = bounds;
                 result = NavDrawerImpl(wid, bounds, style, io, renderer);
                 context.AddItemGeometry(wid, bounds);
                 UpdateParentWidgetGeometry(layoutItem, style);

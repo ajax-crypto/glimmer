@@ -834,8 +834,6 @@ namespace glimmer
         Vector<LayoutBuilder, int16_t> layouts;
 
         FixedSizeStack<AccordionBuilder, 4> accordions;
-        FixedSizeStack<Sizing, GLIMMER_MAX_LAYOUT_NESTING> sizing;
-        FixedSizeStack<int32_t, GLIMMER_MAX_LAYOUT_NESTING> spans;
         DynamicStack<AdHocLayoutState, int16_t, 4> adhocLayout;
         Vector<std::pair<int64_t, LayoutOps>, int16_t> replayContent;
         StyleStackT layoutStyles[WSI_Total]{ false, false, false, false,
@@ -983,7 +981,7 @@ namespace glimmer
         void ResetLayoutData();
         void ClearDeferredData();
 
-        const ImRect& GetGeometry(int32_t id) const;
+        ImRect GetGeometry(int32_t id) const;
         ImRect GetLayoutSize() const;
         void RecordDeferRange(RendererEventIndexRange& range, bool start) const;
         ImVec2 MaximumSize() const;

@@ -865,10 +865,11 @@ namespace glimmer
         deferedRenderer->Reset();
     }
 
-    const ImRect& WidgetContextData::GetGeometry(int32_t id) const
+    ImRect WidgetContextData::GetGeometry(int32_t id) const
     {
         auto index = id & WidgetIndexMask;
         auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        assert(index < itemGeometries[wtype].size());
         return wtype < WT_TotalTypes ? itemGeometries[wtype][index] : Config.CustomWidgetProvider ?
             Config.CustomWidgetProvider(wtype)->GetGeometry(id) : ImRect{};
     }
@@ -1197,6 +1198,22 @@ namespace glimmer
         if (Config.logger) Config.logger->Finish();
     }
 
+    static void ComputeAbsoluteDimension(StyleDescriptor& style)
+    {
+        if (GetContext().layoutStack.empty() && (style.relativeProps != 0))
+        {
+            auto totalsz = GetContext().MaximumSize();
+
+            if (style.relativeProps & StyleWidth) style.dimension.x = totalsz.x * style.dimension.x;
+            if (style.relativeProps & StyleMinWidth) style.mindim.x = totalsz.x * style.mindim.x;
+            if (style.relativeProps & StyleMaxWidth) style.maxdim.x = totalsz.x * style.maxdim.x;
+
+            if (style.relativeProps & StyleHeight) style.dimension.y = totalsz.y * style.dimension.y;
+            if (style.relativeProps & StyleMinHeight) style.mindim.y = totalsz.y * style.mindim.y;
+            if (style.relativeProps & StyleMaxHeight) style.maxdim.y = totalsz.y * style.maxdim.y;
+        }
+    }
+
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state)
     {
         StyleDescriptor res;
@@ -1230,6 +1247,7 @@ namespace glimmer
             defstyle = *StyleStack[WSI_Default].begin();
 
         if (style != WSI_Default) CopyStyle(defstyle, res);
+        ComputeAbsoluteDimension(res);
         AddFontPtr(res.font);
         return res;
     }

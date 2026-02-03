@@ -188,20 +188,22 @@ namespace glimmer
         return { result, !isInt };
     }
 
-    [[nodiscard]] float ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale)
+    [[nodiscard]] std::pair<float, bool> ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale)
     {
-        float result = defaultVal, base = 1.f;
-        auto idx = (int)input.size() - 1;
+        float result = defaultVal;
+        auto sz = (int)input.size() - 1;
+        auto idx = sz;
+        auto relative = false;
         while (!std::isdigit(input[idx]) && idx >= 0) idx--;
 
         if (AreSame(input.substr(idx + 1), "pt")) scale = 1.3333f;
         else if (AreSame(input.substr(idx + 1), "em")) scale = ems;
-        else if (input[idx + 1] == '%') scale = parent * 0.01f;
+        else if (((idx + 1) < sz) && (input[idx + 1] == '%')) { scale = parent * 0.01f; relative = true; }
 
         auto num = ExtractNumber(input.substr(0, idx + 1), defaultVal);
         result = num.value;
 
-        return result * scale;
+        return { result * scale, relative };
     }
 
     [[nodiscard]] FourSidedMeasure ExtractWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale)
@@ -210,24 +212,24 @@ namespace glimmer
         auto idx = SkipSpace(input, 0);
         auto end = (int)input.size();
         while ((idx < end) && !std::isspace(input[idx])) idx++;
-        result.top = result.bottom = result.left = result.right = ExtractFloatWithUnit(input.substr(0, idx), defaultVal, ems, parent, scale);
+        result.top = result.bottom = result.left = result.right = ExtractFloatWithUnit(input.substr(0, idx), defaultVal, ems, parent, scale).first;
         idx = SkipSpace(input, idx);
 
         if (idx < ((int)input.size() - 1))
         {
             auto start = idx;
             while ((idx < end) && !std::isspace(input[idx])) idx++;
-            result.right = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+            result.right = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale).first;
             idx = SkipSpace(input, idx);
 
             start = idx;
             while ((idx < end) && !std::isspace(input[idx])) idx++;
-            result.bottom = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+            result.bottom = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale).first;
             idx = SkipSpace(input, idx);
 
             start = idx;
             while ((idx < end) && !std::isspace(input[idx])) idx++;
-            result.left = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale);
+            result.left = ExtractFloatWithUnit(input.substr(start, idx - start), defaultVal, ems, parent, scale).first;
         }
 
         return result;
@@ -604,7 +606,7 @@ namespace glimmer
         auto idx = WholeWord(input);
 
         if (AreSame(input.substr(0, idx), "none")) return result;
-        result.thickness = ExtractFloatWithUnit(input.substr(0, idx), 1.f, ems, percent, 1.f);
+        result.thickness = ExtractFloatWithUnit(input.substr(0, idx), 1.f, ems, percent, 1.f).first;
         idx = SkipSpace(input, idx);
 
         auto idx2 = WholeWord(input, idx + 1);
@@ -633,7 +635,7 @@ namespace glimmer
         auto idx = WholeWord(input);
 
         if (AreSame(input.substr(0, idx), "none")) return result;
-        result.offset.x = ExtractFloatWithUnit(input.substr(0, idx), 0.f, ems, percent, 1.f);
+        result.offset.x = ExtractFloatWithUnit(input.substr(0, idx), 0.f, ems, percent, 1.f).first;
         idx = SkipSpace(input, idx);
 
         auto prev = idx;
@@ -641,7 +643,7 @@ namespace glimmer
 
         if (!IsColor(input, prev))
         {
-            result.offset.y = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f);
+            result.offset.y = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f).first;
             idx = SkipSpace(input, idx);
 
             prev = idx;
@@ -649,7 +651,7 @@ namespace glimmer
 
             if (!IsColor(input, prev))
             {
-                result.blur = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f);
+                result.blur = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f).first;
                 idx = SkipSpace(input, idx);
 
                 prev = idx;
@@ -657,7 +659,7 @@ namespace glimmer
 
                 if (!IsColor(input, prev))
                 {
-                    result.spread = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f);
+                    result.spread = ExtractFloatWithUnit(input.substr(prev, (idx - prev)), 0.f, ems, percent, 1.f).first;
                     idx = SkipSpace(input, idx);
 
                     prev = idx;
@@ -814,7 +816,7 @@ namespace glimmer
             else if (AreSame(stylePropVal, "xxx-large")) style.font.size = Config.defaultFontSz * 3.f * Config.fontScaling;
             else
                 style.font.size = ExtractFloatWithUnit(stylePropVal, Config.defaultFontSz * Config.fontScaling,
-                    Config.defaultFontSz * Config.fontScaling, 1.f, Config.fontScaling);
+                    Config.defaultFontSz * Config.fontScaling, 1.f, Config.fontScaling).first;
             prop = StyleFontSize;
         }
         else if (AreSame(stylePropName, "font-weight"))
@@ -856,33 +858,45 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "width"))
         {
-            style.dimension.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.dimension.x = pair.first;
+            if (pair.second) style.relativeProps |= StyleWidth;
             prop = StyleWidth;
         }
         else if (AreSame(stylePropName, "height"))
         {
-            style.dimension.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.dimension.y = pair.first;
+            if (pair.second) style.relativeProps |= StyleHeight;
             prop = StyleHeight;
         }
         else if (AreSame(stylePropName, "min-width"))
         {
-            style.mindim.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            prop = StyleWidth;
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.mindim.x = pair.first;
+            if (pair.second) style.relativeProps |= StyleMinWidth;
+            prop = StyleMinWidth;
         }
         else if (AreSame(stylePropName, "min-height"))
         {
-            style.mindim.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            prop = StyleHeight;
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.mindim.y = pair.first;
+            if (pair.second) style.relativeProps |= StyleMinHeight;
+            prop = StyleMinHeight;
         }
         else if (AreSame(stylePropName, "max-width"))
         {
-            style.maxdim.x = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            prop = StyleWidth;
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.maxdim.x = pair.first;
+            if (pair.second) style.relativeProps |= StyleMaxWidth;
+            prop = StyleMaxWidth;
         }
         else if (AreSame(stylePropName, "max-height"))
         {
-            style.maxdim.y = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            prop = StyleHeight;
+            auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
+            style.maxdim.y = pair.first;
+            if (pair.second) style.relativeProps |= StyleMaxHeight;
+            prop = StyleMaxHeight;
         }
         else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
         {
@@ -912,25 +926,25 @@ namespace glimmer
         else if (AreSame(stylePropName, "padding-top"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            style.padding.top = val;
+            style.padding.top = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-bottom"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            style.padding.bottom = val;
+            style.padding.bottom = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-left"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            style.padding.left = val;
+            style.padding.left = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-right"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
-            style.padding.right = val;
+            style.padding.right = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "text-overflow"))
@@ -982,7 +996,7 @@ namespace glimmer
                 1.f, 1.f);
             if (stylePropVal.back() == '%') style.relativeProps |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius |
                 RSP_BorderBottomRightRadius);
-            style.border.setRadius(radius);
+            style.border.setRadius(radius.first);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-width"))
@@ -1003,28 +1017,28 @@ namespace glimmer
         else if (AreSame(stylePropName, "border-top-left-radius"))
         {
             style.border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopLeftRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-right-radius"))
         {
             style.border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-right-radius"))
         {
             style.border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-left-radius"))
         {
             style.border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomLeftRadius;
             prop = StyleBorder;
         }
@@ -1035,22 +1049,22 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "margin-top"))
         {
-            style.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-left"))
         {
-            style.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-right"))
         {
-            style.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-bottom"))
         {
-            style.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            style.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "font-style"))
@@ -1094,7 +1108,7 @@ namespace glimmer
         }
         else if (AreSame(stylePropName, "thumb-offset"))
         {
-            specific.toggle.thumbOffset = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f);
+            specific.toggle.thumbOffset = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling, 1.f, 1.f).first;
             prop = StyleThumbOffset;
         }
         else
@@ -1110,6 +1124,7 @@ namespace glimmer
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
     {
         if (&src == &dest || dest.specified & StyleUpdatedFromBase) return;
+        dest.relativeProps |= src.relativeProps;
 
         for (int64_t idx = 0; idx <= StyleTotal; ++idx)
         {
@@ -1708,6 +1723,8 @@ namespace glimmer
 
     StyleDescriptor& StyleDescriptor::From(const StyleDescriptor& style, bool overwrite)
     {
+        relativeProps |= style.relativeProps;
+
         for (auto idx = 0; idx < StyleTotal; ++idx)
         {
             auto styleprop = 1 << idx;

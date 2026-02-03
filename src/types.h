@@ -282,9 +282,15 @@ namespace glimmer
         RT_BIN = 1 << 19 // treat resource as raw binary data (For SVG, it is markup)
     };
 
+    struct NeighborWidgets
+    {
+        int32_t top = -1, left = -1, right = -1, bottom = -1;
+    };
+
     struct RegionState : public CommonWidgetData
     {
         int32_t events = 0; // bitmask of WidgetState
+        NeighborWidgets neighbors;
     };
 
     struct ButtonState : public CommonWidgetData
@@ -728,11 +734,6 @@ namespace glimmer
         FromRight = ToLeft, FromLeft = ToRight, FromTop = ToBottom, FromBottom = ToTop,
         ToBottomLeft = ToLeft | ToBottom, ToBottomRight = ToBottom | ToRight,
         ToTopLeft = ToTop | ToLeft, ToTopRight = ToTop | ToRight
-    };
-
-    struct NeighborWidgets
-    {
-        int32_t top = -1, left = -1, right = -1, bottom = -1;
     };
 
     enum class Layout { Invalid, Horizontal, Vertical, Grid, ScrollRegion = 100 };

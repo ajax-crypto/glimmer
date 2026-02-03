@@ -291,7 +291,7 @@ namespace ImRichText
             else if (AreSame(stylePropVal, "xxx-large")) style.font.size = config.DefaultFontSize * 3.f * config.FontScale;
             else
                 style.font.size = ExtractFloatWithUnit(stylePropVal, config.DefaultFontSize * config.FontScale,
-                    config.DefaultFontSize * config.FontScale, parentStyle.font.size, config.FontScale);
+                    config.DefaultFontSize * config.FontScale, parentStyle.font.size, config.FontScale).first;
             prop = StyleFontSize;
         }
         else if (AreSame(stylePropName, "font-weight"))
@@ -333,12 +333,12 @@ namespace ImRichText
         }
         else if (AreSame(stylePropName, "width"))
         {
-            style.width = ExtractFloatWithUnit(stylePropVal, 0, config.DefaultFontSize * config.FontScale, parentStyle.width, config.Scale);
+            style.width = ExtractFloatWithUnit(stylePropVal, 0, config.DefaultFontSize * config.FontScale, parentStyle.width, config.Scale).first;
             prop = StyleWidth;
         }
         else if (AreSame(stylePropName, "height"))
         {
-            style.height = ExtractFloatWithUnit(stylePropVal, 0, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
+            style.height = ExtractFloatWithUnit(stylePropVal, 0, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale).first;
             prop = StyleHeight;
         }
         else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
@@ -364,31 +364,31 @@ namespace ImRichText
         else if (AreSame(stylePropName, "padding"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
-            block.padding.top = block.padding.right = block.padding.left = block.padding.bottom = val;
+            block.padding.top = block.padding.right = block.padding.left = block.padding.bottom = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-top"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
-            block.padding.top = val;
+            block.padding.top = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-bottom"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
-            block.padding.bottom = val;
+            block.padding.bottom = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-left"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
-            block.padding.left = val;
+            block.padding.left = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "padding-right"))
         {
             auto val = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
-            block.padding.right = val;
+            block.padding.right = val.first;
             prop = StylePadding;
         }
         else if (AreSame(stylePropName, "white-space"))
@@ -485,14 +485,14 @@ namespace ImRichText
                 1.f, 1.f);
             block.BorderCornerRel = stylePropVal.back() == '%' ? (1 << glimmer::TopLeftCorner) | (1 << glimmer::TopRightCorner) |
                 (1 << glimmer::BottomRightCorner)  | (1 << glimmer::BottomLeftCorner) : 0;
-            block.Border.setRadius(radius);
+            block.Border.setRadius(radius.first);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-width"))
         {
             auto width = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale,
                 1.f, 1.f);
-            block.Border.setThickness(width);
+            block.Border.setThickness(width.first);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-color"))
@@ -504,55 +504,55 @@ namespace ImRichText
         else if (AreSame(stylePropName, "border-top-left-radius"))
         {
             block.Border.cornerRadius[glimmer::TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') block.BorderCornerRel = block.BorderCornerRel | (1 << glimmer::TopLeftCorner);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-right-radius"))
         {
             block.Border.cornerRadius[glimmer::TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') block.BorderCornerRel = block.BorderCornerRel | (1 << glimmer::TopRightCorner);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-right-radius"))
         {
             block.Border.cornerRadius[glimmer::BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') block.BorderCornerRel = block.BorderCornerRel | (1 << glimmer::BottomRightCorner);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-left-radius"))
         {
             block.Border.cornerRadius[glimmer::BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale,
-                1.f, 1.f);
+                1.f, 1.f).first;
             if (stylePropVal.back() == '%') block.BorderCornerRel = block.BorderCornerRel | (1 << glimmer::BottomLeftCorner);
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "margin"))
         {
             block.margin.left = block.margin.right = block.margin.top = block.margin.bottom =
-                ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f);
+                ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-top"))
         {
-            block.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f);
+            block.margin.top = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-left"))
         {
-            block.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f);
+            block.margin.left = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-right"))
         {
-            block.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f);
+            block.margin.right = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "margin-bottom"))
         {
-            block.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f);
+            block.margin.bottom = ExtractFloatWithUnit(stylePropVal, 0.f, config.DefaultFontSize * config.FontScale, style.height, 1.f).first;
             prop = StyleMargin;
         }
         else if (AreSame(stylePropName, "font-style"))
@@ -750,7 +750,7 @@ namespace ImRichText
             else if (AreSame(attribName, "size") && attribValue.has_value())
             {
                 style.font.size = ExtractFloatWithUnit(attribValue.value(), config.DefaultFontSize * config.FontScale,
-                    config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale);
+                    config.DefaultFontSize * config.FontScale, parentStyle.height, config.Scale).first;
                 result = result | StyleFontSize;
             }
             else if (AreSame(attribName, "face") && attribValue.has_value())

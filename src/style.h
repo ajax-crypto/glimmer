@@ -410,7 +410,7 @@ namespace glimmer
     [[nodiscard]] int ExtractInt(std::string_view input, int defaultVal);
     [[nodiscard]] int ExtractIntFromHex(std::string_view input, int defaultVal);
     [[nodiscard]] IntOrFloat ExtractNumber(std::string_view input, float defaultVal);
-    [[nodiscard]] float ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
+    [[nodiscard]] std::pair<float, bool> ExtractFloatWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
     [[nodiscard]] FourSidedMeasure ExtractWithUnit(std::string_view input, float defaultVal, float ems, float parent, float scale);
     
     [[nodiscard]] uint32_t ExtractColor(std::string_view stylePropVal, uint32_t(*NamedColor)(const char*, void*), void* userData);
