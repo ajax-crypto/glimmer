@@ -24,14 +24,15 @@ namespace glimmer
         static std::unordered_map<int32_t, PathInputData> PathInputConfigs;
 
         WidgetDrawResult PathInput(std::string_view id, char* out, int size, bool isDirectory,
-            std::string_view path, std::string_view placeholder, int32_t geometry,
+            std::string_view path, float width, std::string_view placeholder, int32_t geometry,
             const NeighborWidgets& neighbors)
         {
             // You can customize the behavior here if needed
             BeginFlexLayout(DIR_Horizontal, geometry, false, {}, {}, neighbors);
 
             // Input box for paths
-            PushStyle("width: 300px;");
+            PushStyleFmt("width: %fpx;", width);
+            auto width
             TextInput(out, size, placeholder, geometry, neighbors);
             PopStyle();
 
