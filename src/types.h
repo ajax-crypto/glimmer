@@ -435,6 +435,12 @@ namespace glimmer
         bool isSelectable = true;
     };
 
+    enum DropDownSizingPolicy
+    {
+        DD_FitToInitialContent,
+        DD_FitToLongestOption,
+    };
+
     struct DropDownState : public CommonWidgetData
     {
         struct OptionDescriptor
@@ -456,8 +462,9 @@ namespace glimmer
         int32_t inputId = -1;
         int32_t selected = -1;
         int32_t hovered = -1;
-        int32_t width = -1; // how many characters wide
+        //int32_t width = -1; // how many characters wide
         int32_t* out = nullptr;
+        DropDownSizingPolicy sizePolicy = DD_FitToLongestOption;
 
         std::span<OptionDescriptor> options;
         bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;

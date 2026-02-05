@@ -83,6 +83,7 @@ namespace glimmer
     {
         int32_t id = -1;
         int32_t geometry = 0;
+        ImVec2 maxsz{};
         NeighborWidgets neighbors;
         Vector<DropDownState::OptionDescriptor, int16_t, 16> items;
     };
@@ -95,6 +96,9 @@ namespace glimmer
         {
             int32_t label = -1;
             int32_t prefix = -1;
+
+            StyleDescriptor labelStyle;
+            StyleDescriptor prefixStyle;
         };
 
         Vector<ChildWidget, int16_t, 16> children;

@@ -378,6 +378,7 @@ namespace glimmer
     void PushStyleFmt(int32_t state, std::string_view fmt, ...);
     void PushStyleFmt(std::string_view fmt, ...);
     void PushStyle(int32_t state, std::string_view css);
+    void PushStyle(int32_t state, const StyleDescriptor& style);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
