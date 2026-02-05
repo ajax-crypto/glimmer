@@ -2201,12 +2201,24 @@ namespace glimmer
             }
         }
 
+        auto& context = GetContext();
         auto implicitW = max.x - min.x;
         auto implicitH = max.y - min.y;
-        layout.geometry.Min = ImVec2{};
-        layout.geometry.Max = ImVec2{ implicitW, implicitH };
 
-        auto& context = GetContext();
+        if (context.layoutStack.size() == 1)
+        {
+            layout.geometry.Min = ImVec2{};
+            layout.geometry.Max = ImVec2{ 
+                (layout.fill & FD_Horizontal) ? std::max(implicitW, layout.available.GetWidth()) : implicitW,
+                (layout.fill & FD_Vertical) ? std::max(implicitH, layout.available.GetHeight()) : implicitH };
+        }
+        else
+        {
+            layout.geometry.Min = ImVec2{};
+            layout.geometry.Max = ImVec2{ implicitW, implicitH };
+        }
+        
+        layout.contentsz = { implicitW, implicitH };
         auto isParentFlex = IsParentFlexLayout(context);
         if (isParentFlex)
         {
@@ -2250,7 +2262,7 @@ namespace glimmer
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE || GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
 
-    static void UpdateLayoutGeometry(YGNodeRef node, WidgetContextData& context, int lidx)
+    static ImRect UpdateLayoutGeometry(YGNodeRef node, WidgetContextData& context, int lidx)
     {
         auto bbox = GetBoundingBox(node);
 
@@ -2266,6 +2278,7 @@ namespace glimmer
         layout.geometry.Max = ImMax(bbox.Max, layout.geometry.Max);
 
         LOG("Flexbox Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(layout.geometry));
+        return layout.geometry;
     }
 
 #endif
@@ -2292,18 +2305,26 @@ namespace glimmer
             auto rootNode = static_cast<YGNodeRef>(layout.implData);
             auto& root = FlexLayoutRoots[FlexLayoutRootStack.top()];
             YGNodeCalculateLayout(rootNode, YGUndefined, YGUndefined, YGDirectionLTR);
+            ImRect extent{ { FLT_MAX, FLT_MAX }, {} };
 
             // Extract layout local coordinates for flex-subtree layouts
             for (auto [lidx, node] : root.layouts)
-                UpdateLayoutGeometry(node, context, lidx);
+            {
+                auto rect = UpdateLayoutGeometry(node, context, lidx);
+                extent.Min = ImMin(rect.Min, extent.Min);
+                extent.Max = ImMax(rect.Max, extent.Max);
+            }
 
             for (auto [lindex, node] : root.widgets)
             {
                 auto& item = context.layoutItems[lindex];
                 item.margin = GetBoundingBox(node);
+                extent.Min = ImMin(item.margin.Min, extent.Min);
+                extent.Max = ImMax(item.margin.Max, extent.Max);
                 LOG("Flexbox Layout widget Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
             }
 
+            layout.contentsz = extent.GetSize();
             UpdateLayoutGeometry(rootNode, context, root.rootIdx);
             UpdateParentNode(context, layout);
         }
@@ -2562,8 +2583,10 @@ namespace glimmer
         RenderWidgetPass(context, layout, result, io, StyleStack);
     }
 
-    static void UpdateRegionGeometry(WidgetContextData& context, LayoutBuilder& layout, bool isTopLevel)
+    static ImVec2 UpdateRegionGeometry(WidgetContextData& context, LayoutBuilder& layout, bool isTopLevel)
     {
+        ImVec2 shift{};
+
         if (isTopLevel)
         {
             if (layout.alignment & ToLeft)
@@ -2571,6 +2594,10 @@ namespace glimmer
                 auto width = layout.geometry.GetWidth();
                 layout.geometry.Max.x = layout.available.Max.x;
                 layout.geometry.Min.x = layout.geometry.Max.x - width;
+
+                auto hdiff = layout.startpos.x - layout.geometry.Min.x;
+                if (hdiff > 0.f)
+                    layout.geometry.TranslateX(hdiff);
             }
             else
             {
@@ -2580,13 +2607,8 @@ namespace glimmer
 
             if ((layout.fill & FD_Horizontal) && (layout.alignment & AlignHCenter))
             {
-                auto width = layout.geometry.GetWidth();
-                auto hdiff = layout.available.GetWidth() - width;
-                if (hdiff > 0.f)
-                {
-                    layout.geometry.Min.x += hdiff;
-                    layout.geometry.Max.x += hdiff;
-                }
+                auto hdiff = (layout.geometry.GetWidth() - layout.contentsz.x) * 0.5f;
+                shift.x = hdiff;
             }
 
             if (layout.alignment & ToTop)
@@ -2594,6 +2616,10 @@ namespace glimmer
                 auto height = layout.geometry.GetHeight();
                 layout.geometry.Max.y = layout.available.Max.y;
                 layout.geometry.Min.y = layout.geometry.Max.y - height;
+
+                auto vdiff = layout.startpos.y - layout.geometry.Min.y;
+                if (vdiff > 0.f)
+                    layout.geometry.TranslateY(vdiff);
             }
             else
             {
@@ -2603,13 +2629,8 @@ namespace glimmer
 
             if ((layout.fill & FD_Vertical) && (layout.alignment & AlignVCenter))
             {
-                auto height = layout.geometry.GetHeight();
-                auto vdiff = layout.available.GetHeight() - height;
-                if (vdiff > 0.f)
-                {
-                    layout.geometry.Min.y += vdiff;
-                    layout.geometry.Max.y += vdiff;
-                }
+                auto vdiff = (layout.geometry.GetHeight() - layout.contentsz.y) * 0.5f;
+                shift.y = vdiff;
             }
         }
 
@@ -2622,6 +2643,7 @@ namespace glimmer
         }
 
         layout.startpos = layout.geometry.Min;
+        return shift;
     }
 
     WidgetDrawResult EndLayout(int depth)
@@ -2642,27 +2664,38 @@ namespace glimmer
             if (context.layoutStack.size() == 1)
             {
                 // Propagate layout shifts to entire tree
-                static Vector<int32_t, int16_t, 16> parents, currps;
+                static Vector<std::pair<int32_t, ImVec2>, int16_t, 16> parents, currps;
                 parents.clear(true); currps.clear(true);
 
                 auto lidx = context.layoutStack.top();
-                //layout.geometry.Translate(layout.startpos);
-                parents.emplace_back(lidx);
-                UpdateRegionGeometry(context, layout, true);
+                auto shift = UpdateRegionGeometry(context, layout, true);
+                parents.emplace_back(lidx, shift);
 
-                for (auto pidx = 0; pidx < parents.size(); ++pidx)
+                while (!parents.empty())
                 {
-                    lidx = 0; currps.clear(true);
-                    for (auto& sublayout : context.layouts)
+                    currps.clear(true);
+
+                    for (auto pidx = 0; pidx < parents.size(); ++pidx)
                     {
-                        if (sublayout.parentIdx == parents[pidx])
+                        lidx = 0;
+                        for (auto& sublayout : context.layouts)
                         {
-                            sublayout.geometry.Translate(context.layouts[parents[pidx]].geometry.Min);
-                            UpdateRegionGeometry(context, sublayout, false);
-                            currps.emplace_back(lidx);
+                            if (sublayout.parentIdx == parents[pidx].first)
+                            {
+                                assert(sublayout.parentIdx != lidx);
+
+                                const auto& parent = context.layouts[parents[pidx].first];
+                                auto hasParentAligned = parent.parentIdx == -1 || parent.type != Layout::Grid;
+                                auto offset = parent.geometry.Min + (hasParentAligned ? ImVec2{} : parents[pidx].second);
+                                sublayout.geometry.Translate(offset);
+
+                                auto chshift = UpdateRegionGeometry(context, sublayout, false);
+                                currps.emplace_back(lidx, chshift);
+                            }
+                            ++lidx;
                         }
-                        ++lidx;
                     }
+
                     std::swap(parents, currps);
                 }
 
@@ -2676,11 +2709,14 @@ namespace glimmer
             context.layoutStack.pop(1, false);
             context.nestedContextStack.pop(1, true);
 
+            if (layout.type == Layout::Horizontal || layout.type == Layout::Vertical)
+            {
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
-            PopYogaLayoutNode();
+                PopYogaLayoutNode();
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
-            PopFlexLayoutNode();
+                PopFlexLayoutNode();
 #endif
+            }
         }
 
         if (context.layoutStack.empty())

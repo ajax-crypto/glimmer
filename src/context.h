@@ -579,7 +579,7 @@ namespace glimmer
         ImVec2 nextpos{ 0.f, 0.f }, prevpos{ 0.f, 0.f }, startpos{};
         ImVec2 spacing{ 0.f, 0.f };
         ImVec2 maxdim{ 0.f, 0.f }; // max dimension of widget in curren row/col
-        ImVec2 cumulative{ 0.f, 0.f }, size{};
+        ImVec2 cumulative{ 0.f, 0.f }, size{}, contentsz{};
         ImRect extent{}; // max coords of widgets inside layout
         Vector<ImVec2, int16_t> rows{ false };
         Vector<ImVec2, int16_t> cols{ false };

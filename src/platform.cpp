@@ -296,6 +296,8 @@ extern "C"
 #include "libs/inc/imguiglfw/imgui_impl_glfw.h"
 #include "libs/inc/imguiglfw/imgui_impl_opengl3.h"
 #include "libs/inc/imguiglfw/imgui_impl_opengl3_loader.h"
+#include <chrono>
+#include <thread>
 
 #if defined(GLIMMER_ENABLE_NFDEXT) && !defined(__EMSCRIPTEN__)
 #include <mutex>
@@ -1023,6 +1025,7 @@ namespace glimmer {
 #endif
 
             window = SDL_CreateWindow(params.title.data(), (int)params.size.x, (int)params.size.y, window_flags);
+            targetFPS = params.targetFPS;
             if (window == nullptr)
             {
                 printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
@@ -1056,6 +1059,17 @@ namespace glimmer {
             if (!(window_flags & SDL_WINDOW_MAXIMIZED))
                 SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
+            auto maxsz = params.maxsz;
+            if (maxsz.x == -1.f || maxsz.y == -1.f)
+            {
+                auto display = SDL_GetDisplayForWindow(window);
+                auto mode = SDL_GetCurrentDisplayMode(display);
+                if (maxsz.x == -1.f) maxsz.x = (float)mode->w;
+                if (maxsz.y == -1.f) maxsz.y = (float)mode->h;
+            }
+
+            SDL_SetWindowMinimumSize(window, (int)params.minsz.x, (int)params.minsz.y);
+            SDL_SetWindowMaximumSize(window, (int)maxsz.x, (int)maxsz.y);
             SDL_ShowWindow(window);
 #ifdef _WIN32
             if (totalCustomEvents > 0)
@@ -1087,7 +1101,7 @@ namespace glimmer {
                 fallback = SDL_CreateRenderer(window, "software");
                 targetFPS = params.targetFPS;
 
-                if (params.targetFPS == -1)
+                if (params.targetFPS == VSyncFPS)
                 {
                     SDL_SetRenderVSync(fallback, 1);
                     auto display = SDL_GetDisplayForWindow(window);
@@ -1118,7 +1132,7 @@ namespace glimmer {
 
                 targetFPS = params.targetFPS;
 
-                if (params.targetFPS == -1)
+                if (params.targetFPS == VSyncFPS)
                 {
                     auto display = SDL_GetDisplayForWindow(window);
                     auto mode = SDL_GetCurrentDisplayMode(display);
@@ -1156,6 +1170,8 @@ namespace glimmer {
 
         bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
         {
+            const auto targetFrameTime = targetFPS >= MinimumFPS ? 1.0 / (double)targetFPS : -1.f;
+
             // TODO: If using Blend2D renderer, additional changes are required to copy
             // from BLContext to SDL frame
             if (device)
@@ -1172,6 +1188,8 @@ namespace glimmer {
             bool done = false;
             while (!done)
             {
+                auto frequency = SDL_GetPerformanceFrequency();
+                auto startTime = SDL_GetPerformanceCounter();
                 auto resetCustom = false;
                 int width = 0, height = 0;
                 SDL_GetWindowSize(window, &width, &height);
@@ -1265,6 +1283,14 @@ namespace glimmer {
                 }
 
                 if (resetCustom) custom.clear();
+
+                auto endTime = SDL_GetPerformanceCounter();
+                if (targetFPS >= MinimumFPS)
+                {
+                    auto elapsedFrameTime = (double)((endTime - startTime) / (double)frequency);
+                    if (elapsedFrameTime < targetFrameTime)
+                        SDL_Delay((Uint32)((targetFrameTime - elapsedFrameTime) * 1000.f));
+                }
             }
 
             if (device)
@@ -1566,6 +1592,7 @@ namespace glimmer {
 
         std::vector<EventHandlerDescriptor> handlers;
         std::deque<CustomEventData> custom;
+        int targetFPS = VSyncFPS;
     };
 
     IPlatform* InitPlatform(ImVec2 size)
@@ -1727,11 +1754,25 @@ namespace glimmer {
             }
 
             // Create window with graphics context
+            auto maxsz = params.maxsz;
             window = glfwCreateWindow(width, height, params.title.data(), nullptr, nullptr);
             if (window == nullptr) return false;
 
+            if (params.maxsz.x == -1.f || params.maxsz.y == -1.f)
+            {
+                auto primaryMonitor = glfwGetPrimaryMonitor();
+                int workAreaX, workAreaY, workAreaWidth, workAreaHeight;
+                glfwGetMonitorWorkarea(primaryMonitor, &workAreaX, &workAreaY, &workAreaWidth, &workAreaHeight);
+                if (params.maxsz.x == -1.f) maxsz.x = (float)workAreaWidth; 
+                if (params.maxsz.y == -1.f) maxsz.y = (float)workAreaHeight;
+            }
+
+            glfwSetWindowSizeLimits(window, (int)params.minsz.x, (int)params.minsz.y,
+                (int)maxsz.x, (int)maxsz.y);
             glfwMakeContextCurrent(window);
-            glfwSwapInterval(1); // Enable vsync
+
+            targetFPS = params.targetFPS;
+            glfwSwapInterval(targetFPS == VSyncFPS ? 1 : 0); // Enable vsync
 
             // Setup Dear ImGui context
             IMGUI_CHECKVERSION();
@@ -1774,6 +1815,7 @@ namespace glimmer {
         bool PollEvents(bool (*runner)(ImVec2, IPlatform&, void*), void* data)
         {
             auto close = false;
+            const auto targetFrameTime = targetFPS >= MinimumFPS ? 1.0 / (double)targetFPS : -1.f;
 
 #ifdef _DEBUG
             LOG("Pre-rendering allocations: %d | Allocated: %d bytes\n", TotalMallocs, AllocatedBytes);
@@ -1788,6 +1830,7 @@ namespace glimmer {
             while (!glfwWindowShouldClose(window) && !close)
 #endif
             {
+                auto startTime = glfwGetTime();
                 glfwPollEvents();
                 if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
                 {
@@ -1830,6 +1873,11 @@ namespace glimmer {
 #ifdef __EMSCRIPTEN__
                 EMSCRIPTEN_MAINLOOP_END;
 #else
+
+                auto endTime = glfwGetTime();
+                auto delta = endTime - startTime;
+                if (delta < targetFrameTime)
+                    std::this_thread::sleep_for(std::chrono::milliseconds{ (uint32_t)(delta * 1000.f) });
             }
 #endif
 
@@ -1915,6 +1963,7 @@ namespace glimmer {
         std::once_flag nfdInitialized;
 #endif
         std::vector<EventHandlerDescriptor> handlers;
+        int targetFPS = VSyncFPS;
     };
 
     IPlatform* InitPlatform(ImVec2 size)

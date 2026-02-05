@@ -239,14 +239,20 @@ namespace glimmer
         Software, Integrated, Dedicated
     };
 
+    constexpr int VSyncFPS = -1;
+    constexpr int UnlimitedFPS = 0;
+    constexpr int MinimumFPS = 60;
+
     struct WindowParams
     {
         ImVec2 size{ FLT_MAX, FLT_MAX };
+        ImVec2 minsz{ 1280.f, 800.f };
+        ImVec2 maxsz{ -1.f, -1.f };
         std::string_view title;
         std::string_view icon;
         int32_t iconType = RT_PATH | RT_PNG;
         uint8_t bgcolor[4] = { 255, 255, 255, 255 };
-        int targetFPS = -1; // -1 implies vsync rate
+        int targetFPS = VSyncFPS;
         GraphicsAdapter adapter = GraphicsAdapter::Integrated;
         bool fallbackSoftwareAdapter = true;
         bool softwareCursor = false;
