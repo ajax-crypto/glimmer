@@ -1210,7 +1210,7 @@ namespace glimmer
                 res.y = clamp(size.y, style.mindim.y, style.maxdim.y);
             else if (style.relativeProps & StyleHeight)
                 res.y = clamp(available.GetHeight() * style.dimension.y, style.mindim.y, style.maxdim.y);
-            else if (style.dimension.x > 0.f)
+            else if (style.dimension.y > 0.f)
                 res.y = clamp(style.dimension.y, style.mindim.y, style.maxdim.y);
             else if ((wrap && (type == Layout::Vertical)) || (fill & FD_Vertical))
                 res.y = available.GetHeight();
@@ -2273,9 +2273,20 @@ namespace glimmer
         auto bbox = GetBoundingBox(node, ctxidx);
 
 #endif
+
+        ImVec2 shift{};
         auto& layout = context.layouts[lidx];
+
+		if (layout.regionIdx != -1)
+        {
+			auto& region = context.regions[layout.regionIdx];
+            const auto style = context.GetStyle(context.GetState(region.id).state.region.state, region.id);
+            shift += { style.padding.right + style.border.right.thickness + style.margin.right,
+				style.padding.bottom + style.border.bottom.thickness + style.margin.bottom };
+        }
+
         layout.geometry.Min = bbox.Min;
-        layout.geometry.Max = ImMax(bbox.Max, layout.geometry.Max);
+        layout.geometry.Max = ImMin(bbox.Max, layout.geometry.Min + layout.contentsz + shift);
 
         LOG("Flexbox Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(layout.geometry));
         return layout.geometry;

@@ -79,30 +79,26 @@ namespace glimmer
         bool fixedHeight = false;
     };
 
+    struct OptionDescriptor
+    {
+        std::string_view text;
+		TextType textType = TextType::PlainText;
+        ImRect geometry{ { FLT_MAX, FLT_MAX }, { 0.f, 0.f } };
+	};
+
+    struct WidgetContextData;
+
     struct DropDownBuilder
     {
         int32_t id = -1;
         int32_t geometry = 0;
+        int16_t longestOption = -1;
+		WidgetContextData* context = nullptr; // Nested context created inside BeginPopUp
         ImVec2 maxsz{};
         NeighborWidgets neighbors;
-        Vector<DropDownState::OptionDescriptor, int16_t, 16> items;
-    };
-
-    struct WidgetContextData;
-
-    struct DropDownPersistentState
-    {
-        struct ChildWidget
-        {
-            int32_t label = -1;
-            int32_t prefix = -1;
-
-            StyleDescriptor labelStyle;
-            StyleDescriptor prefixStyle;
-        };
-
-        Vector<ChildWidget, int16_t, 16> children;
-        WidgetContextData* context = nullptr;
+        Vector<OptionDescriptor, int16_t, 16> items;
+        Vector<std::pair<int16_t, int16_t>, int16_t, 16> widgets[WT_TotalTypes];
+        char idstr[255] = { 0 };
     };
 
     struct ItemGridStyleDescriptor
@@ -716,7 +712,7 @@ namespace glimmer
 
     enum class NestedContextSourceType
     {
-        None, Region, Layout, ItemGrid, // add others...
+        None, Region, Layout, ItemGrid, DropDownPopup // add others...
     };
 
     struct NestedContextSource
@@ -768,7 +764,6 @@ namespace glimmer
         std::vector<NavDrawerPersistentState> navDrawerStates;
         std::vector<AccordionPersistentState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
-        std::vector<DropDownPersistentState> dropDownOptions;
         
         // Regions stack
         DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING> regionBuilders{ false };
@@ -993,6 +988,8 @@ namespace glimmer
         ImVec2 WindowSize() const;
         ImVec2 NextAdHocPos() const;
 
+		std::optional<NestedContextSource> IsInside(NestedContextSourceType source) const;
+
         WidgetContextData();
     };
 
@@ -1001,6 +998,7 @@ namespace glimmer
     void ResetFrameData();
     WidgetContextData& GetContext();
     WidgetContextData& PushContext(int32_t id);
+    WidgetContextData& PushContext(int32_t id, NestedContextSourceType source);
     void PopContext();
     void Cleanup();
 

@@ -34,6 +34,8 @@ namespace glimmer
     ImRect BeginGridLayoutRegion(int rows, int cols, GridLayoutDirection dir, int32_t geometry, const std::initializer_list<float>& rowExtents,
         const std::initializer_list<float>& colExtents, ImVec2 spacing, ImVec2 size,
         const NeighborWidgets& neighbors, int regionIdx);
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size, NestedContextSourceType type);
+    WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
 
 #pragma region Widget ID Handling
 
@@ -387,6 +389,48 @@ namespace glimmer
                     style.border.cornerRadius[BottomLeftCorner]);
         else
             renderer.DrawRect(center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius }, color, true);
+    }
+
+    void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style)
+    {
+        auto& context = GetContext();
+
+        if (!context.nestedContextStack.empty())
+        {
+            if (context.IsInside(NestedContextSourceType::ItemGrid) && context.CurrentItemGridContext != nullptr)
+            {
+                auto& grid = context.CurrentItemGridContext->itemGrids.top();
+                if (grid.phase == ItemGridConstructPhase::HeaderCells)
+                {
+                    grid.maxHeaderExtent.x = std::max(grid.maxHeaderExtent.x, layoutItem.margin.Max.x);
+                    grid.maxHeaderExtent.y = std::max(grid.maxHeaderExtent.y, layoutItem.margin.Max.y);
+                }
+                else
+                {
+                    if (grid.maxCellExtent != ImVec2{})
+                    {
+                        grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
+                        grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
+                    }
+                    else
+                        grid.maxCellExtent = layoutItem.margin.Max;
+                }
+            }
+            else if (auto nestedSrc = context.IsInside(NestedContextSourceType::DropDownPopup); nestedSrc)
+            {
+                auto& builder = nestedSrc.value().base->currentDropDown;
+                auto index = (int16_t)(layoutItem.id >> WidgetTypeBits);
+
+                for (auto id : builder.widgets[index])
+                    if (id.first == (int16_t)(layoutItem.id & WidgetIndexMask))
+                    {
+                        auto& item = builder.items[id.second];
+                        item.geometry.Min = ImMin(layoutItem.margin.Min, item.geometry.Min);
+                        item.geometry.Max = ImMax(layoutItem.margin.Max, item.geometry.Max);
+                        break;
+                    }
+            }
+        }
     }
 
 #pragma endregion
@@ -1620,6 +1664,14 @@ namespace glimmer
     {
         auto wid = GetIdFromString(id, WT_Label).first;
         CreateWidgetConfig(wid).state.label.text = content;
+        return Widget(wid, WT_Label, geometry, neighbors);
+    }
+
+    WidgetDrawResult Label(std::string_view id, std::string_view content, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Label).first;
+        auto& label = CreateWidgetConfig(wid).state.label;
+		label.text = content; label.type = type;
         return Widget(wid, WT_Label, geometry, neighbors);
     }
 
@@ -3778,287 +3830,47 @@ namespace glimmer
 
 #pragma region DropDown
 
-    void CreateDropDownOptionPrefix(const DropDownState::OptionDescriptor& option,
-        DropDownPersistentState& optstates, int32_t optidx, DropDownState& state,
-        bool& hasWidgets)
-    {
-        auto& optstate = optidx < (int32_t)optstates.children.size() ? optstates.children[optidx] : 
-            optstates.children.emplace_back(-1, -1);
-
-        switch (option.prefixType)
-        {
-        case WT_Checkbox:
-        {
-            if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_Checkbox);
-            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            /*CreateWidgetConfig(optstate.first).state.checkbox.check = state.selected == optidx ?
-                CheckState::Checked : CheckState::Unchecked;*/
-            CreateWidgetConfig(optstate.prefix);
-            auto& label = CreateWidgetConfig(optstate.label).state.label;
-            label.text = option.text; label.type = option.textType;
-            hasWidgets = true;
-            break;
-        }
-        case WT_ToggleButton:
-        {
-            if (optstate.prefix == -1) optstate.prefix = GetNextId(WT_ToggleButton);
-            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            //CreateWidgetConfig(optstate.first).state.toggle.checked = state.selected == optidx;
-            CreateWidgetConfig(optstate.prefix);
-            auto& label = CreateWidgetConfig(optstate.label).state.label;
-            label.text = option.text; label.type = option.textType;
-            hasWidgets = true;
-            break;
-        }
-        default:
-        {
-            optstate.prefix = -1;
-            if (optstate.label == -1) optstate.label = GetNextId(WT_Label);
-            auto& label = CreateWidgetConfig(optstate.label).state.label;
-            label.text = option.text; label.type = option.textType;
-            break;
-        }
-        }
-    }
-
-    static int32_t GetOptionPrefixState(WidgetContextData& context, const DropDownPersistentState::ChildWidget& itemstate)
-    {
-        switch (itemstate.prefix >> WidgetTypeBits)
-        {
-            case WT_Checkbox: return context.GetState(itemstate.prefix).state.checkbox.state;
-            case WT_ToggleButton: return context.GetState(itemstate.prefix).state.toggle.state;
-            default: return context.GetState(itemstate.prefix).state.label.state;
-        }
-    }
-
     void ShowDropDownOptions(WidgetContextData& parent, DropDownState& state, int32_t id, const ImRect& margin, 
-        const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
+        const ImRect& border, const ImRect& padding, const ImRect& content, const IODescriptor& io, IRenderer& renderer)
     {
-        ImRect maxrect{ { 0.f, 0.f }, parent.WindowSize() };
-        auto maxw = maxrect.GetWidth(), maxh = maxrect.GetHeight();
-        const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
-        ImVec2 available1 = ImVec2{ maxw - border.Min.x, maxh - padding.Max.y };
-        ImVec2 available2 = ImVec2{ maxw - border.Min.x, maxh - padding.Min.y };
+        if (parent.currentDropDown.context == nullptr) return;
 
-        // Create the popup with its own context                
-        if (BeginPopup(id, { border.Min.x, padding.Max.y }, { border.GetWidth(), FLT_MAX }))
+        auto style = parent.dropdownStyles[log2((unsigned)state.state)].top();
+        parent.currentDropDown.context->popupOrigin = { margin.Min.x, margin.Max.y };
+        EndPopUp(*parent.currentDropDown.context, style.popupBgColor, 
+            POP_EnsureVisible | (style.occludeBg ? POP_Occlude : 0));
+
+		BEGIN_LOG_ARRAY("dropdown-items-geometry");
+        for (auto& item : parent.currentDropDown.items)
         {
-            static bool hasClicked = false;
-            static int32_t wid = -1, selected = -1, hovered = -1;
-            hasClicked = false;
+            item.geometry.Translate(parent.currentDropDown.context->popupOrigin);
+			LOG_RECT(item.geometry);
 
-            if (state.ShowList)
+            if (state.sizePolicy & DD_FitToLongestOption)
+			    parent.currentDropDown.maxsz = ImMax(parent.currentDropDown.maxsz, item.geometry.GetSize());
+        }
+        END_LOG_ARRAY();
+
+        auto idx = 0;
+        state.hovered = -1;
+		state.maxOptionSz = parent.currentDropDown.maxsz;
+
+        for (const auto& item : parent.currentDropDown.items)
+        {
+            if (item.geometry.Contains(io.mousepos))
             {
-                int32_t index = 0;
-                while (state.ShowList(index, available1, available2, state))
-                    index++;
-            }
-            else
-            {
-                static Vector<ImRect, int16_t, 16> optrects;
-                static Vector<ImRect, int16_t, 16> widgetrects;
-                static Vector<int32_t, int16_t, 16> selectable;
+                state.hovered = idx;
 
-                auto& context = GetContext();
-                auto& optstates = context.parentContext->dropDownOptions[id & WidgetIndexMask];
-                auto& adhoc = context.adhocLayout.top();
-                auto optidx = 0;
-                auto hasWidgets = false;
-                optstates.context = &context;
-
-                if (state.options.empty())
+                if (io.clicked())
                 {
-                    const auto& items = context.parentContext->currentDropDown.items;
-                    optstates.children.expand(items.size());
-
-                    for (const auto& option : items)
-                    {
-                        CreateDropDownOptionPrefix(option, optstates, optidx, state, hasWidgets);
-                        ++optidx;
-                    }
+                    state.selected = idx;
+                    if (state.out) *state.out = idx;
+                    WidgetContextData::RemovePopup();
+                    break;
                 }
-                else
-                {
-                    optstates.children.expand(state.options.size());
-
-                    for (const auto& option : state.options)
-                    {
-                        CreateDropDownOptionPrefix(option, optstates, optidx, state, hasWidgets);
-                        ++optidx;
-                    }
-                }
-
-                if (hasWidgets)
-                {
-                    PushStyle(WS_Default | WS_Hovered, "background-color: transparent; border: none;");
-                    wid = id; hovered = state.hovered;
-                    selected = state.out ? *state.out : state.selected;
-                    DropDownState::OptionStyleDescriptor props;
-                    optidx = 0;
-
-                    for (const auto& optstate : optstates.children)
-                    {
-                        auto startpos = adhoc.nextpos;
-                        int32_t stylesAdded = 0;
-
-                        BeginFlexLayout(DIR_Horizontal, AlignVCenter | AlignLeft,
-                            false, ddstyle.optionSpacing, ImVec2{ border.GetWidth(), 0.f });
-                        auto type = (WidgetType)(optstate.prefix >> WidgetTypeBits);
-                        //PushStyle(WS_AllStates, "border: 1px solid black; background-color: white;");
-                        auto prefixState = GetOptionPrefixState(context, optstate);
-                        PushStyle(prefixState, optstate.prefixStyle);
-                        Widget(optstate.prefix, type, ToBottomRight, {});
-                        PopStyle(1, prefixState);
-
-                        if (state.OptionStyle)
-                        {
-                            props = state.OptionStyle(optidx);
-                            for (auto idx = 0; idx < WSI_Total; ++idx)
-                                if (!props.css[idx].empty())
-                                {
-                                    PushStyle(1 << idx, props.css[idx]);
-                                    stylesAdded |= (1 << idx);
-                                }
-                            selectable.emplace_back(props.isSelectable);
-                        }
-                        else selectable.emplace_back(state.hasSelection);
-
-                        //if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
-                        auto labelState = context.GetState(optstate.label).state.label.state;
-                        PushStyle(labelState, optstate.labelStyle);
-                        Widget(optstate.label, WT_Label, ToBottomRight, {});
-                        PopStyle(1, labelState);
-                        //if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
-
-                        if (stylesAdded != 0)
-                            PopStyle(1, stylesAdded);
-
-                        EndLayout();
-                        widgetrects.emplace_back(context.GetGeometry(optstate.prefix));
-
-                        Move(FD_Vertical | FD_Horizontal);
-                        context.deferedRenderer->DrawLine(startpos, adhoc.nextpos, ddstyle.separator.color,
-                            ddstyle.separator.thickness);
-                        adhoc.nextpos.y += ddstyle.separator.thickness;
-                        auto endpos = adhoc.nextpos;
-                        adhoc.nextpos.x = 0.f;
-                        optrects.emplace_back(startpos, endpos);
-                        optidx++;
-                    }
-
-                    PopStyle(1, WS_Default | WS_Hovered);
-                }
-                else
-                {
-                    PushStyleFmt(WS_Default | WS_Hovered, 
-                        "background-color: transparent; border: none; margin: %fpx %fpx %fpx %fpx;", 
-                        ddstyle.optionSpacing.x, ddstyle.optionSpacing.y, ddstyle.optionSpacing.x,
-                        ddstyle.optionSpacing.y);
-
-                    PushStyleFmt(WS_Default | WS_Hovered, "width: %fpx", border.GetWidth());
-                    wid = id; hovered = state.hovered;
-                    selected = state.out ? *state.out : state.selected;
-                    DropDownState::OptionStyleDescriptor props;
-                    optidx = 0;
-
-                    for (const auto& optstate : optstates.children)
-                    {
-                        auto startpos = adhoc.nextpos;
-                        int32_t stylesAdded = 0;
-
-                        if (state.OptionStyle)
-                        {
-                            props = state.OptionStyle(optidx);
-                            for (auto idx = 0; idx < WSI_Total; ++idx)
-                                if (!props.css[idx].empty())
-                                {
-                                    PushStyle(1 << idx, props.css[idx]);
-                                    stylesAdded |= (1 << idx);
-                                }
-                            selectable.emplace_back(props.isSelectable);
-                        }
-                        else selectable.emplace_back(state.hasSelection);
-                        
-                        //if (hovered == optidx) PushStyle(WS_Default | WS_Hovered, "color: white;");
-                        auto labelState = context.GetState(optstate.label).state.label.state;
-                        PushStyle(labelState, optstate.labelStyle);
-                        Widget(optstate.label, WT_Label, ToBottomRight, {});
-                        PopStyle(1, labelState);
-                        //if (hovered == optidx) PopStyle(1, WS_Default | WS_Hovered);
-
-                        if (stylesAdded != 0)
-                            PopStyle(1, stylesAdded);
-
-                        Move(FD_Vertical | FD_Horizontal);
-                        context.deferedRenderer->DrawLine(startpos, adhoc.nextpos, ddstyle.separator.color,
-                            ddstyle.separator.thickness);
-                        adhoc.nextpos.y += ddstyle.separator.thickness;
-                        auto endpos = adhoc.nextpos;
-                        adhoc.nextpos.x = 0.f;
-                        optrects.emplace_back(startpos, endpos);
-                        widgetrects.emplace_back();
-                        optidx++;
-                    }
-
-                    PopStyle(1, WS_Default | WS_Hovered);
-                    PopStyle(1, WS_Default | WS_Hovered);
-                }
-
-                static uint32_t hoverColor = 0, selectedColor = 0;
-                hoverColor = ddstyle.optionHoverColor;
-                selectedColor = ddstyle.optionSelectionColor;
-
-                if (state.hasSelection)
-                    SetPopupCallback(PCB_BeforeRender, [](void*, IRenderer& renderer, ImVec2 offset, const ImRect& extent) {
-                    auto io = Config.platform->desc;
-                    auto optidx = 0, hoveridx = -1;
-
-                    for (auto& rect : optrects)
-                    {
-                        rect.Translate(offset);
-                        rect.Min.x = extent.Min.x;
-                        rect.Max.x = extent.Max.x;
-
-                        auto& wrect = widgetrects[optidx];
-                        wrect.Translate(offset);
-
-                        if (rect.Contains(io.mousepos))
-                        {
-                            if (selectable[optidx])
-                            {
-                                renderer.DrawRect(rect.Min, rect.Max, hoverColor, true);
-                                hoveridx = optidx;
-                                if (io.clicked() && !(wrect.Contains(io.mousepos)))
-                                {
-                                    selected = optidx;
-                                    hasClicked = true;
-                                    WidgetContextData::RemovePopup();
-                                }
-                            }
-
-                            if (HandleContextMenu(wid, rect, io))
-                                WidgetContextData::RightClickContext.optidx = optidx;
-                        }
-                        else if (optidx == selected)
-                            renderer.DrawRect(rect.Min, rect.Max, selectedColor, true);
-
-                        optidx++;
-                    }
-
-                    optrects.clear(true);
-                    widgetrects.clear(true);
-                    selectable.clear(true);
-                    wid = -1;
-                    hovered = hoveridx;
-                });
             }
 
-            const auto& specificStyle = GetContext().dropdownStyles[glimmer::log2((unsigned)state.state)].top();
-            EndPopUp(true, ddstyle.bgcolor, specificStyle.occludeBg);
-            if (state.out) *state.out = selected;
-            state.selected = selected;
-            state.hovered = hovered;
-            state.opened = hasClicked ? false : state.opened;
+            ++idx;
         }
     }
 
@@ -4089,18 +3901,7 @@ namespace glimmer
             {
                 if (state.isComboBox)
                 {
-                    /* if (state.inputId == -1)
-                     {
-                         state.inputId = GetNextId(WT_TextInput);
-                         auto& text = CreateWidgetConfig(state.inputId).state.input.text;
-                         for (auto ch : state.text) text.push_back(ch);
-                     }
-
-                     auto res = TextInputImpl(state.inputId, state.input, style, margin, content, renderer, io);
-                     if (res.event == WidgetEvent::Edited)
-                         state.text = std::string_view{ state.input.text.data(), state.input.text.size() };
-                     state.opened = true;*/
-                     // Create per dropdown input id
+                    // TODO: Create text input here
                 }
             }
             else if (!ismouseover && (io.clicked() || io.isKeyPressed(Key::Key_Escape)))
@@ -4112,7 +3913,7 @@ namespace glimmer
             if (state.opened)
             {
                 auto prev = state.selected;
-                ShowDropDownOptions(context, state, id, margin, border, padding, content, renderer);
+                ShowDropDownOptions(context, state, id, margin, border, padding, content, io, renderer);
                 if (state.selected != prev)
                 {
                     result.event = WidgetEvent::Clicked;
@@ -4138,7 +3939,7 @@ namespace glimmer
     {
         WidgetDrawResult result;
         auto& context = GetContext();
-        const auto& config = CreateWidgetConfig(id).state.dropdown;
+        const auto& config = context.GetState(id).state.dropdown;
         const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
 
         DrawBoxShadow(border.Min, border.Max, style, renderer);
@@ -4159,22 +3960,10 @@ namespace glimmer
 
         if (!(state.opened && state.isComboBox))
         {
-            if (state.CurrentSelectedOption)
-            {
-                auto [dt, textType] = state.CurrentSelectedOption(state.selected);
-                auto txtflags = ToTextFlags(textType) | FontStyleOverflowMarquee;
-                DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer, txtflags);
-            }
-            else
-            {
-                auto index = id & WidgetIndexMask;
-                const auto& optstates = context.dropDownOptions;
-                auto dt = (index < (int)optstates.size() && state.selected != -1) ?
-                    optstates[index].context->GetState(optstates[index].children[state.selected].label).state.label.text :
-                    state.text;
-                auto txtflags = ToTextFlags(config.textType) | FontStyleOverflowMarquee;
-                DrawText(content.Min, content.Max, text, dt, state.state & WS_Disabled, style, renderer, txtflags);
-            }
+            auto textcontent = config.selected != -1 && config.selected < (int)context.currentDropDown.items.size() ?
+				context.currentDropDown.items[config.selected].text : config.text;
+            auto txtflags = ToTextFlags(config.textType) | FontStyleOverflowMarquee;
+            DrawText(content.Min, content.Max, text, textcontent, state.state & WS_Disabled, style, renderer, txtflags);
         }
 
         if (ddstyle.isIndicatorSuffix)
@@ -4196,59 +3985,32 @@ namespace glimmer
         return result;
     }
 
-    WidgetDrawResult DropDown(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
+    static bool BeginDropDownImpl(WidgetContextData& context, DropDownState& config, int32_t id, std::string_view text, TextType type)
     {
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
+        // size comes from initial text
+        if (config.sizePolicy & DD_FitToInitialContent)
+        {
+            const auto style = context.GetStyle(config.state, id);
+            context.currentDropDown.maxsz = GetTextSize(type, text, style.font, -1.f, *Config.renderer);
+        }
 
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
+        if (config.opened)
+        {
+            BeginPopup(id, ImVec2{}, ImVec2{ FLT_MAX, FLT_MAX }, NestedContextSourceType::DropDownPopup);
+            context.currentDropDown.context = &GetContext();
 
-        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
-        fptr[id] = options;
-        auto& config = CreateWidgetConfig(id).state.dropdown;
-        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
-        config.text = text;
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
+            if (config.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
+            {
+                PushStyleFmt(WS_AllStates, "width: %fpx;", context.currentDropDown.maxsz.x);
+            }
 
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, bool(*)(int32_t)> fptr;
+            memset(context.currentDropDown.idstr, 0, 255);
+            auto idlen = snprintf(context.currentDropDown.idstr, 254, "dropdown-popup-%d", id);
+            BeginFlexRegion(std::string_view{ context.currentDropDown.idstr, (std::size_t)idlen }, DIR_Vertical, { 5.f, 5.f });
+            return true;
+        }
 
-        auto wid = GetIdFromString(id, WT_DropDown).first;
-        fptr[wid] = options;
-        auto& config = CreateWidgetConfig(wid).state.dropdown;
-        config.ShowList = [](int32_t index, ImVec2, ImVec2, DropDownState& state) { return fptr.at(state.id)(index); };
-        config.text = text;
-        return Widget(wid, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
-
-        auto id = GetIdFromOutPtr(selection, WT_DropDown).first;
-        auto& config = CreateWidgetConfig(id).state.dropdown;
-
-        if (OptionsMap[id].empty()) for (auto option : options) OptionsMap[id].emplace_back().text = option;
-        config.options = OptionsMap.at(id);
-        config.text = text;
-        return Widget(id, WT_DropDown, geometry, neighbors);
-    }
-
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        static std::unordered_map<int32_t, std::vector<DropDownState::OptionDescriptor>> OptionsMap;
-
-        auto wid = GetIdFromString(id, WT_DropDown).first;
-        auto& config = CreateWidgetConfig(wid).state.dropdown;
-
-        if (OptionsMap[wid].empty()) for (auto option : options) OptionsMap[wid].emplace_back().text = option;
-        config.options = OptionsMap.at(wid);
-        config.text = text;
-        return Widget(wid, WT_DropDown, geometry, neighbors);
+        return false;
     }
 
     bool BeginDropDown(int32_t id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
@@ -4262,7 +4024,7 @@ namespace glimmer
         context.currentDropDown.id = id;
         context.currentDropDown.items.clear(true);
         context.currentDropDown.maxsz = ImVec2{};
-        return config.opened;
+		return BeginDropDownImpl(context, config, id, text, type);
     }
 
     bool BeginDropDown(std::string_view id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
@@ -4277,74 +4039,97 @@ namespace glimmer
         context.currentDropDown.id = iid;
         context.currentDropDown.items.clear(true);
         context.currentDropDown.maxsz = ImVec2{};
-        return config.opened;
+        return BeginDropDownImpl(context, config, iid, text, type);
     }
 
-    static void UpdateItemStyle(WidgetContextData& context)
+    void BeginDropDownOption(std::string_view optionText, TextType type, bool isLongestOption)
     {
-        auto index = context.currentDropDown.id & WidgetIndexMask;
-        auto policy = context.GetState(context.currentDropDown.id).state.dropdown.sizePolicy;
-        auto& ddstate = context.dropDownOptions[index];
-        auto& itemstate = ddstate.children[context.currentDropDown.items.size() - 1];
+        auto& context = *GetContext().parentContext;
+        auto& item = context.currentDropDown.items.emplace_back();
+        item.text = optionText;
+        item.textType = type;
+        if (isLongestOption) 
+            context.currentDropDown.longestOption = context.currentDropDown.items.size() - 1;
+		PushStyle(WS_AllStates, "background-color: transparent;");
+    }
 
-        auto& label = ddstate.context->GetState(itemstate.label).state.label;
-        auto lstate = label.state;
-        itemstate.labelStyle = ddstate.context->GetStyle(lstate, itemstate.label);
+    void AddDropDownOption(std::string_view optionText, TextType type, bool isLongestOption)
+    {
+        BeginDropDownOption(optionText, type, isLongestOption);
 
-        ImVec2 sz{};
+        static char idstr[255];
+		memset(idstr, 0, 255);
+        auto& context = *GetContext().parentContext;
+        auto& builder = context.currentDropDown;
+		auto state = context.GetState(builder.id).state.dropdown;
+        const auto& defStyle = context.dropdownStyles[WSI_Default].top();
+        const auto& hoverStyle = context.dropdownStyles[WSI_Hovered].top();
+        const auto& pressedStyle = context.dropdownStyles[WSI_Pressed].top();
+        const auto& selectedStyle = context.dropdownStyles[WSI_Selected].top();
 
-        if (policy == DD_FitToLongestOption)
+        auto idlen = snprintf(idstr, 254, "dropdown-%d-option-%d", builder.id,
+            builder.items.size() - 1);
+		PushStyleFmt(WS_Default, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
+            COLOR_OUT(defStyle.optionBgColor), COLOR_OUT(defStyle.optionFgColor));
+        PushStyleFmt(WS_Hovered, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
+            COLOR_OUT(hoverStyle.optionBgColor), COLOR_OUT(hoverStyle.optionFgColor));
+        PushStyleFmt(WS_Pressed, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
+            COLOR_OUT(pressedStyle.optionBgColor), COLOR_OUT(pressedStyle.optionFgColor));
+        PushStyleFmt(WS_Selected, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
+            COLOR_OUT(selectedStyle.optionBgColor), COLOR_OUT(selectedStyle.optionFgColor));
+        Label(std::string_view{ idstr, (std::size_t)idlen }, optionText, type);
+        PopStyle(1, WS_Default | WS_Hovered | WS_Pressed | WS_Selected);
+
+        EndDropDownOption();
+    }
+
+    void EndDropDownOption()
+    {
+        //auto& context = *GetContext().parentContext;
+        //context.currentDropDown.items.back().geometry.Max = context.currentDropDown.maxsz;
+        PopStyle(1, WS_AllStates);
+    }
+
+    WidgetDrawResult EndDropDown(int32_t* selection, std::optional<std::pair<std::string_view, TextType>> longestopt)
+    {
+		auto ddctx = GetContext().parentContext != nullptr ? GetContext().parentContext : &GetContext();
+        auto& ddstate = ddctx->GetState(ddctx->currentDropDown.id).state.dropdown;
+
+        if (GetContext().parentContext != nullptr)
         {
-            ImRect content;
-            content.Max = GetTextSize(label.type, label.text, itemstate.labelStyle.font, -1.f,
-                *Config.renderer);
-            sz = std::get<3>(GetBoxModelBounds(content, itemstate.labelStyle)).GetSize();
-        }
-        
-        if (itemstate.prefix != -1)
-        {
-            auto pstate = GetOptionPrefixState(*ddstate.context, itemstate);
-            itemstate.prefixStyle = ddstate.context->GetStyle(pstate, itemstate.prefix);
-
-            if (policy == DD_FitToLongestOption)
+            if (ddstate.opened)
             {
-                auto type = itemstate.prefix >> WidgetTypeBits;
-                auto psz = Widget(itemstate.prefix, (WidgetType)type, ToBottom | ToRight, {}, true).geometry;
-                sz.x += psz.GetWidth();
-                sz.y = std::max(sz.y, psz.GetHeight());
+                EndRegion();
+                if (ddstate.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
+					PopStyle(1, WS_AllStates);
+                PopContext();
             }
         }
+        
+        ddstate.out = selection;
 
-        context.currentDropDown.maxsz = ImMax(context.currentDropDown.maxsz, sz);
-    }
+		if (ddstate.sizePolicy & DD_FitToLongestOption)
+        {
+            const auto style = ddctx->GetStyle(ddstate.state, ddctx->currentDropDown.id);
 
-    void AddOption(std::string_view optionText, TextType type, std::string_view prefix, ResourceType rt)
-    {
-        auto& context = GetContext();
-        auto& item = context.currentDropDown.items.emplace_back();
-        item.prefixType = WT_Invalid;
-        item.text = optionText;
-        item.textType = type;
-        UpdateItemStyle(context);
-    }
+            if (ddstate.opened)
+            {
+                auto lidx = ddctx->currentDropDown.longestOption != -1 ? ddctx->currentDropDown.longestOption : 0;
+                const auto& item = ddctx->currentDropDown.items[lidx];
+                ddctx->currentDropDown.maxsz = GetTextSize(item.textType, item.text, style.font,
+                    -1.f, *Config.renderer);
+            }
+			else if (longestopt.has_value())
+                ddctx->currentDropDown.maxsz = GetTextSize(longestopt->second, longestopt->first, style.font,
+                    -1.f, *Config.renderer);
+            
+            auto maxsz = GetTextSize(ddstate.textType, ddstate.text, style.font, -1.f, *Config.renderer);
+			ddctx->currentDropDown.maxsz = ImMax(ddctx->currentDropDown.maxsz, maxsz);
+        }
 
-    void AddOption(WidgetType wtype, std::string_view optionText, TextType type, std::string_view prefix, ResourceType rt)
-    {
-        auto& context = GetContext();
-        auto& item = context.currentDropDown.items.emplace_back();
-        item.prefixType = wtype;
-        item.text = optionText;
-        item.textType = type;
-        UpdateItemStyle(context);
-    }
-
-    WidgetDrawResult EndDropDown(int32_t* selection)
-    {
-        auto& context = GetContext();
-        auto& state = CreateWidgetConfig(context.currentDropDown.id).state.dropdown;
-        state.out = selection;
-        return Widget(context.currentDropDown.id, WT_DropDown, context.currentDropDown.geometry, 
-            context.currentDropDown.neighbors);
+        ddstate.maxOptionSz = ddctx->currentDropDown.maxsz;
+        return Widget(ddctx->currentDropDown.id, WT_DropDown, ddctx->currentDropDown.geometry, 
+            ddctx->currentDropDown.neighbors);
     }
 
 #pragma endregion
@@ -6109,36 +5894,6 @@ namespace glimmer
             std::make_pair(builder.origin.y, builder.origin.y + builder.size.y));
     }
 
-    void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style)
-    {
-        auto& context = GetContext();
-        
-        if (!context.nestedContextStack.empty())
-        {
-            auto& nestedSrc = context.nestedContextStack.top();
-
-            if (nestedSrc.source == NestedContextSourceType::ItemGrid && context.CurrentItemGridContext != nullptr)
-            {
-                auto& grid = context.CurrentItemGridContext->itemGrids.top();
-                if (grid.phase == ItemGridConstructPhase::HeaderCells)
-                {
-                    grid.maxHeaderExtent.x = std::max(grid.maxHeaderExtent.x, layoutItem.margin.Max.x);
-                    grid.maxHeaderExtent.y = std::max(grid.maxHeaderExtent.y, layoutItem.margin.Max.y);
-                }
-                else
-                {
-                    if (grid.maxCellExtent != ImVec2{})
-                    {
-                        grid.maxCellExtent.x = std::max(grid.maxCellExtent.x, layoutItem.margin.Max.x);
-                        grid.maxCellExtent.y = std::max(grid.maxCellExtent.y, layoutItem.margin.Max.y);
-                    }
-                    else
-						grid.maxCellExtent = layoutItem.margin.Max;
-                }
-            }
-        }
-    }
-
     bool BeginItemGrid(int32_t id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
@@ -6160,11 +5915,8 @@ namespace glimmer
         builder.origin = builder.nextpos = item.content.Min;
 
         context.CurrentItemGridContext = &context;
-        auto& ctx = PushContext(id);
-        auto& el = ctx.nestedContextStack.push();
-        el.base = &context;
-        el.source = NestedContextSourceType::ItemGrid;
-
+        PushContext(id, NestedContextSourceType::ItemGrid);
+        
         return true;
     }
 
@@ -8100,17 +7852,21 @@ namespace glimmer
 
 #pragma region Popups
 
-    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size)
+    // NestedContextSourceType type
+
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size, NestedContextSourceType type)
     {
         auto io = Config.platform->CurrentIO();
+
         if (!io.isKeyPressed(Key_Escape))
         {
-            auto& overlayctx = PushContext(id);
+            auto& overlayctx = type != NestedContextSourceType::None ? PushContext(id, type) : PushContext(id);
             overlayctx.ToggleDeferedRendering(true);
             overlayctx.deferEvents = true;
             overlayctx.popupOrigin = origin;
             overlayctx.popupSize = size;
             overlayctx.RecordDeferRange(overlayctx.popupRange, true);
+
             WidgetContextData::PopupContext = &overlayctx;
             WidgetContextData::PopupTarget = id;
             return true;
@@ -8121,6 +7877,11 @@ namespace glimmer
         return false;
     }
 
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size)
+    {
+		return BeginPopup(id, origin, size, NestedContextSourceType::None);
+    }
+
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data)
     {
         auto& context = GetContext();
@@ -8128,9 +7889,8 @@ namespace glimmer
         context.popupCallbackData[phase] = data;
     }
 
-    WidgetDrawResult EndPopUp(bool alwaysVisible, std::optional<uint32_t> bgcoloropt, bool occlude)
+    WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags)
     {
-        auto& overlayctx = GetContext();
         WidgetDrawResult result;
 
         if (overlayctx.popupCallbacks[PCB_GeneratePrimitives])
@@ -8147,7 +7907,7 @@ namespace glimmer
             size.x = overlayctx.popupSize.x != FLT_MAX ? overlayctx.popupSize.x : overlayctx.deferedRenderer->size.x;
             size.y = overlayctx.popupSize.y != FLT_MAX ? overlayctx.popupSize.y : overlayctx.deferedRenderer->size.y;
 
-            if (alwaysVisible)
+            if (flags & POP_EnsureVisible)
             {
                 if (((origin.y + size.y) > available.y) && ((overlayctx.PopupTarget >> WidgetTypeBits) != WT_ContextMenu))
                     origin.y = origin.y - size.y - overlayctx.parentContext->GetGeometry(overlayctx.PopupTarget).GetHeight();
@@ -8159,10 +7919,10 @@ namespace glimmer
             auto style = overlayctx.GetStyle(WS_Default);
             auto bgcolor = bgcoloropt.has_value() ? bgcoloropt.value() : style.bgcolor;
 
-            if (occlude)
+            if (flags & POP_Occlude)
             {
-                renderer.BeginDefer(); 
-                renderer.DrawRect(ImVec2{}, available, Config.popupOcclusionColor, true); 
+                renderer.BeginDefer();
+                renderer.DrawRect(ImVec2{}, available, Config.popupOcclusionColor, true);
                 renderer.EndDefer();
             }
 
@@ -8170,7 +7930,7 @@ namespace glimmer
             {
                 WidgetContextData::ActivePopUpRegion = ImRect{ origin, origin + size };
                 DrawBorderRect(origin, origin + size, style.border, bgcolor, renderer);
-                
+
                 if (overlayctx.popupCallbacks[PCB_BeforeRender])
                     overlayctx.popupCallbacks[PCB_BeforeRender](overlayctx.popupCallbackData[PCB_BeforeRender], renderer, origin,
                         WidgetContextData::ActivePopUpRegion);
@@ -8199,8 +7959,15 @@ namespace glimmer
 
         overlayctx.ToggleDeferedRendering(false);
         overlayctx.deferedEvents.clear(true);
-        PopContext();
         return result;
+    }
+
+    WidgetDrawResult EndPopUp(std::optional<uint32_t> bgcoloropt, int32_t flags)
+    {
+        auto& overlayctx = GetContext();
+		auto res = EndPopUp(overlayctx, bgcoloropt, flags);
+        PopContext();
+        return res;
     }
 
 #pragma endregion
@@ -8614,6 +8381,16 @@ namespace glimmer
             maxxy.x = extent.Max.x; // Bounded in x direction, y is from content
         }
 
+        if (auto nestedSrc = context.IsInside(NestedContextSourceType::DropDownPopup); nestedSrc)
+        {
+            auto& builder = nestedSrc.value().base->currentDropDown;
+            auto index = (int16_t)(layoutItem.id >> WidgetTypeBits);
+            builder.widgets[index].emplace_back(
+                (int16_t)(layoutItem.id & WidgetIndexMask),
+                (int16_t)(builder.items.size() - 1)
+            );
+        }
+
         if (type < WT_TotalTypes)
         {
             switch (type)
@@ -8939,7 +8716,7 @@ namespace glimmer
                 const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
                 auto style = context.GetStyle(state.state, wid);
                 auto textsz = (state.sizePolicy == DD_FitToInitialContent) ? GetTextSize(state.textType, state.text, style.font, maxxy.x, renderer) : 
-                    context.dropDownOptions[wid & WidgetIndexMask].maxsz;
+                    state.maxOptionSz;
                 UpdateTooltip(state.tooltip);
 
                 if (nestedCtx.source == NestedContextSourceType::Layout && !context.layoutStack.empty())

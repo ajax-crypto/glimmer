@@ -437,39 +437,21 @@ namespace glimmer
 
     enum DropDownSizingPolicy
     {
-        DD_FitToInitialContent,
-        DD_FitToLongestOption,
+        DD_FitToInitialContent = 1,
+        DD_FitToLongestOption = 2,
+        DD_SetPopupWidthToInitial = 4
     };
 
     struct DropDownState : public CommonWidgetData
     {
-        struct OptionDescriptor
-        {
-            std::string_view text;
-            TextType textType = TextType::PlainText;
-            WidgetType prefixType = WT_Invalid;
-        };
-
-        struct OptionStyleDescriptor
-        {
-            std::string_view css[WSI_Total];
-            bool isSelectable = true;
-        };
-
         std::string_view text;
         TextType textType = TextType::PlainText;
-        //TextInputState input;
         int32_t inputId = -1;
         int32_t selected = -1;
         int32_t hovered = -1;
-        //int32_t width = -1; // how many characters wide
         int32_t* out = nullptr;
-        DropDownSizingPolicy sizePolicy = DD_FitToLongestOption;
-
-        std::span<OptionDescriptor> options;
-        bool (*ShowList)(int32_t, ImVec2, ImVec2, DropDownState&) = nullptr;
-        std::pair<std::string_view, TextType> (*CurrentSelectedOption)(int32_t) = nullptr;
-        OptionStyleDescriptor(*OptionStyle)(int32_t) = nullptr;
+        int32_t sizePolicy = DD_FitToLongestOption;
+        ImVec2 maxOptionSz{};
         
         bool isComboBox = false;
         bool opened = false;
@@ -809,6 +791,13 @@ namespace glimmer
     };
 
     using PopUpCallbackT = void (*)(void*, IRenderer&, ImVec2, const ImRect&);
+
+    enum PopupProperties : int32_t
+    {
+        POP_Occlude = 1, 
+        POP_Defer = 2,
+        POP_EnsureVisible = 4
+    };
 
     struct UIElementDescriptor
     {

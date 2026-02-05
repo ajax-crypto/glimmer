@@ -186,6 +186,18 @@ namespace glimmer
         return layout.nextpos - offset;
     }
 
+    std::optional<NestedContextSource> WidgetContextData::IsInside(NestedContextSourceType source) const
+    {
+		for (auto idx = nestedContextStack.size() - 1; idx >= 0; --idx)
+        {
+            const auto& context = nestedContextStack[idx];
+            if (context.source == source)
+                return context;
+        }
+
+        return std::nullopt;
+    }
+
     void AddFontPtr(FontStyle& font)
     {
         if (font.font == nullptr && StartedRendering)
@@ -336,12 +348,6 @@ namespace glimmer
                 spinnerStates.reserve(spinnerStates.size() + sz);
                 for (auto idx = 0; idx < sz; ++idx)
                     spinnerStates.emplace_back();
-                break;
-            }
-            case WT_DropDown: {
-                dropDownOptions.reserve(dropDownOptions.size() + sz);
-                for (auto idx = 0; idx < sz; ++idx)
-                    dropDownOptions.emplace_back();
                 break;
             }
             case WT_Accordion: {
@@ -868,9 +874,15 @@ namespace glimmer
     ImRect WidgetContextData::GetGeometry(int32_t id) const
     {
         auto index = id & WidgetIndexMask;
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        assert(index < itemGeometries[wtype].size());
-        return wtype < WT_TotalTypes ? itemGeometries[wtype][index] : Config.CustomWidgetProvider ?
+        auto wtype = id >> WidgetTypeBits;
+
+        if (wtype < WT_TotalTypes)
+        {
+            //assert(index < itemGeometries[wtype].size());
+            return itemGeometries[wtype].size() > index ?
+                itemGeometries[wtype][index] : ImRect{};
+        }
+        else Config.CustomWidgetProvider ?
             Config.CustomWidgetProvider(wtype)->GetGeometry(id) : ImRect{};
     }
 
@@ -971,7 +983,7 @@ namespace glimmer
         {
             auto rect = ImGui::GetCurrentWindow()->InnerClipRect;
             auto ispopup = popupOrigin.x != -1.f;
-            return ispopup ? popupOrigin + popupSize : rect.Max;
+            return ispopup ? popupOrigin + ImMin(popupSize, rect.Max) : rect.Max;
         }
     }
 
@@ -1024,7 +1036,6 @@ namespace glimmer
                     splitterScrollPaneParentIds.resize(count * GLIMMER_MAX_SPLITTER_REGIONS, -1);
                     break;
                 case WT_Accordion: accordionStates.resize(count); break;
-                case WT_DropDown: dropDownOptions.resize(count); break;
                 default:
                     break;
                 }
@@ -1089,7 +1100,7 @@ namespace glimmer
                 auto& style = WidgetContextData::StyleStack[idx].push();
 
                 WidgetContextData::radioButtonStyles[idx].push();
-                WidgetContextData::dropdownStyles[idx].push();
+                auto& ddstyle = WidgetContextData::dropdownStyles[idx].push();
                 auto& slider = WidgetContextData::sliderStyles[idx].push();
                 auto& rangeslider = WidgetContextData::rangeSliderStyles[idx].push();
                 auto& spinner = WidgetContextData::spinnerStyles[idx].push();
@@ -1113,6 +1124,8 @@ namespace glimmer
                     tab.closebgcolor = tab.pinbgcolor = ToRGBA(150, 150, 150);
                     tab.pincolor = ToRGBA(0, 0, 0);
                     tab.closecolor = ToRGBA(255, 0, 0);
+					ddstyle.optionBgColor = ToRGBA(100, 100, 100);
+					ddstyle.optionFgColor = ToRGBA(255, 255, 255);
                     Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonbg, 1.5f);
                     Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonfg, 1.5f);
                     //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Default].track, 1.5f);
@@ -1130,6 +1143,10 @@ namespace glimmer
                     //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Hovered].track, 1.5f);
                     Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Hovered].grip, 1.2f);
                     [[fallthrough]];
+                case WSI_Selected:
+                    ddstyle.optionBgColor = ToRGBA(100, 100, 100);
+                    ddstyle.optionFgColor = ToRGBA(255, 255, 255);
+					[[fallthrough]];
                 default:
                     toggle.trackColor = ToRGBA(200, 200, 200);
                     toggle.indicatorTextColor = ToRGBA(100, 100, 100);
@@ -1164,18 +1181,35 @@ namespace glimmer
 
             if ((int)children.size() <= index)
             {
+                auto count = Config.GetTotalWidgetCount ?
+                    Config.GetTotalWidgetCount((WidgetType)wtype) :
+                    WidgetContextData::GetExpectedWidgetCount((WidgetType)wtype);
+                auto required = children.size() + count;
+                children.reserve(required);
+
+				for (auto idx = 0; idx < required; ++idx)
+                {
+                    if (idx == index)
+                    {
+                        auto& ctx = WidgetContexts.emplace_back();
+                        ctx.parentContext = CurrentContext;
+                        ctx.InsideFrame = CurrentContext->InsideFrame;
+                        auto& layout = ctx.adhocLayout.push();
+                        layout.nextpos = CurrentContext->adhocLayout.top().nextpos;
+                        children.emplace_back(&ctx);
+                    }
+                    else
+						children.emplace_back(nullptr);
+                }
+            }
+			else if (children[index] == nullptr)
+            {
                 auto& ctx = WidgetContexts.emplace_back();
                 ctx.parentContext = CurrentContext;
                 ctx.InsideFrame = CurrentContext->InsideFrame;
-                
-                auto count = Config.GetTotalWidgetCount ?
-                    Config.GetTotalWidgetCount((WidgetType)wtype) : 
-                    WidgetContextData::GetExpectedWidgetCount((WidgetType)wtype);
-                if (children.size() <= index) children.reserve(children.size() + count);
-                children.emplace_back(&ctx);
-
                 auto& layout = ctx.adhocLayout.push();
                 layout.nextpos = CurrentContext->adhocLayout.top().nextpos;
+                children[index] = &ctx;
             }
 
             CurrentContext = CurrentContext->nestedContexts[wtype][index];
@@ -1184,6 +1218,16 @@ namespace glimmer
         }
 
         return *CurrentContext;
+    }
+
+    WidgetContextData& PushContext(int32_t id, NestedContextSourceType source)
+    {
+        auto curr = CurrentContext;
+		auto& ctx = PushContext(id);
+        auto& el = ctx.nestedContextStack.push();
+        el.base = curr;
+        el.source = source;
+        return ctx;
     }
 
     void PopContext()

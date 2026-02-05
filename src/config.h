@@ -384,3 +384,6 @@ inline bool operator>(const ImVec2& lhs, const ImVec2& rhs)
 
 #define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
 #define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
+
+#define COLOR_FMT "rgba(%d, %d, %d, %d)"
+#define COLOR_OUT(X) X & 0xff, (X & 0xff00) >> 8, (X & 0xff0000) >> 16, (X & 0xff000000) >> 24

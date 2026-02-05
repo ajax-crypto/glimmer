@@ -277,8 +277,9 @@ namespace glimmer
     struct DropDownStyleDescriptor
     {
         uint32_t bgcolor = ToRGBA(230, 230, 230);
-        uint32_t optionHoverColor = ToRGBA(20, 20, 150);
-        uint32_t optionSelectionColor = ToRGBA(150, 150, 255);
+		uint32_t optionBgColor = ToRGBA(255, 255, 255, 0);
+		uint32_t optionFgColor = ToRGBA(0, 0, 0);
+		uint32_t popupBgColor = ToRGBA(255, 255, 255);
         uint32_t indicatorColor = ToRGBA(0, 0, 0);
         std::string_view indicators[2] = { "arrow-down", "arrow-up" };
         int32_t indicatorType = RT_SYMBOL;

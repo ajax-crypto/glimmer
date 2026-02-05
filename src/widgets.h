@@ -36,6 +36,7 @@ namespace glimmer
 
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Label(std::string_view id, std::string_view content, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    WidgetDrawResult Label(std::string_view id, std::string_view content, TextType type, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Label(std::string_view id, std::string_view content, std::string_view tooltip, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     
     WidgetDrawResult Button(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -95,16 +96,12 @@ namespace glimmer
         return TextInput(id, out, placeholder, geometry, neighbors);
     }
 
-    WidgetDrawResult DropDown(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, bool(*options)(int32_t), int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult DropDown(int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    WidgetDrawResult DropDown(std::string_view id, int32_t* selection, std::string_view text, const std::initializer_list<std::string_view>& options, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool BeginDropDown(int32_t id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     bool BeginDropDown(std::string_view id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void AddOption(std::string_view optionText, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
-    void AddOption(WidgetType wtype, std::string_view optionText, TextType type = TextType::PlainText, std::string_view prefix = "", ResourceType rt = RT_INVALID);
-    WidgetDrawResult EndDropDown(int32_t* selection);
+    void BeginDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
+    void AddDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
+	void EndDropDownOption();
+    WidgetDrawResult EndDropDown(int32_t* selection, std::optional<std::pair<std::string_view, TextType>> longestopt = std::nullopt);
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult StaticItemGrid(std::string_view id, const std::initializer_list<std::string_view>& headers, std::pair<std::string_view, TextType>(*cell)(int32_t, int16_t), 
@@ -119,7 +116,7 @@ namespace glimmer
 
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
-    WidgetDrawResult EndPopUp(bool alwaysVisible = true, std::optional<uint32_t> bgcolor = std::nullopt, bool occlude = false);
+    WidgetDrawResult EndPopUp(std::optional<uint32_t> bgcolor = std::nullopt, int32_t props = POP_EnsureVisible);
 
     void BeginScrollableRegion(int32_t id, int32_t flags, int32_t geometry = ToBottomRight, 
         const NeighborWidgets& neighbors = NeighborWidgets{}, ImVec2 maxsz = { FLT_MAX, FLT_MAX });
