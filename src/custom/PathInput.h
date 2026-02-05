@@ -8,7 +8,7 @@ namespace glimmer
     namespace custom
     {
         glimmer::WidgetDrawResult PathInput(std::string_view id, char* out, int size, bool isDirectory,
-            std::string_view initialPath, std::string_view placeholder = "", int32_t geometry = ToBottomRight,
+            std::string_view initialPath, float width  = 300.0f ,std::string_view placeholder = "", int32_t geometry = ToBottomRight,
             const NeighborWidgets& neighbors = NeighborWidgets{});
 
         struct PathSet
@@ -21,7 +21,7 @@ namespace glimmer
         };
 
         glimmer::WidgetDrawResult MultiPathInput(std::string_view id, PathSet& paths, bool isDirectory,
-            std::string_view initialPath, std::string_view placeholder = "", int32_t geometry = ToBottomRight,
+            std::string_view initialPath, float width  = 300.0f , std::string_view placeholder = "", int32_t geometry = ToBottomRight,
             const NeighborWidgets& neighbors = NeighborWidgets{});
     }
 }
