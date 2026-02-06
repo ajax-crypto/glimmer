@@ -41,4 +41,6 @@ namespace glimmer
 
     void CacheLayout();
     void InvalidateLayout();
+    void ContextPushed(void* data);
+    void ContextPopped();
 }

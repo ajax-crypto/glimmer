@@ -1697,6 +1697,12 @@ namespace glimmer
         From(css);
     }
 
+    StyleDescriptor::StyleDescriptor(const FourSidedBorder& pborder)
+        : StyleDescriptor{}
+    {
+        border = pborder;
+    }
+
     StyleDescriptor& StyleDescriptor::BgColor(int r, int g, int b, int a) { bgcolor = ToRGBA(r, g, b, a); return *this; }
     StyleDescriptor& StyleDescriptor::FgColor(int r, int g, int b, int a) { fgcolor = ToRGBA(r, g, b, a); return *this; }
     StyleDescriptor& StyleDescriptor::Size(float w, float h) { dimension = ImVec2{ w, h }; return *this; }

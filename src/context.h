@@ -94,7 +94,7 @@ namespace glimmer
         int32_t geometry = 0;
         int16_t longestOption = -1;
 		WidgetContextData* context = nullptr; // Nested context created inside BeginPopUp
-        ImVec2 maxsz{};
+        ImVec2 maxsz{}, extra{}, indicator{};
         NeighborWidgets neighbors;
         Vector<OptionDescriptor, int16_t, 16> items;
         Vector<std::pair<int16_t, int16_t>, int16_t, 16> widgets[WT_TotalTypes];
@@ -592,6 +592,7 @@ namespace glimmer
         ScrollableRegion scroll;
         int32_t regionIdx = -1;
         int32_t parentIdx = -1; // parent index in context.layouts
+        int32_t specified = 0;
         void* implData = nullptr;
         bool popSizingOnEnd = false;
 
@@ -712,13 +713,15 @@ namespace glimmer
 
     enum class NestedContextSourceType
     {
-        None, Region, Layout, ItemGrid, DropDownPopup // add others...
+        None, Region, Layout, ItemGrid, DropDownPopup, 
+        Custom = 100 // add others...
     };
 
     struct NestedContextSource
     {
         WidgetContextData* base = nullptr;
         NestedContextSourceType source = NestedContextSourceType::None;
+        int32_t customId = -1;
     };
 
 #pragma endregion
@@ -1000,6 +1003,7 @@ namespace glimmer
     WidgetContextData& PushContext(int32_t id);
     WidgetContextData& PushContext(int32_t id, NestedContextSourceType source);
     void PopContext();
+    void PopNestedSource(WidgetContextData* context = nullptr);
     void Cleanup();
 
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state);

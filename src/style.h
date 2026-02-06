@@ -184,6 +184,7 @@ namespace glimmer
 
         StyleDescriptor();
         StyleDescriptor(std::string_view css);
+        StyleDescriptor(const FourSidedBorder& border);
 
         StyleDescriptor& BgColor(int r, int g, int b, int a = 255);
         StyleDescriptor& FgColor(int r, int g, int b, int a = 255);
@@ -281,11 +282,11 @@ namespace glimmer
 		uint32_t optionFgColor = ToRGBA(0, 0, 0);
 		uint32_t popupBgColor = ToRGBA(255, 255, 255);
         uint32_t indicatorColor = ToRGBA(0, 0, 0);
+        FourSidedBorder popupBorder;
         std::string_view indicators[2] = { "arrow-down", "arrow-up" };
         int32_t indicatorType = RT_SYMBOL;
         float indicatorScale = 0.5f;
         ImVec2 optionSpacing{ 2.f, 2.f };
-        Border separator;
         bool isIndicatorSuffix = true;
         bool occludeBg = false;
 

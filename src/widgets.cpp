@@ -36,6 +36,7 @@ namespace glimmer
         const NeighborWidgets& neighbors, int regionIdx);
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size, NestedContextSourceType type);
     WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
+    bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io);
 
 #pragma region Widget ID Handling
 
@@ -429,6 +430,19 @@ namespace glimmer
                         item.geometry.Max = ImMax(layoutItem.margin.Max, item.geometry.Max);
                         break;
                     }
+            }
+            else if (auto nestedSrc = context.IsInside(NestedContextSourceType::Custom); nestedSrc)
+            {
+                if (Config.CustomWidgetProvider)
+                {
+                    auto wtype = (int16_t)(nestedSrc.value().customId >> WidgetTypeBits);
+                    auto wfactory = Config.CustomWidgetProvider(wtype);
+
+                    if (wfactory)
+                    {
+                        wfactory->RecordChildWidgetGeometry(layoutItem);
+                    }
+                }
             }
         }
     }
@@ -958,31 +972,29 @@ namespace glimmer
 
 #pragma endregion
 
-#pragma region Button & Labels
-
-    bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io);
+#pragma region Box Model Computation
 
     /* Here is the box model that is followed here:
 
-            +--------------------------------+
-            |            margin              |
-            |   +------------------------+   |
-            |   |       border           |   |
-            |   |   +--------------+     |   |
-            |   |   |   padding    |     |   |
-            |   |   |  +--------+  |     |   |
-            |   |   |  |        |  |     |   |
-            |   |   |  |content |  |     |   |
-            |   |   |  |        |  |     |   |
-            |   |   |  +--------+  |     |   |
-            |   |   |              |     |   |
-            |   |   +--------------+     |   |
-            |   |                        |   |
-            |   +------------------------+   |
-            |                                |
-            +--------------------------------+
+           +--------------------------------+
+           |            margin              |
+           |   +------------------------+   |
+           |   |       border           |   |
+           |   |   +--------------+     |   |
+           |   |   |   padding    |     |   |
+           |   |   |  +--------+  |     |   |
+           |   |   |  |        |  |     |   |
+           |   |   |  |content |  |     |   |
+           |   |   |  |        |  |     |   |
+           |   |   |  +--------+  |     |   |
+           |   |   |              |     |   |
+           |   |   +--------------+     |   |
+           |   |                        |   |
+           |   +------------------------+   |
+           |                                |
+           +--------------------------------+
 
-    */
+   */
 
     static std::tuple<ImRect, ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImVec2 pos, const StyleDescriptor& style,
         std::string_view text, IRenderer& renderer, int32_t geometry, TextType type,
@@ -1097,7 +1109,7 @@ namespace glimmer
                     margin.Max.y = border.Max.y + style.margin.bottom;
                 }
             }
-        };
+            };
 
         auto setHFromExpansion = [&](float max) {
             if (geometry & ToLeft)
@@ -1305,7 +1317,7 @@ namespace glimmer
             else textpos.y = content.Min.y;
         }
         else textpos.y = content.Min.y;
-        
+
         content = { { std::min(content.Min.x, content.Max.x), std::min(content.Min.y, content.Max.y) },
             { std::max(content.Min.x, content.Max.x), std::max(content.Min.y, content.Max.y) } };
         padding = { { std::min(padding.Min.x, padding.Max.x), std::min(padding.Min.y, padding.Max.y) },
@@ -1365,7 +1377,7 @@ namespace glimmer
         return std::make_tuple(content, padding, border, margin);
     }
 
-    static ImVec2 DetermineBounds(ImVec2 textsz, std::string_view prefix, std::string_view suffix, 
+    static ImVec2 DetermineBounds(ImVec2 textsz, std::string_view prefix, std::string_view suffix,
         ImVec2 pos, LayoutItemDescriptor& item, const StyleDescriptor& style,
         IRenderer& renderer, int32_t geometry, const NeighborWidgets& neighbors)
     {
@@ -1492,10 +1504,13 @@ namespace glimmer
         return item.margin.GetSize();
     }
 
-    void HandleRegionEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+#pragma endregion
+
+#pragma region Region
+
+    void HandleRegionEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.region;
@@ -1507,10 +1522,10 @@ namespace glimmer
 
                 if (hasmouseover && ismouseover)
                     result.event = WidgetEvent::Hovered;
-                
+
                 if (ismouseover && (state.events & ETP_Clicked) && io.clicked())
                     result.event = WidgetEvent::Clicked;
-                
+
                 if (ismouseover && (state.events & ETP_DoubleClicked) && io.isLeftMouseDoubleClicked())
                     result.event = WidgetEvent::DoubleClicked;
 
@@ -1522,7 +1537,7 @@ namespace glimmer
                     //Config.platform->SetMouseCursor(MouseCursor::Grab);
                     WidgetContextData::CurrentWidgetId = id;
                 }
-            } 
+            }
 
             if (WidgetContextData::CurrentWidgetId == -1)
             {
@@ -1538,10 +1553,97 @@ namespace glimmer
         else context.deferedEvents.emplace_back(EventDeferInfo::ForRegion(id, margin, border, padding, content));
     }
 
-    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
+    WidgetDrawResult RegionImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, IRenderer& renderer, const IODescriptor& io, int depth)
     {
         auto& context = GetContext();
+        assert((id & WidgetIndexMask) <= (int)context.states[WT_Region].size());
+
+        WidgetDrawResult result;
+
+        if (!context.regionBuilders.empty())
+        {
+            DrawBoxShadow(border.Min, border.Max, style, renderer);
+            DrawBackground(border.Min, border.Max, style, renderer);
+            DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
+        }
+
+        HandleRegionEvent(context, id, margin, border, padding, content, renderer, io, result);
+        result.geometry = margin;
+        return result;
+    }
+
+    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, ImVec2 size, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = dir == DIR_Horizontal ? Layout::Horizontal : Layout::Vertical;
+        size.x = size.x >= 0.f ? size.x : style.dimension.x;
+        size.y = size.y >= 0.f ? size.y : style.dimension.y;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginFlexLayoutRegion(dir, geometry, wrap, spacing, size, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, ImVec2 size, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginFlexRegion(wid, dir, spacing, wrap, events, size, geometry, neighbors);
+    }
+
+    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing, int32_t events, ImVec2 size, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto& context = GetContext();
+        auto& state = context.GetState(id).state.region;
+        auto& region = context.regions.emplace_back();
+        context.regionBuilders.push() = context.regions.size() - 1;
+
+        auto style = context.GetStyle(state.state, id);
+        state.events = events;
+
+        region.id = id;
+        region.depth = context.regionBuilders.size() - 1;
+        region.layout = Layout::Grid;
+        size.x = size.x >= 0.f ? size.x : style.dimension.x;
+        size.y = size.y >= 0.f ? size.y : style.dimension.y;
+
+        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
+        BeginGridLayoutRegion(rows, cols, GridLayoutDirection::ByRows, geometry, {}, {}, spacing,
+            size, neighbors, context.regionBuilders.top());
+    }
+
+    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing, int32_t events, ImVec2 size, int32_t geometry, const NeighborWidgets& neighbors)
+    {
+        auto wid = GetIdFromString(id, WT_Region).first;
+        BeginGridRegion(wid, rows, cols, spacing, events, size, geometry, neighbors);
+    }
+
+    WidgetDrawResult EndRegion()
+    {
+        auto& context = GetContext();
+        auto idx = context.regionBuilders.top();
+        context.RecordForReplay(idx, LayoutOps::PopRegion);
+
+        auto pos = EndLayout();
+        context.regionBuilders.pop(1, true);
+        return pos;
+    }
+
+#pragma endregion
+
+#pragma region Button & Labels
+    
+    void HandleLabelEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
+    {
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.label;
@@ -1567,10 +1669,9 @@ namespace glimmer
         return DetermineBounds(textsz, config.prefix, config.suffix, pos, item, style, renderer, geometry, neighbors);
     }
 
-    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.button;
@@ -1595,26 +1696,6 @@ namespace glimmer
         else context.deferedEvents.emplace_back(EventDeferInfo::ForButton(id, margin, border, padding, content, text));
     }
 
-    WidgetDrawResult RegionImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, IRenderer& renderer, const IODescriptor& io, int depth)
-    {
-        auto& context = GetContext();
-        assert((id & WidgetIndexMask) <= (int)context.states[WT_Region].size());
-
-        WidgetDrawResult result;
-
-        if (!context.regionBuilders.empty())
-        {
-            DrawBoxShadow(border.Min, border.Max, style, renderer);
-            DrawBackground(border.Min, border.Max, style, renderer);
-            DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
-        }
-    
-        HandleRegionEvent(id, margin, border, padding, content, renderer, io, result);
-        result.geometry = margin;
-        return result;
-    }
-
     WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags)
     {
@@ -1629,7 +1710,7 @@ namespace glimmer
         DrawBorderRect(border.Min, border.Max, style.border, style.bgcolor, renderer);
         DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, 
             renderer, textflags | style.font.flags);
-        HandleLabelEvent(id, margin, border, padding, content, text, renderer, io, result);
+        HandleLabelEvent(context, id, margin, border, padding, content, text, renderer, io, result);
         
         result.geometry = margin;
         return result;
@@ -1648,7 +1729,7 @@ namespace glimmer
         DrawText(content.Min, content.Max, text, state.text, state.state & WS_Disabled, style, renderer);
         DrawText(prefix.Min, prefix.Max, prefix, state.prefix, state.state & WS_Disabled, style, 
             renderer, ToTextFlags(state.resTypes.first));
-        HandleButtonEvent(id, margin, border, padding, content, text, renderer, io, result);
+        HandleButtonEvent(context, id, margin, border, padding, content, text, renderer, io, result);
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
 
         result.geometry = margin;
@@ -1695,70 +1776,10 @@ namespace glimmer
         return Widget(wid, WT_Button, geometry, neighbors);
     }
 
-    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.region;
-        auto& region = context.regions.emplace_back();
-        context.regionBuilders.push() = context.regions.size() - 1;
-
-        auto style = context.GetStyle(state.state, id);
-        state.events = events;
-
-        region.id = id;
-        region.depth = context.regionBuilders.size() - 1;
-        region.layout = dir == DIR_Horizontal ? Layout::Horizontal : Layout::Vertical;
-
-        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
-        BeginFlexLayoutRegion(dir, geometry, wrap, spacing, style.dimension, neighbors, context.regionBuilders.top());
-    }
-
-    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing, bool wrap, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Region).first;
-        BeginFlexRegion(wid, dir, spacing, wrap, events, geometry, neighbors);
-    }
-
-    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto& context = GetContext();
-        auto& state = context.GetState(id).state.region;
-        auto& region = context.regions.emplace_back();
-        context.regionBuilders.push() = context.regions.size() - 1;
-
-        auto style = context.GetStyle(state.state, id);
-        state.events = events;
-
-        region.id = id;
-        region.depth = context.regionBuilders.size() - 1;
-        region.layout = Layout::Grid;
-
-        context.RecordForReplay(context.regionBuilders.top(), LayoutOps::PushRegion);
-        BeginGridLayoutRegion(rows, cols, GridLayoutDirection::ByRows, geometry, {}, {}, spacing,
-            style.dimension, neighbors, context.regionBuilders.top());
-    }
-
-    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing, int32_t events, int32_t geometry, const NeighborWidgets& neighbors)
-    {
-        auto wid = GetIdFromString(id, WT_Region).first;
-        BeginGridRegion(wid, rows, cols, spacing, events, geometry, neighbors);
-    }
-
-    WidgetDrawResult EndRegion()
-    {
-        auto& context = GetContext();
-        auto idx = context.regionBuilders.top();
-        context.RecordForReplay(idx, LayoutOps::PopRegion);
-
-        auto pos = EndLayout();
-        context.regionBuilders.pop(1, true);
-        return pos;
-    }
-
     void BeginButton(std::string_view id, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto wid = GetIdFromString(id, WT_Button).first;
-        BeginFlexRegion(wid, DIR_Horizontal, { 0.f, 0.f }, true, ETP_Hovered | ETP_Clicked, geometry, neighbors);
+        BeginFlexRegion(wid, DIR_Horizontal, { 0.f, 0.f }, true, ETP_Hovered | ETP_Clicked, { -1.f, -1.f }, geometry, neighbors);
     }
 
     WidgetDrawResult EndButton()
@@ -2028,10 +2049,9 @@ namespace glimmer
         return { result, text };
     }
 
-    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+    void HandleToggleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
         WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         if (!context.deferEvents)
         {
             auto& toggle = context.ToggleState(id);
@@ -2109,7 +2129,7 @@ namespace glimmer
 
         renderer.DrawCircle(center, radius + specificStyle.thumbExpand, style.fgcolor, true);
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
-        HandleToggleButtonEvent(id, extent, center, renderer, io, result);
+        HandleToggleButtonEvent(context, id, extent, center, renderer, io, result);
 
         result.geometry = extent;
         return result;
@@ -2147,10 +2167,9 @@ namespace glimmer
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size, style.font.size } };
     }
 
-    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
+    void HandleRadioButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
         WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         if (!context.deferEvents)
         {
             auto& radio = context.RadioState(id);
@@ -2206,7 +2225,7 @@ namespace glimmer
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
 
         radio.animate = radius > 0.f && radius < maxrad;
-        HandleRadioButtonEvent(id, extent, maxrad, renderer, io, result); 
+        HandleRadioButtonEvent(context, id, extent, maxrad, renderer, io, result);
         result.geometry = extent;
         return result;
     }
@@ -2243,11 +2262,9 @@ namespace glimmer
         return ImRect{ extent.Min, extent.Min + ImVec2{ style.font.size * 0.6f, style.font.size * 0.6f } };
     }
 
-    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+    void HandleCheckboxEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const IODescriptor& io,
         WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-
         if (!context.deferEvents)
         {
             auto& check = context.CheckboxState(id);
@@ -2316,7 +2333,7 @@ namespace glimmer
         }
 
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
-        HandleCheckboxEvent(id, extent, io, result);
+        HandleCheckboxEvent(context, id, extent, io, result);
         
         result.geometry = extent;
         return result;
@@ -2385,11 +2402,9 @@ namespace glimmer
         return result;
     }
 
-    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io, 
+    void HandleSpinnerEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.spinner;
@@ -2592,7 +2607,7 @@ namespace glimmer
 
         renderer.ResetFont();
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
-        HandleSpinnerEvent(id, extent, incbtn, decbtn, io, result);
+        HandleSpinnerEvent(context, id, extent, incbtn, decbtn, io, result);
         result.geometry = extent;
         return result;
     }
@@ -2678,10 +2693,8 @@ namespace glimmer
         return result;
     }
 
-    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-        
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.slider;
@@ -2772,7 +2785,7 @@ namespace glimmer
         DrawStyledShape(renderer, style, specificStyle.thumbColor, center, radius);
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
         ImRect thumb{ center - ImVec2{ radius, radius }, center + ImVec2{ radius, radius } };
-        HandleSliderEvent(id, extent, thumb,  io, result);
+        HandleSliderEvent(context, id, extent, thumb,  io, result);
         result.geometry = extent;
         return result;
     }
@@ -2856,10 +2869,8 @@ namespace glimmer
         return result;
     }
 
-    void HandleRangeSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumbMin, const ImRect& thumbMax, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleRangeSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& thumbMin, const ImRect& thumbMax, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.rangeSlider;
@@ -3015,7 +3026,7 @@ namespace glimmer
         ImRect thumbMin{ centerMin - ImVec2{ minradius, minradius }, centerMin + ImVec2{ minradius, minradius } };
         ImRect thumbMax{ centerMax - ImVec2{ maxradius, maxradius }, centerMax + ImVec2{ maxradius, maxradius } };
 
-        HandleRangeSliderEvent(id, extent, thumbMin, thumbMax, io, result);
+        HandleRangeSliderEvent(context, id, extent, thumbMin, thumbMax, io, result);
         result.geometry = extent;
         return result;
     }
@@ -3201,11 +3212,9 @@ namespace glimmer
         }
     }
 
-    void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& suffix, const IODescriptor& io,
+    void HandleTextInputEvent(WidgetContextData& context, int32_t id, const ImRect& content, const ImRect& suffix, const IODescriptor& io,
         IRenderer& renderer, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.input;
@@ -3782,7 +3791,7 @@ namespace glimmer
         }
 
         DrawFocusRect(state.state, extent.Min, extent.Max, renderer);
-        HandleTextInputEvent(id, content, clear, io, renderer, result);
+        HandleTextInputEvent(context, id, content, clear, io, renderer, result);
         renderer.ResetFont();
 
         result.geometry = extent;
@@ -3831,39 +3840,55 @@ namespace glimmer
 #pragma region DropDown
 
     void ShowDropDownOptions(WidgetContextData& parent, DropDownState& state, int32_t id, const ImRect& margin, 
-        const ImRect& border, const ImRect& padding, const ImRect& content, const IODescriptor& io, IRenderer& renderer)
+        const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
     {
         if (parent.currentDropDown.context == nullptr) return;
 
-        auto style = parent.dropdownStyles[log2((unsigned)state.state)].top();
+        const auto& ddstyle = parent.dropdownStyles[log2((unsigned)state.state)].top();
         parent.currentDropDown.context->popupOrigin = { margin.Min.x, margin.Max.y };
-        EndPopUp(*parent.currentDropDown.context, style.popupBgColor, 
-            POP_EnsureVisible | (style.occludeBg ? POP_Occlude : 0));
+        EndPopUp(*parent.currentDropDown.context, ddstyle.popupBgColor, 
+            POP_EnsureVisible | (ddstyle.occludeBg ? POP_Occlude : 0));
+        PopNestedSource(parent.currentDropDown.context);
 
 		BEGIN_LOG_ARRAY("dropdown-items-geometry");
+        ImVec2 maxsz = parent.currentDropDown.maxsz;
+        maxsz.x += parent.currentDropDown.extra.x;
+        auto maxw = 0.f;
+
         for (auto& item : parent.currentDropDown.items)
         {
             item.geometry.Translate(parent.currentDropDown.context->popupOrigin);
 			LOG_RECT(item.geometry);
 
             if (state.sizePolicy & DD_FitToLongestOption)
-			    parent.currentDropDown.maxsz = ImMax(parent.currentDropDown.maxsz, item.geometry.GetSize());
+                maxw = std::max(maxw, item.geometry.GetWidth());
         }
+
+        if (maxw > maxsz.x)
+            maxsz.x = maxw - parent.currentDropDown.extra.x;
+        else
+            maxsz.x -= parent.currentDropDown.extra.x;
+        parent.currentDropDown.maxsz = maxsz;
         END_LOG_ARRAY();
 
         auto idx = 0;
         state.hovered = -1;
 		state.maxOptionSz = parent.currentDropDown.maxsz;
+        auto io = Config.platform->CurrentIO(parent.currentDropDown.context);
 
         for (const auto& item : parent.currentDropDown.items)
         {
             if (item.geometry.Contains(io.mousepos))
             {
+                Config.platform->SetMouseCursor(MouseCursor::Grab);
                 state.hovered = idx;
 
                 if (io.clicked())
                 {
                     state.selected = idx;
+                    state.opened = false;
+                    state.selectedText = parent.currentDropDown.items[idx].text;
+                    state.selectedTextType = parent.currentDropDown.items[idx].textType;
                     if (state.out) *state.out = idx;
                     WidgetContextData::RemovePopup();
                     break;
@@ -3874,11 +3899,9 @@ namespace glimmer
         }
     }
 
-    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleDropDownEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-
         if (!context.deferEvents)
         {
             auto& state = context.GetState(id).state.dropdown;
@@ -3891,6 +3914,9 @@ namespace glimmer
                 Config.platform->SetMouseCursor(MouseCursor::Grab);
                 WidgetContextData::CurrentWidgetId = id;
             }
+
+            if (!state.opened && (state.state & WS_Focused) && io.isKeyPressed(Key::Key_Enter))
+                state.opened = true;
 
             if (ismouseover && io.clicked())
             {
@@ -3913,7 +3939,7 @@ namespace glimmer
             if (state.opened)
             {
                 auto prev = state.selected;
-                ShowDropDownOptions(context, state, id, margin, border, padding, content, io, renderer);
+                ShowDropDownOptions(context, state, id, margin, border, padding, content, renderer);
                 if (state.selected != prev)
                 {
                     result.event = WidgetEvent::Clicked;
@@ -3960,9 +3986,9 @@ namespace glimmer
 
         if (!(state.opened && state.isComboBox))
         {
-            auto textcontent = config.selected != -1 && config.selected < (int)context.currentDropDown.items.size() ?
-				context.currentDropDown.items[config.selected].text : config.text;
-            auto txtflags = ToTextFlags(config.textType) | FontStyleOverflowMarquee;
+            auto textcontent = config.selected != -1 ? config.selectedText : config.text;
+            auto textype = config.selected != -1 ? config.selectedTextType : config.textType;
+            auto txtflags = ToTextFlags(textype) | FontStyleOverflowMarquee;
             DrawText(content.Min, content.Max, text, textcontent, state.state & WS_Disabled, style, renderer, txtflags);
         }
 
@@ -3979,7 +4005,7 @@ namespace glimmer
         }
 
         DrawFocusRect(state.state, border.Min, border.Max, renderer);
-        HandleDropDownEvent(id, margin, border, padding, content, io, renderer, result);
+        HandleDropDownEvent(context, id, margin, border, padding, content, io, renderer, result);
 
         result.geometry = margin;
         return result;
@@ -3987,38 +4013,45 @@ namespace glimmer
 
     static bool BeginDropDownImpl(WidgetContextData& context, DropDownState& config, int32_t id, std::string_view text, TextType type)
     {
+        const auto style = context.GetStyle(config.state, id);
+        context.currentDropDown.extra = ImVec2{
+            style.padding.h() + style.border.h() + style.margin.h(),
+            style.padding.v() + style.border.v() + style.margin.v()
+        };
+        context.currentDropDown.indicator = ImVec2{ style.font.size, style.font.size };
+
         // size comes from initial text
         if (config.sizePolicy & DD_FitToInitialContent)
-        {
-            const auto style = context.GetStyle(config.state, id);
             context.currentDropDown.maxsz = GetTextSize(type, text, style.font, -1.f, *Config.renderer);
-        }
 
         if (config.opened)
         {
             BeginPopup(id, ImVec2{}, ImVec2{ FLT_MAX, FLT_MAX }, NestedContextSourceType::DropDownPopup);
             context.currentDropDown.context = &GetContext();
+            auto width = -1.f;
 
             if (config.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
-            {
-                PushStyleFmt(WS_AllStates, "width: %fpx;", context.currentDropDown.maxsz.x);
-            }
+                width = context.currentDropDown.maxsz.x + context.currentDropDown.extra.x + style.font.size;
 
             memset(context.currentDropDown.idstr, 0, 255);
             auto idlen = snprintf(context.currentDropDown.idstr, 254, "dropdown-popup-%d", id);
-            BeginFlexRegion(std::string_view{ context.currentDropDown.idstr, (std::size_t)idlen }, DIR_Vertical, { 5.f, 5.f });
+            const auto& ddstyle = context.dropdownStyles[log2((unsigned)config.state)].top();
+            PushStyle(WS_AllStates, StyleDescriptor{ ddstyle.popupBorder });
+            BeginFlexRegion(std::string_view{ context.currentDropDown.idstr, (std::size_t)idlen }, DIR_Vertical, ddstyle.optionSpacing, 
+                true, 0, { width, -1.f });
             return true;
         }
 
         return false;
     }
 
-    bool BeginDropDown(int32_t id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
+    bool BeginDropDown(int32_t id, std::string_view text, TextType type, int32_t spolicy, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         auto& config = CreateWidgetConfig(id).state.dropdown;
         config.text = text;
         config.textType = type;
+        config.sizePolicy = spolicy;
         context.currentDropDown.geometry = geometry;
         context.currentDropDown.neighbors = neighbors;
         context.currentDropDown.id = id;
@@ -4027,13 +4060,14 @@ namespace glimmer
 		return BeginDropDownImpl(context, config, id, text, type);
     }
 
-    bool BeginDropDown(std::string_view id, std::string_view text, TextType type, int32_t geometry, const NeighborWidgets& neighbors)
+    bool BeginDropDown(std::string_view id, std::string_view text, TextType type, int32_t spolicy, int32_t geometry, const NeighborWidgets& neighbors)
     {
         auto& context = GetContext();
         auto iid = GetIdFromString(id, WT_DropDown).first;
         auto& config = CreateWidgetConfig(iid).state.dropdown;
         config.text = text;
         config.textType = type;
+        config.sizePolicy = spolicy;
         context.currentDropDown.geometry = geometry;
         context.currentDropDown.neighbors = neighbors;
         context.currentDropDown.id = iid;
@@ -4077,7 +4111,13 @@ namespace glimmer
             COLOR_OUT(pressedStyle.optionBgColor), COLOR_OUT(pressedStyle.optionFgColor));
         PushStyleFmt(WS_Selected, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
             COLOR_OUT(selectedStyle.optionBgColor), COLOR_OUT(selectedStyle.optionFgColor));
-        Label(std::string_view{ idstr, (std::size_t)idlen }, optionText, type);
+
+        const auto& config = context.GetState(builder.id).state.dropdown;
+        auto geometry = ToBottom | ToRight;
+        if (config.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
+            geometry |= ExpandH;
+
+        Label(std::string_view{ idstr, (std::size_t)idlen }, optionText, type, geometry);
         PopStyle(1, WS_Default | WS_Hovered | WS_Pressed | WS_Selected);
 
         EndDropDownOption();
@@ -4085,8 +4125,6 @@ namespace glimmer
 
     void EndDropDownOption()
     {
-        //auto& context = *GetContext().parentContext;
-        //context.currentDropDown.items.back().geometry.Max = context.currentDropDown.maxsz;
         PopStyle(1, WS_AllStates);
     }
 
@@ -4100,8 +4138,7 @@ namespace glimmer
             if (ddstate.opened)
             {
                 EndRegion();
-                if (ddstate.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
-					PopStyle(1, WS_AllStates);
+                PopStyle(1, WS_AllStates);
                 PopContext();
             }
         }
@@ -4393,10 +4430,8 @@ namespace glimmer
         return result;
     }
 
-    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
+    void HandleTabBarEvent(WidgetContextData& context, int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
-        
         if (!context.deferEvents)
         {
             auto& state = context.TabBarState(id);
@@ -4844,7 +4879,7 @@ namespace glimmer
             tabidx++;
         }
 
-        HandleTabBarEvent(id, content, io, renderer, result);
+        HandleTabBarEvent(context, id, content, io, renderer, result);
         result.geometry = content;
         return result;
     }
@@ -5105,10 +5140,10 @@ namespace glimmer
         return content;
     }
 
-    void HandleNavDrawerEvents(const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate, 
+    void HandleNavDrawerEvents(WidgetContextData& context, const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate,
         WidgetDrawResult& result, const IODescriptor& io, ImVec2 offset)
     {
-        if (!GetContext().deferEvents)
+        if (!context.deferEvents)
         {
             navstate.current = -1;
             auto idx = 0;
@@ -5170,7 +5205,7 @@ namespace glimmer
             LOG_NUM(navstate.isOpen);
         }
         else
-            GetContext().deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
+            context.deferedEvents.emplace_back(EventDeferInfo::ForNavDrawer(nav.id));
     }
 
     WidgetDrawResult NavDrawerImpl(int32_t wid, const ImRect& border, const StyleDescriptor& style,
@@ -5207,7 +5242,7 @@ namespace glimmer
                 ++idx;
             }
 
-            HandleNavDrawerEvents(context.currentNavDrawer, navstate, result, io, {});
+            HandleNavDrawerEvents(context, context.currentNavDrawer, navstate, result, io, {});
             renderer.ResetClipRect();
         }
         else
@@ -5274,7 +5309,7 @@ namespace glimmer
                 const auto& io = Config.platform->desc;
 
                 WidgetDrawResult temp{}; // Will be unused, maybe use std::optional param?
-                HandleNavDrawerEvents(nav, navstate, temp, io, offset);
+                HandleNavDrawerEvents(GetContext(), nav, navstate, temp, io, offset);
                 
                 if (navstate.state != WS_Hovered)
                     WidgetContextData::RemovePopup();
@@ -5431,9 +5466,8 @@ namespace glimmer
         LOG_TEXT(accordion.text);
     }
 
-    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleAccordionEvent(WidgetContextData& context, int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         auto& accordion = context.accordions.top();
 
         if (!context.deferEvents)
@@ -5579,7 +5613,7 @@ namespace glimmer
             ImRect header{ headerstart, headerstart + region.header };
             renderer.Render(*Config.renderer, offset, region.hrange.primitives.first,
                 region.hrange.primitives.second);
-            HandleAccordionEvent(accordion.id, header, idx, io, res);
+            HandleAccordionEvent(context, accordion.id, header, idx, io, res);
 
             if (HandleContextMenu(accordion.id, header, io))
                 WidgetContextData::RightClickContext.tabidx = idx;
@@ -7550,7 +7584,7 @@ namespace glimmer
         if (context.itemGrids.empty()) WidgetContextData::CurrentItemGridContext = nullptr;
 
         auto& ctx = GetContext();
-        ctx.nestedContextStack.pop(1, true);
+        PopNestedSource();
         for (const auto& nested : ctx.nestedContextStack)
             if (nested.source == NestedContextSourceType::ItemGrid)
             {
@@ -8072,9 +8106,8 @@ namespace glimmer
             layoutItem.border.Max + ImVec2{ style.margin.right, style.margin.bottom } };
     }
 
-    void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleMediaResourceEvent(WidgetContextData& context, int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result)
     {
-        auto& context = GetContext();
         auto& state = context.GetState(id).state.media;
         const auto style = context.GetStyle(state.state, id);
 
@@ -8114,7 +8147,7 @@ namespace glimmer
         else
             context.GetRenderer().DrawResource(state.resflags, content.Min, content.GetSize(), style.fgcolor, state.content);
 
-        HandleMediaResourceEvent(id, padding, content, io, result);
+        HandleMediaResourceEvent(context, id, padding, content, io, result);
         result.geometry = margin;
         return result;
     }
@@ -8204,12 +8237,12 @@ namespace glimmer
 
 #pragma region Custom Widget
 
-    void HandleCustomWidgetEvent(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
+    void HandleCustomWidgetEvent(WidgetContextData& context, int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result)
     {
-        if (!GetContext().deferEvents)
+        if (!context.deferEvents)
             Config.CustomWidgetProvider((int16_t)(id >> WidgetTypeBits))->HandleEvents(id, offset, io, result);
         else
-            GetContext().deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
+            context.deferedEvents.emplace_back(EventDeferInfo::ForCustom(id));
     }
 
     WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
@@ -8217,8 +8250,19 @@ namespace glimmer
     {
         WidgetDrawResult result;
         Config.CustomWidgetProvider((int16_t)(id >> WidgetTypeBits))->DrawWidget(style, layoutItem, renderer, io);
-        HandleCustomWidgetEvent(id, layoutItem.margin.Min, io, result);
+        HandleCustomWidgetEvent(GetContext(), id, layoutItem.margin.Min, io, result);
         return result;
+    }
+
+    void* ICustomWidget::PushContext(int32_t id)
+    {
+        return (void*)&glimmer::PushContext(id, NestedContextSourceType::Custom);
+    }
+
+    void ICustomWidget::PopContext(void* ctx)
+    {
+        glimmer::PopNestedSource((WidgetContextData*)ctx);
+        glimmer::PopContext();
     }
 
     StyleDescriptor ICustomWidget::ComputeStyle(int32_t id, int32_t state, const StyleStackT& stack)
@@ -8389,6 +8433,10 @@ namespace glimmer
                 (int16_t)(layoutItem.id & WidgetIndexMask),
                 (int16_t)(builder.items.size() - 1)
             );
+
+            const auto& config = nestedSrc.value().base->GetState(builder.id).state.dropdown;
+            if (config.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
+                maxxy.x = builder.maxsz.x + builder.extra.x + builder.indicator.x;
         }
 
         if (type < WT_TotalTypes)
@@ -8708,10 +8756,6 @@ namespace glimmer
                 break;
             }
             case WT_DropDown: {
-                //static char DummyString[256];
-                //memset(DummyString, 'X', 254);
-                //DummyString[255] = 0;
-
                 auto& state = context.GetState(wid).state.dropdown;
                 const auto& ddstyle = WidgetContextData::dropdownStyles[log2((unsigned)state.state)].top();
                 auto style = context.GetStyle(state.state, wid);

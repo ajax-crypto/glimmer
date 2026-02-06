@@ -312,7 +312,8 @@ namespace glimmer
 
         void SetMouseCursor(MouseCursor cursor);
 
-        IODescriptor CurrentIO() const;
+        IODescriptor CurrentIO(void* ctx = nullptr) const;
+        int64_t totalFrames() const { return frameCount; }
         float fps() const;
         UIConfig* config() const;
         bool hasModalDialog() const;

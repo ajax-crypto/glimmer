@@ -444,8 +444,9 @@ namespace glimmer
 
     struct DropDownState : public CommonWidgetData
     {
-        std::string_view text;
+        std::string_view text, selectedText;
         TextType textType = TextType::PlainText;
+        TextType selectedTextType = TextType::PlainText;
         int32_t inputId = -1;
         int32_t selected = -1;
         int32_t hovered = -1;

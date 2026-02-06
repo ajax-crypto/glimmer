@@ -79,6 +79,7 @@ struct YogaTreeRoot
 static glimmer::Vector<YogaTreeRoot, int16_t, 8> FlexLayoutRoots;
 static glimmer::Vector<YGNodeRef, int16_t, 32> AllFlexItems;
 static glimmer::FixedSizeStack<int16_t, GLIMMER_MAX_LAYOUT_NESTING> FlexLayoutRootStack{ false };
+static std::unordered_map<glimmer::WidgetContextData*, int> YogaFreeNodeStartIndexes;
 static int16_t NextFreeNodeIdx = 0;
 
 YGNodeRef GetNewYogaNode(const glimmer::LayoutBuilder& layout, int32_t layoutIdx, bool isWidget, bool isParentFlexLayout)
@@ -157,17 +158,21 @@ void PopYogaLayoutNode()
 
     // If root stack is empty => we do not have any parents
     // which are flexbox layout, which implies nodes can be reused
-    if (FlexLayoutRootStack.empty()) NextFreeNodeIdx = 0;
+    //if (FlexLayoutRootStack.empty()) NextFreeNodeIdx = 0;
 }
 
-void ResetYogaLayoutSystem()
+void ResetYogaLayoutSystem(int from)
 {
-    for (auto& root : FlexLayoutRoots)
-        ResetYogaRoot(root);
+    for (auto idx = from; idx < FlexLayoutRoots.size(); ++idx)
+        ResetYogaRoot(FlexLayoutRoots[idx]);
 
-    NextFreeNodeIdx = 0;
-    FlexLayoutRootStack.clear(false);   
-    FlexLayoutRoots.clear(false);
+    NextFreeNodeIdx = std::max(0, from);
+
+    if (NextFreeNodeIdx == 0)
+    {
+        FlexLayoutRootStack.clear(false);
+        FlexLayoutRoots.clear(false);
+    }
 }
 
 static ImRect GetBoundingBox(YGNodeConstRef node)
@@ -788,6 +793,22 @@ namespace glimmer
 
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
 
+#ifdef _DEBUG
+    static void ValidateYogaNodes(YGNodeRef parent, YGNodeRef child)
+    {
+        auto pnode = YGNodeGetParent(child);
+        assert(pnode == parent);
+        std::unordered_map<YGNodeRef, bool> visited;
+        visited[child] = true;
+        while (pnode != nullptr)
+        {
+            assert(visited.count(pnode) == 0);
+            visited[pnode] = true;
+            pnode = YGNodeGetParent(pnode);
+        }
+    }
+#endif
+
     static void SetYogaNodeSizingProperties(YGNodeRef root, const StyleDescriptor& style, ImVec2 size, int32_t fill)
     {
         if (!(fill & FD_Horizontal))
@@ -1008,8 +1029,14 @@ namespace glimmer
 
                 // Associate child with corresponding parent node
                 auto parent = static_cast<YGNodeRef>(layout.implData);
+                assert(parent != child);
                 YGNodeInsertChild(parent, child, YGNodeGetChildCount(parent));
                 item.implData = child;
+
+#ifdef _DEBUG
+                ValidateYogaNodes(parent, child);
+#endif
+                
 
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
 
@@ -1187,9 +1214,10 @@ namespace glimmer
     // 2. If region has `style` information, prefer that
     // 3. If region can be filled or wrapping is enabled, prefer available space
     static ImVec2 GetRegionSize(WidgetContextData& context, int32_t regionIdx, const ImRect& available, 
-        ImVec2 size, int32_t fill, bool wrap, Layout type)
+        ImVec2 size, int32_t fill, bool wrap, Layout type, int32_t& specified)
     {
         ImVec2 res{ -1.f, -1.f };
+        specified = specified | (StyleWidth | StyleHeight);
 
         if (regionIdx != -1)
         {
@@ -1204,7 +1232,10 @@ namespace glimmer
             else if (style.dimension.x > 0.f)
                 res.x = clamp(style.dimension.x, style.mindim.x, style.maxdim.x);
             else if ((wrap && (type == Layout::Horizontal)) || (fill & FD_Horizontal))
+            {
+                specified = specified & ~StyleWidth;
                 res.x = available.GetWidth();
+            }
 
             if (size.y > 0.f)
                 res.y = clamp(size.y, style.mindim.y, style.maxdim.y);
@@ -1213,17 +1244,26 @@ namespace glimmer
             else if (style.dimension.y > 0.f)
                 res.y = clamp(style.dimension.y, style.mindim.y, style.maxdim.y);
             else if ((wrap && (type == Layout::Vertical)) || (fill & FD_Vertical))
+            {
+                specified = specified & ~StyleHeight;
                 res.y = available.GetHeight();
+            }
         }
         else
         {
             if (size.x > 0.f) res.x = size.x;
-            else if ((wrap && (type == Layout::Horizontal)) || (fill & FD_Horizontal)) 
+            else if ((wrap && (type == Layout::Horizontal)) || (fill & FD_Horizontal))
+            {
+                specified = specified & ~StyleWidth;
                 res.x = available.GetWidth();
+            }
 
             if (size.y > 0.f) res.y = size.y;
-            else if ((wrap && (type == Layout::Vertical)) || (fill & FD_Vertical)) 
+            else if ((wrap && (type == Layout::Vertical)) || (fill & FD_Vertical))
+            {
+                specified = specified & ~StyleHeight;
                 res.y = available.GetHeight();
+            }
         }
 
         return res;
@@ -1339,7 +1379,7 @@ namespace glimmer
 
             if (context.layoutStack.size() == 1)
             {
-                auto [width, height] = GetRegionSize(context, regionIdx, available, size, layout.fill, wrap, layout.type);
+                auto [width, height] = GetRegionSize(context, regionIdx, available, size, layout.fill, wrap, layout.type, layout.specified);
                 if (width >= 0.f)
                     YGNodeStyleSetWidth(root, width);
                 if (height >= 0.f)
@@ -1432,7 +1472,11 @@ namespace glimmer
             {
                 auto idx = context.layoutStack.top(1);
                 auto parent = static_cast<YGNodeRef>(context.layouts[idx].implData);
+                assert(parent != root);
                 YGNodeInsertChild(parent, root, YGNodeGetChildCount(parent));
+#ifdef _DEBUG
+                ValidateYogaNodes(parent, root);
+#endif
             }
 
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
@@ -2060,7 +2104,7 @@ namespace glimmer
             auto& parent = context.layouts[context.layoutStack.top(1)];
             auto& item = context.layoutItems[layout.itemidx];
             item.content = item.padding = item.border = item.margin = layout.geometry;
-            LOG("Updating parent layout for child layout: " RECT_FMT "\n", RECT_OUT(item.margin));
+            //LOG("Updating parent layout for child layout: " RECT_FMT "\n", RECT_OUT(item.margin));
 
             if (parent.type == Layout::Grid)
             {
@@ -2253,9 +2297,9 @@ namespace glimmer
             {
                 auto& layout = context.layouts[item.layoutIdx];
                 layout.geometry = item.margin;
-                LOG("Grid Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
+                //LOG("Grid Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
             }
-            else LOG("Grid Layout widget Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
+            //else LOG("Grid Layout widget Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
         }
     }
 
@@ -2285,10 +2329,14 @@ namespace glimmer
 				style.padding.bottom + style.border.bottom.thickness + style.margin.bottom };
         }
 
+        ImVec2 layoutsz{
+            layout.specified & StyleWidth ? bbox.GetWidth() : layout.contentsz.x + shift.x,
+            layout.specified & StyleHeight ? bbox.GetHeight() : layout.contentsz.y + shift.y
+        };
         layout.geometry.Min = bbox.Min;
-        layout.geometry.Max = ImMin(bbox.Max, layout.geometry.Min + layout.contentsz + shift);
+        layout.geometry.Max = ImMin(bbox.Max, layout.geometry.Min + layoutsz);
 
-        LOG("Flexbox Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(layout.geometry));
+        //LOG("Flexbox Layout sublayout Margin: " RECT_FMT "\n", RECT_OUT(layout.geometry));
         return layout.geometry;
     }
 
@@ -2332,7 +2380,7 @@ namespace glimmer
                 item.margin = GetBoundingBox(node);
                 extent.Min = ImMin(item.margin.Min, extent.Min);
                 extent.Max = ImMax(item.margin.Max, extent.Max);
-                LOG("Flexbox Layout widget Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
+                //LOG("Flexbox Layout widget Margin: " RECT_FMT "\n", RECT_OUT(item.margin));
             }
 
             layout.contentsz = extent.GetSize();
@@ -2401,7 +2449,7 @@ namespace glimmer
     static void UpdateItemGeometry(WidgetContextData& context, LayoutItemDescriptor& item, const LayoutBuilder& layout)
     {
         item.margin.Translate(layout.geometry.Min);
-        LOG("Moving Item to: " RECT_FMT "\n", RECT_OUT(item.margin));
+        //LOG("Moving Item to: " RECT_FMT "\n", RECT_OUT(item.margin));
 
         if (item.scrollid != -1)
         {
@@ -2735,7 +2783,7 @@ namespace glimmer
             context.ResetLayoutData();
 
 #if GLIMMER_FLEXBOX_ENGINE == GLIMMER_YOGA_ENGINE
-            ResetYogaLayoutSystem();
+            ResetYogaLayoutSystem(YogaFreeNodeStartIndexes.at(&context));
 #elif GLIMMER_FLEXBOX_ENGINE == GLIMMER_SIMPLE_FLEX_ENGINE
             
             for (auto& root : LayContexts)
@@ -2758,6 +2806,16 @@ namespace glimmer
     void InvalidateLayout()
     {
         WidgetContextData::CacheItemGeometry = false;
+    }
+
+    void ContextPushed(void* data)
+    {
+        YogaFreeNodeStartIndexes[(WidgetContextData*)data] = NextFreeNodeIdx;
+    }
+
+    void ContextPopped()
+    {
+        // Nothing required...
     }
 
 #pragma endregion

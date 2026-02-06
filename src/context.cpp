@@ -7,6 +7,7 @@
 #include <list>
 
 #include "draw.h"
+#include "layout.h"
 
 namespace glimmer
 {
@@ -19,33 +20,33 @@ namespace glimmer
     static int32_t IgnoreStyleStackBits = -1;
 
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
-    void HandleRegionEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleRegionEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleLabelEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleLabelEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleButtonEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleRadioButtonEvent(int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
+    void HandleRadioButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleToggleButtonEvent(int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
+    void HandleToggleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleCheckboxEvent(int32_t id, const ImRect& extent, const IODescriptor& io,
+    void HandleCheckboxEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleSliderEvent(int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io,
+    void HandleSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleRangeSliderEvent(int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb, const IODescriptor& io,
+    void HandleRangeSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleTextInputEvent(int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
+    void HandleTextInputEvent(WidgetContextData& context, int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
         IRenderer& renderer, WidgetDrawResult& result);
-    void HandleDropDownEvent(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
+    void HandleDropDownEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleSpinnerEvent(int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
+    void HandleSpinnerEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
         WidgetDrawResult& result);
-    void HandleTabBarEvent(int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleNavDrawerEvents(const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate,
+    void HandleTabBarEvent(WidgetContextData& context, int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
+    void HandleNavDrawerEvents(WidgetContextData& context, const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate,
         WidgetDrawResult& result, const IODescriptor& io, ImVec2 offset);
-    void HandleAccordionEvent(int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleMediaResourceEvent(int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleAccordionEvent(WidgetContextData& context, int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
+    void HandleMediaResourceEvent(WidgetContextData& context, int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
 
     LayoutBuilder::LayoutBuilder()
     {
@@ -55,7 +56,7 @@ namespace glimmer
     void LayoutBuilder::reset()
     {
         type = Layout::Invalid;
-        id = 0;
+        id = specified = 0;
         fill = FD_None;
         alignment = TextAlignLeading;
         from = -1, to = -1, itemidx = -1;
@@ -737,7 +738,7 @@ namespace glimmer
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
-        auto io = Config.platform->CurrentIO();
+        auto io = Config.platform->CurrentIO(this);
         auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
         WidgetDrawResult result;
         to = to == -1 ? deferedEvents.size() : to;
@@ -753,7 +754,7 @@ namespace glimmer
                 ev.params.region.border.Translate(origin);
                 ev.params.region.padding.Translate(origin);
                 ev.params.region.content.Translate(origin);
-                HandleRegionEvent(ev.id, ev.params.label.margin, ev.params.label.border,
+                HandleRegionEvent(*this, ev.id, ev.params.label.margin, ev.params.label.border,
                     ev.params.label.padding, ev.params.label.content, renderer, io, result);
                 break;
             case WT_Label: 
@@ -762,7 +763,7 @@ namespace glimmer
                 ev.params.label.padding.Translate(origin);
                 ev.params.label.content.Translate(origin);
                 ev.params.label.text.Translate(origin);
-                HandleLabelEvent(ev.id, ev.params.label.margin, ev.params.label.border, 
+                HandleLabelEvent(*this, ev.id, ev.params.label.margin, ev.params.label.border,
                     ev.params.label.padding, ev.params.label.content, ev.params.label.text, 
                     renderer, io, result);
                 break;
@@ -772,68 +773,68 @@ namespace glimmer
                 ev.params.button.padding.Translate(origin);
                 ev.params.button.content.Translate(origin);
                 ev.params.button.text.Translate(origin);
-                HandleButtonEvent(ev.id, ev.params.button.margin, ev.params.button.border, 
+                HandleButtonEvent(*this, ev.id, ev.params.button.margin, ev.params.button.border,
                     ev.params.button.padding, ev.params.button.content, ev.params.button.text, 
                     renderer, io, result);
                 break;
             case WT_Checkbox:
                 ev.params.checkbox.extent.Translate(origin);
-                HandleCheckboxEvent(ev.id, ev.params.checkbox.extent, io, result);
+                HandleCheckboxEvent(*this, ev.id, ev.params.checkbox.extent, io, result);
                 break;
             case WT_RadioButton:
                 ev.params.radio.extent.Translate(origin);
-                HandleRadioButtonEvent(ev.id, ev.params.radio.extent, ev.params.radio.maxrad, renderer, io, result);
+                HandleRadioButtonEvent(*this, ev.id, ev.params.radio.extent, ev.params.radio.maxrad, renderer, io, result);
                 break;
             case WT_ToggleButton:
                 ev.params.toggle.extent.Translate(origin);
                 ev.params.toggle.center += origin;
-                HandleToggleButtonEvent(ev.id, ev.params.toggle.extent, ev.params.toggle.center, renderer, io, result);
+                HandleToggleButtonEvent(*this, ev.id, ev.params.toggle.extent, ev.params.toggle.center, renderer, io, result);
                 break;
             case WT_Spinner:
                 ev.params.spinner.extent.Translate(origin);
                 ev.params.spinner.incbtn.Translate(origin);
                 ev.params.spinner.decbtn.Translate(origin);
-                HandleSpinnerEvent(ev.id, ev.params.spinner.extent, ev.params.spinner.incbtn, ev.params.spinner.decbtn, 
+                HandleSpinnerEvent(*this, ev.id, ev.params.spinner.extent, ev.params.spinner.incbtn, ev.params.spinner.decbtn,
                     io, result);
                 break;
             case WT_Slider:
                 ev.params.slider.extent.Translate(origin);
                 ev.params.slider.thumb.Translate(origin);
-                HandleSliderEvent(ev.id, ev.params.slider.extent, ev.params.slider.thumb, io, result);
+                HandleSliderEvent(*this, ev.id, ev.params.slider.extent, ev.params.slider.thumb, io, result);
                 break;
             case WT_RangeSlider:
                 ev.params.rangeslider.extent.Translate(origin);
                 ev.params.rangeslider.minThumb.Translate(origin);
                 ev.params.rangeslider.maxThumb.Translate(origin);
-                HandleRangeSliderEvent(ev.id, ev.params.rangeslider.extent, ev.params.rangeslider.minThumb, 
+                HandleRangeSliderEvent(*this, ev.id, ev.params.rangeslider.extent, ev.params.rangeslider.minThumb,
                     ev.params.rangeslider.maxThumb, io, result);
                 break;
             case WT_TextInput:
                 ev.params.input.content.Translate(origin);
                 ev.params.input.clear.Translate(origin);
-                HandleTextInputEvent(ev.id, ev.params.input.content, ev.params.input.clear, io, renderer, result);
+                HandleTextInputEvent(*this, ev.id, ev.params.input.content, ev.params.input.clear, io, renderer, result);
                 break;
             case WT_DropDown:
                 ev.params.dropdown.margin.Translate(origin);
                 ev.params.dropdown.border.Translate(origin);
                 ev.params.dropdown.padding.Translate(origin);
                 ev.params.dropdown.content.Translate(origin);
-                HandleDropDownEvent(ev.id, ev.params.dropdown.margin, ev.params.dropdown.border, 
+                HandleDropDownEvent(*this, ev.id, ev.params.dropdown.margin, ev.params.dropdown.border,
                     ev.params.dropdown.padding, ev.params.dropdown.content, io, renderer, result);
                 break;
             case WT_TabBar:
                 ev.params.tabbar.content.Translate(origin);
-                HandleTabBarEvent(ev.id, ev.params.tabbar.content, io, renderer, result);
+                HandleTabBarEvent(*this, ev.id, ev.params.tabbar.content, io, renderer, result);
                 break;
             case WT_NavDrawer:
             {
                 auto& navstate = NavDrawerState(ev.id);
-                HandleNavDrawerEvents(currentNavDrawer, navstate, result, io, origin);
+                HandleNavDrawerEvents(*this, currentNavDrawer, navstate, result, io, origin);
                 break;
             }
             case WT_Accordion:
                 ev.params.accordion.region.Translate(origin);
-                HandleAccordionEvent(ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
+                HandleAccordionEvent(*this, ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
                 break;
             case WT_Scrollable:
                 // TODO: Handle scrollable events if any in future
@@ -841,7 +842,7 @@ namespace glimmer
             case WT_MediaResource:
                 ev.params.media.content.Translate(origin);
                 ev.params.media.padding.Translate(origin);
-                HandleMediaResourceEvent(ev.id, ev.params.media.padding, ev.params.media.content, io, result);
+                HandleMediaResourceEvent(*this, ev.id, ev.params.media.padding, ev.params.media.content, io, result);
                 break;
             case WT_Custom:
                 Config.CustomWidgetProvider((int16_t)(ev.id >> WidgetTypeBits))->HandleEvents(ev.id, origin, io, result);
@@ -1170,6 +1171,7 @@ namespace glimmer
             {
                 constexpr auto totalStyles = 16 * WSI_Total;
                 CurrentContext = &(WidgetContexts.emplace_back());
+                ContextPushed(CurrentContext);
                 InitContextStyles();
             }
         }
@@ -1213,6 +1215,7 @@ namespace glimmer
             }
 
             CurrentContext = CurrentContext->nestedContexts[wtype][index];
+            ContextPushed(CurrentContext);
             
             for (auto idx = 0; idx < WT_TotalTypes; ++idx) CurrentContext->maxids[idx] = 0;
         }
@@ -1227,13 +1230,21 @@ namespace glimmer
         auto& el = ctx.nestedContextStack.push();
         el.base = curr;
         el.source = source;
+        el.customId = id;
         return ctx;
     }
 
     void PopContext()
     {
         CurrentContext = GetContext().parentContext;
+        ContextPopped();
         assert(CurrentContext != nullptr);
+    }
+
+    void PopNestedSource(WidgetContextData* context)
+    {
+        if (context == nullptr) context = &GetContext();
+        context->nestedContextStack.pop(1, true);
     }
 
     void Cleanup()

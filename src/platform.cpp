@@ -503,9 +503,10 @@ namespace glimmer
 
 #endif
 
-    IODescriptor IPlatform::CurrentIO() const
+    IODescriptor IPlatform::CurrentIO(void* ctx) const
     {
-        auto& context = GetContext();
+        auto& context = ctx == nullptr ? GetContext() : *(WidgetContextData*)ctx;
+        auto hasPopup = WidgetContextData::PopupContext != nullptr;
         auto isWithinPopup = WidgetContextData::ActivePopUpRegion.Contains(desc.mousepos);
         IODescriptor result{};
         result.deltaTime = desc.deltaTime;
@@ -513,7 +514,7 @@ namespace glimmer
         // Either the current context is the popup's context in which case only events that
         // are within the popup matter or the current context is not for the popup and hence
         // ignore events that occured within it.
-        if (!isWithinPopup || (isWithinPopup && WidgetContextData::PopupContext == &context))
+        if (!hasPopup || (isWithinPopup && WidgetContextData::PopupContext == &context))
             result = desc;
 
         return result;

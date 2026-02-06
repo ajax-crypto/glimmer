@@ -71,7 +71,7 @@ namespace glimmer
             AllocatedBytes -= (int32_t)Allocations.at(ptr);
             Allocations.erase(ptr);
         }
-        else LOGERROR("Unchecked de-allocation of nullptr...\n");
+        //else LOGERROR("Unchecked de-allocation of nullptr...\n");
     }
 
     inline void* (*AllocateFunc)(size_t amount) = &AllocateImpl;

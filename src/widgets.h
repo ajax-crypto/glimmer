@@ -28,10 +28,10 @@ namespace glimmer
     WidgetDrawResult Icon(int32_t id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult Icon(std::string_view id, SymbolIcon icon, IconSizingType sztype, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
 
-    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets & neighbors = NeighborWidgets{});
-    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginFlexRegion(int32_t id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, ImVec2 size = { -1.f, -1.f }, int32_t geometry = ToBottomRight, const NeighborWidgets & neighbors = NeighborWidgets{});
+    void BeginFlexRegion(std::string_view id, Direction dir, ImVec2 spacing = { 0.f, 0.f }, bool wrap = true, int32_t events = 0, ImVec2 size = { -1.f, -1.f }, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginGridRegion(int32_t id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, ImVec2 size = { -1.f, -1.f }, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    void BeginGridRegion(std::string_view id, int rows, int cols, ImVec2 spacing = { 0.f, 0.f }, int32_t events = 0, ImVec2 size = { -1.f, -1.f }, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     WidgetDrawResult EndRegion();
 
     WidgetDrawResult Label(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -96,8 +96,8 @@ namespace glimmer
         return TextInput(id, out, placeholder, geometry, neighbors);
     }
 
-    bool BeginDropDown(int32_t id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
-    bool BeginDropDown(std::string_view id, std::string_view text, TextType type = TextType::PlainText, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginDropDown(int32_t id, std::string_view text, TextType type = TextType::PlainText, int32_t spolicy = DD_FitToLongestOption, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
+    bool BeginDropDown(std::string_view id, std::string_view text, TextType type = TextType::PlainText, int32_t spolicy = DD_FitToLongestOption, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void BeginDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
     void AddDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
 	void EndDropDownOption();
@@ -186,11 +186,14 @@ namespace glimmer
             IRenderer& renderer, const IODescriptor& io) = 0;
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
         virtual void RecordItemGeometry(int32_t id, const ImRect& rect) = 0;
+        virtual void RecordChildWidgetGeometry(const LayoutItemDescriptor& layoutItem) {}
 
         virtual const ImRect& GetGeometry(int32_t id) const = 0;
         virtual int32_t GetState(int32_t id) const = 0;
         virtual std::string_view GetName() const = 0;
 
+        static void* PushContext(int32_t id);
+        static void PopContext(void* ctx);
         static StyleDescriptor ComputeStyle(int32_t id, int32_t state, const StyleStackT& stack);
         static bool IsInState(int32_t id, WidgetState state);
         static ImRect GetBounds(int32_t id);
