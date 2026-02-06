@@ -45,6 +45,8 @@ namespace glimmer
 
         virtual void BeginDefer() {}
         virtual void EndDefer() {}
+        virtual void BeginAdvance() {}
+        virtual void EndAdvance() {}
 
         virtual void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) = 0;
         virtual void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) = 0;

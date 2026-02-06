@@ -3839,29 +3839,43 @@ namespace glimmer
 
 #pragma region DropDown
 
+    static void DrawItemBackground(IRenderer* renderer, const ImRect& geometry, uint32_t color)
+    {
+        renderer->BeginAdvance();
+        renderer->DrawRect(geometry.Min, geometry.Max, color, true);
+        renderer->EndAdvance();
+    }
+
     void ShowDropDownOptions(WidgetContextData& parent, DropDownState& state, int32_t id, const ImRect& margin, 
         const ImRect& border, const ImRect& padding, const ImRect& content, IRenderer& renderer)
     {
         if (parent.currentDropDown.context == nullptr) return;
 
         const auto& ddstyle = parent.dropdownStyles[log2((unsigned)state.state)].top();
-        parent.currentDropDown.context->popupOrigin = { margin.Min.x, margin.Max.y };
-        EndPopUp(*parent.currentDropDown.context, ddstyle.popupBgColor, 
-            POP_EnsureVisible | (ddstyle.occludeBg ? POP_Occlude : 0));
-        PopNestedSource(parent.currentDropDown.context);
 
-		BEGIN_LOG_ARRAY("dropdown-items-geometry");
+        BEGIN_LOG_ARRAY("dropdown-items-geometry");
         ImVec2 maxsz = parent.currentDropDown.maxsz;
         maxsz.x += parent.currentDropDown.extra.x;
+        parent.currentDropDown.context->popupOrigin = { margin.Min.x, margin.Max.y };
         auto maxw = 0.f;
+        auto idx = 0;
 
         for (auto& item : parent.currentDropDown.items)
         {
+            if (state.selected == idx)
+                DrawItemBackground(parent.currentDropDown.context->deferedRenderer, 
+                    item.geometry, parent.dropdownStyles[WSI_Selected].top().optionBgColor);
+            else if (state.hovered == idx)
+                DrawItemBackground(parent.currentDropDown.context->deferedRenderer,
+                    item.geometry, parent.dropdownStyles[WSI_Hovered].top().optionBgColor);
+
             item.geometry.Translate(parent.currentDropDown.context->popupOrigin);
-			LOG_RECT(item.geometry);
+            LOG_RECT(item.geometry);
 
             if (state.sizePolicy & DD_FitToLongestOption)
                 maxw = std::max(maxw, item.geometry.GetWidth());
+
+            ++idx;
         }
 
         if (maxw > maxsz.x)
@@ -3871,7 +3885,11 @@ namespace glimmer
         parent.currentDropDown.maxsz = maxsz;
         END_LOG_ARRAY();
 
-        auto idx = 0;
+        EndPopUp(*parent.currentDropDown.context, ddstyle.popupBgColor, 
+            POP_EnsureVisible | (ddstyle.occludeBg ? POP_Occlude : 0));
+        PopNestedSource(parent.currentDropDown.context);
+
+        idx = 0;
         state.hovered = -1;
 		state.maxOptionSz = parent.currentDropDown.maxsz;
         auto io = Config.platform->CurrentIO(parent.currentDropDown.context);
@@ -4099,7 +4117,6 @@ namespace glimmer
         const auto& defStyle = context.dropdownStyles[WSI_Default].top();
         const auto& hoverStyle = context.dropdownStyles[WSI_Hovered].top();
         const auto& pressedStyle = context.dropdownStyles[WSI_Pressed].top();
-        const auto& selectedStyle = context.dropdownStyles[WSI_Selected].top();
 
         auto idlen = snprintf(idstr, 254, "dropdown-%d-option-%d", builder.id,
             builder.items.size() - 1);
@@ -4109,8 +4126,6 @@ namespace glimmer
             COLOR_OUT(hoverStyle.optionBgColor), COLOR_OUT(hoverStyle.optionFgColor));
         PushStyleFmt(WS_Pressed, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
             COLOR_OUT(pressedStyle.optionBgColor), COLOR_OUT(pressedStyle.optionFgColor));
-        PushStyleFmt(WS_Selected, "background-color: " COLOR_FMT "; color: " COLOR_FMT ";",
-            COLOR_OUT(selectedStyle.optionBgColor), COLOR_OUT(selectedStyle.optionFgColor));
 
         const auto& config = context.GetState(builder.id).state.dropdown;
         auto geometry = ToBottom | ToRight;
@@ -4118,7 +4133,7 @@ namespace glimmer
             geometry |= ExpandH;
 
         Label(std::string_view{ idstr, (std::size_t)idlen }, optionText, type, geometry);
-        PopStyle(1, WS_Default | WS_Hovered | WS_Pressed | WS_Selected);
+        PopStyle(1, WS_Default | WS_Hovered | WS_Pressed);
 
         EndDropDownOption();
     }
