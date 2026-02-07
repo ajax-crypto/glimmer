@@ -712,7 +712,7 @@ namespace glimmer
 
     enum class NestedContextSourceType
     {
-        None, Region, Layout, ItemGrid, DropDownPopup, 
+        None, Region, GenericPopup, Layout, ItemGrid, DropDownPopup, 
         Custom = 100 // add others...
     };
 
@@ -853,10 +853,14 @@ namespace glimmer
         Vector<EventDeferInfo, int16_t> deferedEvents;
         IRenderer* deferedRenderer = nullptr;
 
+		NestedContextSourceType popupSource = NestedContextSourceType::None;
         ImVec2 popupOrigin{ -1.f, -1.f }, popupSize{ -1.f, -1.f };
         RendererEventIndexRange popupRange;
         PopUpCallbackT popupCallbacks[(int)PCB_Total] = { nullptr, nullptr, nullptr, nullptr };
         void* popupCallbackData[(int)PCB_Total] = { nullptr, nullptr, nullptr, nullptr };
+        std::optional<uint32_t> popupBgColor; 
+        int32_t popupFlags = 0, popupTargetId = -1;
+		WidgetContextData* popupContext = nullptr;
 
         static ImRect ActivePopUpRegion;
         static int32_t PopupTarget;

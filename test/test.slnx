@@ -3,5 +3,8 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="test.vcxproj" />
+  <Project Path="../build/glimmer_sdl3.vcxproj" Id="51c13123-5a7e-36c2-9eb8-f5f52830eb93">
+    <Platform Project="x64" />
+  </Project>
+  <Project Path="test.vcxproj" Id="a0392993-8cca-4c85-9e60-f66023484eb1" />
 </Solution>

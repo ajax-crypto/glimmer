@@ -36,6 +36,7 @@ namespace glimmer
         const NeighborWidgets& neighbors, int regionIdx);
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size, NestedContextSourceType type);
     WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
+    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size);
     bool HandleContextMenu(int32_t id, const ImRect& region, const IODescriptor& io);
 
 #pragma region Widget ID Handling
@@ -420,6 +421,17 @@ namespace glimmer
                 const auto& config = nestedSrc.value().base->GetState(ddid).state.dropdown;
                 if (config.sizePolicy & (DD_SetPopupWidthToInitial | DD_FitToInitialContent))
                     maxxy.x = persistent.maxsz.x + persistent.extra.x + persistent.indicator.x;
+            }
+            else if (nestedSrc.has_value() && nestedSrc.value().source == NestedContextSourceType::Custom)
+            {
+				auto pid = nestedSrc.value().id;
+                if (Config.CustomWidgetProvider)
+                {
+                    auto wtype = (int16_t)(pid >> WidgetTypeBits);
+                    auto wfactory = Config.CustomWidgetProvider(wtype);
+                    if (wfactory)
+                        wfactory->UpdateAvailableChildExtent(maxxy, id);
+                }
             }
         }
     }
@@ -7940,7 +7952,15 @@ namespace glimmer
 
 #pragma region Popups
 
-    // NestedContextSourceType type
+    bool BeginPopup(int32_t id, ImVec2 size)
+    {
+		return BeginPopup(id, { -1.f, -1.f }, size, NestedContextSourceType::GenericPopup);
+    }
+
+    bool BeginPopup(ImVec2 origin, ImVec2 size)
+    {
+        return BeginPopup(-1, origin, size, NestedContextSourceType::GenericPopup);
+    }
 
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size, NestedContextSourceType type)
     {
@@ -7953,6 +7973,8 @@ namespace glimmer
             overlayctx.deferEvents = true;
             overlayctx.popupOrigin = origin;
             overlayctx.popupSize = size;
+            overlayctx.popupSource = type;
+            overlayctx.popupTargetId = id;
             overlayctx.RecordDeferRange(overlayctx.popupRange, true);
 
             WidgetContextData::PopupContext = &overlayctx;
@@ -7967,7 +7989,7 @@ namespace glimmer
 
     bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size)
     {
-		return BeginPopup(id, origin, size, NestedContextSourceType::None);
+		return BeginPopup(id, origin, size, NestedContextSourceType::GenericPopup);
     }
 
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data)
@@ -7986,6 +8008,38 @@ namespace glimmer
                 *overlayctx.deferedRenderer, overlayctx.popupOrigin, {});
 
         overlayctx.RecordDeferRange(overlayctx.popupRange, false);
+
+        auto posflags = overlayctx.parentContext->popupFlags;
+        if (posflags >= POP_AnchorLeft && overlayctx.popupTargetId != -1)
+        {
+            auto geometry = overlayctx.parentContext->GetGeometry(overlayctx.popupTargetId);
+
+            if (posflags & POP_AnchorLeft)
+                overlayctx.popupOrigin.x = geometry.Min.x;
+            else if (posflags & POP_AnchorRight)
+                overlayctx.popupOrigin.x = geometry.Max.x;
+            if (posflags & POP_AnchorBottom)
+                overlayctx.popupOrigin.y = geometry.Max.y;
+            else if (posflags & POP_AnchorTop)
+                overlayctx.popupOrigin.y = geometry.Min.y;
+
+            if (posflags & POP_EndH)
+                overlayctx.popupOrigin.x -= overlayctx.deferedRenderer->size.x;
+            if (posflags & POP_EndV)
+                overlayctx.popupOrigin.y -= overlayctx.deferedRenderer->size.y;
+
+            if (posflags & POP_AnchorHCenter)
+            {
+				auto hdiff = geometry.GetWidth() - overlayctx.deferedRenderer->size.x;
+				overlayctx.popupOrigin.x = geometry.Min.x + (hdiff * 0.5f);
+            }
+
+            if (posflags & POP_AnchorVCenter)
+            {
+				auto vdiff = geometry.GetHeight() - overlayctx.deferedRenderer->size.y;
+				overlayctx.popupOrigin.y = geometry.Min.y + (vdiff * 0.5f);
+            }
+        }
 
         if (overlayctx.deferedRenderer->size.y > 0.f)
         {
@@ -8053,9 +8107,24 @@ namespace glimmer
     WidgetDrawResult EndPopUp(std::optional<uint32_t> bgcoloropt, int32_t flags)
     {
         auto& overlayctx = GetContext();
-		auto res = EndPopUp(overlayctx, bgcoloropt, flags);
-        PopContext();
-        return res;
+
+        // If the popup wasn't triggered inside a layout, draw it immediately.
+        // Otherwise, delay rendering till layout is resolved...
+        if (overlayctx.parentContext->layoutStack.empty())
+        {
+            auto res = EndPopUp(overlayctx, bgcoloropt, flags);
+            if (overlayctx.popupSource != NestedContextSourceType::None)
+                PopNestedSource();
+            PopContext();
+            return res;
+        }
+        else
+        {
+			overlayctx.parentContext->popupContext = &overlayctx;
+			overlayctx.parentContext->popupBgColor = bgcoloropt;
+			overlayctx.parentContext->popupFlags = flags;
+			return WidgetDrawResult{};
+        }
     }
 
 #pragma endregion

@@ -114,7 +114,8 @@ namespace glimmer
     void NextSplitRegion();
     void EndSplitRegion();
 
-    bool BeginPopup(int32_t id, ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
+    bool BeginPopup(int32_t id, ImVec2 size = { FLT_MAX, FLT_MAX });
+    bool BeginPopup(ImVec2 origin, ImVec2 size = { FLT_MAX, FLT_MAX });
     void SetPopupCallback(PopupCallback phase, PopUpCallbackT callback, void* data = nullptr);
     WidgetDrawResult EndPopUp(std::optional<uint32_t> bgcolor = std::nullopt, int32_t props = POP_EnsureVisible);
 
@@ -187,6 +188,7 @@ namespace glimmer
         virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
         virtual void RecordItemGeometry(int32_t id, const ImRect& rect) = 0;
         virtual void RecordChildWidgetGeometry(const LayoutItemDescriptor& layoutItem) {}
+        virtual void UpdateAvailableChildExtent(ImVec2& extent, int32_t id) {}
 
         virtual const ImRect& GetGeometry(int32_t id) const = 0;
         virtual int32_t GetState(int32_t id) const = 0;

@@ -216,6 +216,7 @@ namespace glimmer
         const ImRect& content, IRenderer& renderer, const IODescriptor& io);
     WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
         IRenderer& renderer, const IODescriptor& io);
+    WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
     void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
     void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
     std::pair<int32_t, bool> GetIdFromString(std::string_view id, WidgetType type);
@@ -2761,6 +2762,16 @@ namespace glimmer
                 context.AddItemGeometry(layout.id, layout.geometry);
                 RenderWidgets(context, layout, result);
                 context.adhocLayout.top().lastItemId = layout.id;
+
+                // If pending popup rendering exists, render it now as
+                // layout resolution of widgets are done
+                if (context.popupContext != nullptr &&
+                    context.popupContext->popupTargetId != -1)
+                {
+                    EndPopUp(*context.popupContext, context.popupBgColor, context.popupFlags);
+                    context.popupContext->popupTargetId = -1;
+                    context.popupContext = nullptr;
+                }
             }
 
             --depth;

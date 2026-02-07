@@ -795,9 +795,17 @@ namespace glimmer
 
     enum PopupProperties : int32_t
     {
-        POP_Occlude = 1, 
+        POP_Occlude = 1,         // Occlude background i.e. rest of the window apart from the popup area
         POP_Defer = 2,
-        POP_EnsureVisible = 4
+		POP_EnsureVisible = 4,   // Move popup if necessary to ensure it's fully visible within the application window
+        POP_AnchorLeft = 8,      // Anchor the popup to left-end of the target widget
+		POP_AnchorRight = 16,    // Anchor the popup to right-end of the target widget
+		POP_AnchorTop = 32,      // Anchor the popup to top-end of the target widget
+		POP_AnchorBottom = 64,   // Anchor the popup to bottom-end of the target widget
+		POP_AnchorHCenter = 128, // Anchor the popup's horizontal center to horizontal center of the target widget
+		POP_AnchorVCenter = 256, // Anchor the popup's vertical center to vertical center of the target widget
+		POP_EndH = 512,          // End popup at the left-end of target widget
+		POP_EndV = 1024          // End popup at the top-end of target widget
     };
 
     struct UIElementDescriptor

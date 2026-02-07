@@ -32,7 +32,6 @@ namespace glimmer
 
             // Input box for paths
             PushStyleFmt("width: %fpx;", width);
-            auto width
             TextInput(out, size, placeholder, geometry, neighbors);
             PopStyle();
 

@@ -42,73 +42,15 @@ void TestWindow(glimmer::UIConfig& config)
     //st.text = "Hello";
     widgets[UPPER] = lid;
 
-    lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::CreateWidgetConfig(lid).state.label.text = "Left";
-    widgets[LEFT] = lid;
-
-    lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::CreateWidgetConfig(lid).state.label.text = "Left2";
-    widgets[LEFT2] = lid;
-
     lid = glimmer::GetNextId(glimmer::WT_Splitter);
     glimmer::CreateWidgetConfig(lid);
     widgets[SPLIT1] = lid;
 
-    lid = glimmer::GetNextId(glimmer::WT_Splitter);
-    glimmer::CreateWidgetConfig(lid);
-    widgets[SPLIT2] = lid;
-
-    lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::CreateWidgetConfig(lid).state.label.text = "Content";
-    widgets[CONTENT] = lid;
-
-    lid = glimmer::GetNextId(glimmer::WT_Label);
-    glimmer::CreateWidgetConfig(lid).state.label.text = "Bottom";
-    widgets[BOTTOM] = lid;
-
-    auto tid = glimmer::GetNextId(glimmer::WT_ToggleButton);
-    glimmer::CreateWidgetConfig(tid).state.toggle.checked = false;
-    widgets[TOGGLE] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_RadioButton);
-    glimmer::CreateWidgetConfig(tid).state.radio.checked = false;
-    widgets[RADIO] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_Checkbox);
-    glimmer::CreateWidgetConfig(tid);
-    widgets[CHECKBOX] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_Spinner);
-    glimmer::CreateWidgetConfig(tid).state.spinner.max = 100;
-    widgets[SPINNER] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_TextInput);
-    auto& model = glimmer::CreateWidgetConfig(tid).state.input;
-    model.placeholder = "This will be removed!";
-    model.text.reserve(256);
-    widgets[INPUT] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_Slider);
-    auto& slider = glimmer::CreateWidgetConfig(tid).state.slider;
-    slider.max = 100.f;
-    widgets[SLIDER] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_TabBar);
+    auto tid = glimmer::GetNextId(glimmer::WT_TabBar);
     auto& tab = glimmer::CreateWidgetConfig(tid).state.tab;
     tab.sizing = glimmer::TabBarItemSizing::ResizeToFit;
     tab.expandTabs = true;
     widgets[TAB] = tid;
-
-    tid = glimmer::GetNextId(glimmer::WT_DropDown);
-    /*auto& dd = glimmer::CreateWidgetConfig(tid).state.dropdown;
-    dd.text = "DropDown";
-    std::vector<std::pair<glimmer::WidgetType, std::string_view>> options;
-    options.emplace_back(glimmer::WT_Checkbox, "Option 1");
-    options.emplace_back(glimmer::WT_Checkbox, "Option 2");
-    dd.options = options;*/
-    widgets[DROPDOWN] = tid;
-
-    widgets[ACCORDION] = glimmer::GetNextId(glimmer::WT_Accordion);
 
     auto gridid = glimmer::GetNextId(glimmer::WT_ItemGrid);
     auto& grid = glimmer::CreateWidgetConfig(gridid).state.grid;
@@ -156,21 +98,6 @@ void TestWindow(glimmer::UIConfig& config)
         glimmer::Label(id);
         };
     widgets[GRID] = gridid;
-
-    /*auto& root = grid.config.headers.emplace_back();
-    root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerdede#1" });
-    root.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Headerfefe#2" });
-
-    auto& leaves = grid.config.headers.emplace_back();
-    leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1.1", .parent = 0 });
-    leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#1.2", .parent = 0 });
-    leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.1", .parent = 1 });
-    leaves.push_back(glimmer::ItemGridState::ColumnConfig{ .name = "Header#2.2", .parent = 1 });
-
-    grid.config.rows = 32;
-    grid.uniformRowHeights = true;
-    grid.setColumnResizable(-1, true);
-    grid.setColumnProps(-1, glimmer::COL_Moveable, true);*/
     void* data = widgets;
 
     config.platform->PollEvents([](ImVec2, glimmer::IPlatform&, void* data) {
@@ -205,91 +132,30 @@ void TestWindow(glimmer::UIConfig& config)
         PopStyle(1, WS_Default | WS_Hovered);
         Move(FD_Horizontal);
 
-        BeginSplitRegion(widgets[SPLIT1], DIR_Horizontal, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
+        BeginSplitRegion(widgets[SPLIT1], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.3f, .initial = 0.2f },
             SplitRegion{.min = 0.7f, .max = 0.8f, .initial = 0.8f } }, ExpandH);
 
         {
-            BeginSplitRegion(widgets[SPLIT2], DIR_Vertical, { SplitRegion{.min = 0.2f, .max = 0.8f },
-                SplitRegion{.min = 0.2f, .max = 0.8f } }, ExpandV);
+			int selection1 = -1, selection2 = -1;
+			BeginFlexLayout(DIR_Horizontal, ExpandH | AlignHCenter, false, { 10.f, 10.f }, { 0, 0 });
             {
-                Label(widgets[LEFT], ExpandAll);
-
-                NextSplitRegion();
-
-                PushStyle("padding: 5px; background-color: gray;");
-                BeginFlexRegion("test-region", DIR_Vertical, ImVec2{}, false, ETP_Hovered, ExpandAll);
-                {
-                    PushStyle("padding: 5px; background-color: lightblue;");
-                    Label(widgets[CONTENT], ExpandAll);
-
-                    PushStyle("padding: 5px; background-color: lightgreen;");
-                    Label(widgets[LEFT2], ExpandV);
-                }
-                EndRegion();
-                PopStyle(3, WS_Default);
-            }
-            EndSplitRegion();
-
-            NextSplitRegion();
-
-            BeginAccordion(widgets[ACCORDION], ExpandH | ToTop | ToRight, NeighborWidgets{ .top = widgets[TAB] });
-            PushStyle("background-color: rgb(100, 0, 255); color: rgb(200, 200, 200);", "color: white;");
-            BeginAccordionHeader();
-            AddAccordionHeaderText("Test Accordion");
-            EndAccordionHeader(FramesRendered() == 0 ? std::optional<bool>{ true } : std::nullopt);
-            PopStyle(1, WS_Default);
-
-            if (BeginAccordionContent())
-            {
-                BeginFlexLayout(DIR_Horizontal, AlignHCenter | ExpandAll, false, { 5.f, 5.f });
-                {
-                    PushStyle(WS_Hovered, "background-color: crimson; color: white;");
-                    Button("bottom", "Bottom");
-                    PopStyle(1, WS_Hovered);
-                    Move(FD_Horizontal);
-
-                    ToggleButton(widgets[TOGGLE], ToRight);
-
-                    Move(FD_Horizontal);
-                    RadioButton(widgets[RADIO], ToRight);
-                    Spinner(widgets[SPINNER], ToRight);
-
-                    Move(FD_Horizontal);
-                    PushStyle("border: 1px solid gray; width: 200px; background-color: white", "border: 2px solid black;");
-                    PushStyle(WS_Focused, "border: 2px solid black;");
-                    TextInput(widgets[INPUT], ToRight);
-                    PopStyle(1, WS_Default | WS_Focused);
-
-                    Move(FD_Horizontal);
-                    if (BeginDropDown(widgets[DROPDOWN], "DropDown"))
-                    {
-                        for (auto opt = 0; opt < 8; ++opt)
-                            AddOption(WT_Checkbox, "option");
-                    }
-                    EndDropDown(nullptr);
-
-                    Move(FD_Horizontal);
-                    static char buffer[256];
-                    custom::PathInput("path-input", buffer, 255, false, "");
-
-                    PushStyle(WS_Default, "width: 200px; border-radius: 3px;");
-                    PushStyle(WS_Hovered, "background-color: blue; color: white;");
-                    Move(FD_Horizontal);
-                    Slider(widgets[SLIDER], ToRight);
-                    PopStyle(1, WS_Default);
-                    PopStyle(1, WS_Hovered);
-                }
-
+                if (BeginDropDown("drop-down-1", "Drop Down 1"))
+                    for (auto opt = 0; opt < 8; ++opt)
+                        AddDropDownOption("option for 1");
+                EndDropDown(&selection1);
+                if (BeginDropDown("drop-down-2", "Drop Down 2"))
+                    for (auto opt = 0; opt < 8; ++opt)
+                        AddDropDownOption("option for 2");
+                EndDropDown(&selection2);
                 EndLayout();
             }
 
-            EndAccordionContent();
-            EndAccordion();
+            NextSplitRegion();
 
-            Move(widgets[LEFT], widgets[TAB], true, true);
+            //Move(widgets[LEFT], widgets[TAB], true, true);
             PushStyle("background-color: white; padding: 5px; border: none;");
 
-            BeginItemGrid(widgets[GRID], ExpandAll, { .bottom = widgets[ACCORDION] });
+            BeginItemGrid(widgets[GRID], ExpandAll);
             BeginItemGridHeader(2);
             AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h1", .props = COL_Resizable | COL_Sortable, .parent = 0, });
             AddHeaderColumn(ItemGridConfig::ColumnConfig{ .id = "h2", .props = COL_Resizable | COL_Sortable, .parent = 0 });
