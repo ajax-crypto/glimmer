@@ -62,7 +62,7 @@ Glimmer abstracts the rendering process through the `glimmer::IRenderer` interfa
   - **ImGui Renderer** which uses ImGui to generate geometry primitives and use some ImGui platform integration to render.
   - **SVG Renderer** which dumps each frame as SVG markup in some SVG file.
   - (Internal) **Deferred Renderer** which enqueues draw commands and can be dequed at any point.
-  - **Blend2D Renderer** which uses the [Blend2D](https://blend2d.com/) library to render which works without any GPU in the system.
+  - **Blend2D Renderer** which uses the [Blend2D](https://github.com/blend2d/blend2d) library to render which works without any GPU in the system.
   - **Test Renderer** which will enable creating automated tests (along with a test platform interface to pump events).
 The following is the interface:
 
@@ -152,6 +152,28 @@ struct IPlatform
 };
 ```
 
+Custom widgets can be added by either combining existing widgets in a layout with custom data binding or
+can be done by implement the `ICustomWidget` interface, and providing it through `UIConfig::CustomWidgetProvider` member.
+
+```c++
+struct ICustomWidget
+{
+    virtual StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack) = 0;
+    virtual ImRect ComputeGeometry(const ImVec2& pos, const LayoutItemDescriptor& layoutItem, 
+        const NeighborWidgets& neighbors, ImVec2 maxsz) = 0;
+    virtual WidgetDrawResult DrawWidget(const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem, 
+        IRenderer& renderer, const IODescriptor& io) = 0;
+    virtual void HandleEvents(int32_t id, ImVec2 offset, const IODescriptor& io, WidgetDrawResult& result) = 0;
+    virtual void RecordItemGeometry(int32_t id, const ImRect& rect) = 0;
+    virtual void RecordChildWidgetGeometry(const LayoutItemDescriptor& layoutItem) {}
+    virtual void UpdateAvailableChildExtent(ImVec2& extent, int32_t id) {}
+
+    virtual const ImRect& GetGeometry(int32_t id) const = 0;
+    virtual int32_t GetState(int32_t id) const = 0;
+    virtual std::string_view GetName() const = 0;
+};
+```
+
 <h2> Getting Started</h2>
 
 Add `glimmer.h` to your project. The application structure will be the following:
@@ -238,10 +260,14 @@ Tested compilers include GCC (Linux) and MSVC (Windows).
 
 - [ ] **Accessibility** : Implement platform specific interfaces for accessbility i.e. UIA for Windows, etc.
 
-- [ ] **Improve CSS-based Styling** : Widget specific and more CSS-based properties can be added i.e. animations, color schemes, etc.
+- [ ] **Improve CSS-based Styling** : Support for application wide style sheets including selectors. (Even file watcher support to track external css file changes) Widget specific and more CSS-based properties can be added i.e. animations, color schemes, etc.
 
 - [ ] **Improved platform integration** : Add support for more platform specific dialogs and other features.
 
 - [ ] **SDF Text Rendering** : SDF-based text rendering and explore further improvements.
+
+- [ ] **Better Multimedia Support** : Improve the limited support for images by supporting more formats (including compressed resources), add video and audio support.
+
+- [ ] **Add more Renderers** : Add support for more renderers i.e. [Skia](https://github.com/google/skia) and [Rive](https://github.com/rive-app/rive-runtime).
 
 At least 3 of the above items should be implemented for a 1.0 release.
