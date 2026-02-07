@@ -199,6 +199,20 @@ namespace glimmer
         return std::nullopt;
     }
 
+    std::optional<NestedContextSource> WidgetContextData::GetParentWidget() const
+    {
+        for (auto idx = nestedContextStack.size() - 1; idx >= 0; --idx)
+        {
+            const auto& context = nestedContextStack[idx];
+            if (context.source == NestedContextSourceType::DropDownPopup ||
+                context.source == NestedContextSourceType::ItemGrid ||
+                context.source == NestedContextSourceType::Region)
+                return context;
+        }
+
+        return std::nullopt;
+    }
+
     void AddFontPtr(FontStyle& font)
     {
         if (font.font == nullptr && StartedRendering)
@@ -1032,6 +1046,7 @@ namespace glimmer
                 case WT_Checkbox: checkboxStates.resize(count); break;
                 case WT_TextInput: inputTextStates.resize(count); break;
                 case WT_Spinner: spinnerStates.resize(count); break;
+                case WT_DropDown: dropdownStates.resize(count); break;
                 case WT_Splitter: 
                     splitterStates.resize(count); 
                     splitterScrollPaneParentIds.resize(count * GLIMMER_MAX_SPLITTER_REGIONS, -1);
@@ -1230,7 +1245,7 @@ namespace glimmer
         auto& el = ctx.nestedContextStack.push();
         el.base = curr;
         el.source = source;
-        el.customId = id;
+        el.id = id;
         return ctx;
     }
 

@@ -93,17 +93,16 @@ namespace glimmer
         int32_t id = -1;
         int32_t geometry = 0;
         int16_t longestOption = -1;
-		WidgetContextData* context = nullptr; // Nested context created inside BeginPopUp
-        ImVec2 maxsz{}, extra{}, indicator{};
         NeighborWidgets neighbors;
-        Vector<OptionDescriptor, int16_t, 16> items;
-        Vector<std::pair<int16_t, int16_t>, int16_t, 16> widgets[WT_TotalTypes];
         char idstr[255] = { 0 };
     };
 
-    struct ItemGridStyleDescriptor
+    struct DropDownPersistentState
     {
-        uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
+        WidgetContextData* context = nullptr; // Nested context created inside BeginPopUp
+        ImVec2 maxsz{}, extra{}, indicator{};
+        Vector<OptionDescriptor, int16_t, 16> items;
+        Vector<std::pair<int16_t, int16_t>, int16_t, 16> widgets[WT_TotalTypes];
     };
 
     enum class ItemGridCurrentState
@@ -721,7 +720,7 @@ namespace glimmer
     {
         WidgetContextData* base = nullptr;
         NestedContextSourceType source = NestedContextSourceType::None;
-        int32_t customId = -1;
+        int32_t id = -1;
     };
 
 #pragma endregion
@@ -763,6 +762,7 @@ namespace glimmer
         std::vector<InputTextPersistentState> inputTextStates;
         std::vector<SplitterPersistentState> splitterStates;
         std::vector<SpinnerPersistentState> spinnerStates;
+        std::vector<DropDownPersistentState> dropdownStates;
         std::vector<TabBarPersistentState> tabBarStates;
         std::vector<NavDrawerPersistentState> navDrawerStates;
         std::vector<AccordionPersistentState> accordionStates;
@@ -925,6 +925,12 @@ namespace glimmer
             return spinnerStates[index];
         }
 
+        DropDownPersistentState& DropDownState(int32_t id)
+        {
+            auto index = id & WidgetIndexMask;
+            return dropdownStates[index];
+        }
+
         TabBarPersistentState& TabBarState(int32_t id)
         {
             auto index = id & WidgetIndexMask;
@@ -991,7 +997,8 @@ namespace glimmer
         ImVec2 WindowSize() const;
         ImVec2 NextAdHocPos() const;
 
-		std::optional<NestedContextSource> IsInside(NestedContextSourceType source) const;
+        std::optional<NestedContextSource> IsInside(NestedContextSourceType source) const;
+        std::optional<NestedContextSource> GetParentWidget() const;
 
         WidgetContextData();
     };
