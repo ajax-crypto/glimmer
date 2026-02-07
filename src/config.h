@@ -368,19 +368,32 @@ inline bool operator>(const ImVec2& lhs, const ImVec2& rhs)
 #define LOG(FMT, ...) std::fprintf(stderr, FMT, __VA_ARGS__)
 #define HIGHLIGHT(FMT, ...) std::fprintf(stderr, "\x1B[93m" FMT "\x1B[0m", __VA_ARGS__)
 #define LOGERROR(FMT, ...) std::fprintf(stderr, "\x1B[31m" FMT "\x1B[0m", __VA_ARGS__)
+#define ONCE(FMT, ...) if (Config.platform->totalFrames() == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
+#define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->totalFrames() % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
+
+#define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f)
+#define DEBUG_RECT2(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 2.f)
 #ifdef _WIN32
 #define BREAK_IF(...) if (__VA_ARGS__) __debugbreak()
+#else
+#define BREAK_IF(...)
 #endif
 #else
 #define LOG(FMT, ...)
 #define HIGHLIGHT(FMT, ...)
 #define LOGERROR(FMT, ...)
+#define ONCE(FMT, ...)
+#define EVERY_NTHFRAME(N, FMT, ...)
+#define DEBUG_RECT(start, end) 
+#define DEBUG_RECT2(start, end) 
+#define BREAK_IF(...)
 #endif
 
-#define DEBUG_RECT(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 1.f)
-#define DEBUG_RECT2(start, end) Config.renderer->DrawDebugRect(start, end, IM_COL32(255,0,0,255), 2.f)
 #define RECT_OUT(X) X.Min.x, X.Min.y, X.Max.x, X.Max.y
 #define RECT_FMT "(%f, %f) x (%f, %f)"
 
-#define ONCE(FMT, ...) if (Config.platform->frameCount == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
-#define EVERY_NTHFRAME(N, FMT, ...) if (Config.platform->frameCount % N == 0) std::fprintf(stdout, FMT, __VA_ARGS__)
+#define COLOR_FMT "rgba(%d, %d, %d, %d)"
+#define COLOR_OUT(X) X & 0xff, (X & 0xff00) >> 8, (X & 0xff0000) >> 16, (X & 0xff000000) >> 24
+
+#define VEC_FMT "(%f, %f)"
+#define VEC_OUT(X) X.x, X.y

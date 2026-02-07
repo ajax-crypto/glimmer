@@ -79,31 +79,30 @@ namespace glimmer
         bool fixedHeight = false;
     };
 
+    struct OptionDescriptor
+    {
+        std::string_view text;
+		TextType textType = TextType::PlainText;
+        ImRect geometry{ { FLT_MAX, FLT_MAX }, { 0.f, 0.f } };
+	};
+
+    struct WidgetContextData;
+
     struct DropDownBuilder
     {
         int32_t id = -1;
         int32_t geometry = 0;
+        int16_t longestOption = -1;
         NeighborWidgets neighbors;
-        Vector<DropDownState::OptionDescriptor, int16_t, 16> items;
+        char idstr[255] = { 0 };
     };
-
-    struct WidgetContextData;
 
     struct DropDownPersistentState
     {
-        struct ChildWidget
-        {
-            int32_t label = -1;
-            int32_t prefix = -1;
-        };
-
-        Vector<ChildWidget, int16_t, 16> children;
-        WidgetContextData* context = nullptr;
-    };
-
-    struct ItemGridStyleDescriptor
-    {
-        uint32_t gridcolor = IM_COL32(100, 100, 100, 255);
+        WidgetContextData* context = nullptr; // Nested context created inside BeginPopUp
+        ImVec2 maxsz{}, extra{}, indicator{};
+        Vector<OptionDescriptor, int16_t, 16> items;
+        Vector<std::pair<int16_t, int16_t>, int16_t, 16> widgets[WT_TotalTypes];
     };
 
     enum class ItemGridCurrentState
@@ -592,6 +591,7 @@ namespace glimmer
         ScrollableRegion scroll;
         int32_t regionIdx = -1;
         int32_t parentIdx = -1; // parent index in context.layouts
+        int32_t specified = 0;
         void* implData = nullptr;
         bool popSizingOnEnd = false;
 
@@ -712,13 +712,15 @@ namespace glimmer
 
     enum class NestedContextSourceType
     {
-        None, Region, Layout, ItemGrid, // add others...
+        None, Region, Layout, ItemGrid, DropDownPopup, 
+        Custom = 100 // add others...
     };
 
     struct NestedContextSource
     {
         WidgetContextData* base = nullptr;
         NestedContextSourceType source = NestedContextSourceType::None;
+        int32_t id = -1;
     };
 
 #pragma endregion
@@ -760,11 +762,11 @@ namespace glimmer
         std::vector<InputTextPersistentState> inputTextStates;
         std::vector<SplitterPersistentState> splitterStates;
         std::vector<SpinnerPersistentState> spinnerStates;
+        std::vector<DropDownPersistentState> dropdownStates;
         std::vector<TabBarPersistentState> tabBarStates;
         std::vector<NavDrawerPersistentState> navDrawerStates;
         std::vector<AccordionPersistentState> accordionStates;
         std::vector<int32_t> splitterScrollPaneParentIds;
-        std::vector<DropDownPersistentState> dropDownOptions;
         
         // Regions stack
         DynamicStack<int32_t, int16_t, GLIMMER_MAX_REGION_NESTING> regionBuilders{ false };
@@ -923,6 +925,12 @@ namespace glimmer
             return spinnerStates[index];
         }
 
+        DropDownPersistentState& DropDownState(int32_t id)
+        {
+            auto index = id & WidgetIndexMask;
+            return dropdownStates[index];
+        }
+
         TabBarPersistentState& TabBarState(int32_t id)
         {
             auto index = id & WidgetIndexMask;
@@ -989,6 +997,9 @@ namespace glimmer
         ImVec2 WindowSize() const;
         ImVec2 NextAdHocPos() const;
 
+        std::optional<NestedContextSource> IsInside(NestedContextSourceType source) const;
+        std::optional<NestedContextSource> GetParentWidget() const;
+
         WidgetContextData();
     };
 
@@ -997,7 +1008,9 @@ namespace glimmer
     void ResetFrameData();
     WidgetContextData& GetContext();
     WidgetContextData& PushContext(int32_t id);
+    WidgetContextData& PushContext(int32_t id, NestedContextSourceType source);
     void PopContext();
+    void PopNestedSource(WidgetContextData* context = nullptr);
     void Cleanup();
 
     StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state);

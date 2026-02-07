@@ -184,6 +184,7 @@ namespace glimmer
 
         StyleDescriptor();
         StyleDescriptor(std::string_view css);
+        StyleDescriptor(const FourSidedBorder& border);
 
         StyleDescriptor& BgColor(int r, int g, int b, int a = 255);
         StyleDescriptor& FgColor(int r, int g, int b, int a = 255);
@@ -277,14 +278,15 @@ namespace glimmer
     struct DropDownStyleDescriptor
     {
         uint32_t bgcolor = ToRGBA(230, 230, 230);
-        uint32_t optionHoverColor = ToRGBA(20, 20, 150);
-        uint32_t optionSelectionColor = ToRGBA(150, 150, 255);
+		uint32_t optionBgColor = ToRGBA(255, 255, 255, 0);
+		uint32_t optionFgColor = ToRGBA(0, 0, 0);
+		uint32_t popupBgColor = ToRGBA(255, 255, 255);
         uint32_t indicatorColor = ToRGBA(0, 0, 0);
+        FourSidedBorder popupBorder;
         std::string_view indicators[2] = { "arrow-down", "arrow-up" };
         int32_t indicatorType = RT_SYMBOL;
         float indicatorScale = 0.5f;
         ImVec2 optionSpacing{ 2.f, 2.f };
-        Border separator;
         bool isIndicatorSuffix = true;
         bool occludeBg = false;
 
@@ -378,6 +380,7 @@ namespace glimmer
     void PushStyleFmt(int32_t state, std::string_view fmt, ...);
     void PushStyleFmt(std::string_view fmt, ...);
     void PushStyle(int32_t state, std::string_view css);
+    void PushStyle(int32_t state, const StyleDescriptor& style);
     void PopStyle(int depth = 1, int32_t state = WS_Default);
 
 #ifndef GLIMMER_DISABLE_RICHTEXT

@@ -281,7 +281,7 @@ namespace glimmer
     enum class DrawingOps
     {
         Line, Triangle, Rectangle, RoundedRectangle, Circle, Sector,
-        RectGradient, RoundedRectGradient,
+        RectGradient, RoundedRectGradient, RadialGradient,
         Polyline, Polygon, PolyGradient,
         Text, Tooltip,
         Resource,
@@ -400,12 +400,34 @@ namespace glimmer
             int size;
         } polygradient;
 
+        struct {
+            ImVec2 center;
+            float radius;
+            uint32_t in;
+            uint32_t out;
+            int start;
+            int end;
+        } radialgradient;
+
         DrawParams() {}
+    };
+
+    enum class DrawOrder
+    {
+        Beginning, Current, End
+    };
+
+    struct DrawcallData
+    {
+        DrawingOps ops;
+        DrawParams params;
+        DrawOrder order;
     };
 
     struct DeferredRenderer final : public IRenderer
     {
-        Vector<std::pair<DrawingOps, DrawParams>, int32_t, 32> queue{ 32 };
+        DrawOrder order = DrawOrder::Current;
+        Vector<DrawcallData, int32_t, 32> queue{ 32 };
         ImVec2(*TextMeasure)(std::string_view text, void* fontptr, float sz, float wrapWidth);
 
         DeferredRenderer(ImVec2(*tm)(std::string_view text, void* fontptr, float sz, float wrapWidth))
@@ -416,6 +438,121 @@ namespace glimmer
 
         int TotalEnqueued() const override { return queue.size(); }
 
+        void BeginDefer() override { order = DrawOrder::End; }
+        void EndDefer() override { order = DrawOrder::Current; }
+        void BeginAdvance() { order = DrawOrder::Beginning; }
+        void EndAdvance() { order = DrawOrder::Current; }
+
+        static void InvokeDrawCall(IRenderer& renderer, ImVec2 offset, const DrawcallData& entry)
+        {
+            switch (entry.ops)
+            {
+            case DrawingOps::Line:
+                renderer.DrawLine(entry.params.line.start + offset, entry.params.line.end + offset, entry.params.line.color,
+                    entry.params.line.thickness);
+                break;
+
+            case DrawingOps::Triangle:
+                renderer.DrawTriangle(entry.params.triangle.pos1 + offset, entry.params.triangle.pos2 + offset,
+                    entry.params.triangle.pos3 + offset, entry.params.triangle.color, entry.params.triangle.filled,
+                    entry.params.triangle.thickness);
+                break;
+
+            case DrawingOps::Rectangle:
+                renderer.DrawRect(entry.params.rect.start + offset, entry.params.rect.end + offset, entry.params.rect.color,
+                    entry.params.rect.filled, entry.params.rect.thickness);
+                break;
+
+            case DrawingOps::RoundedRectangle:
+                renderer.DrawRoundedRect(entry.params.roundedRect.start + offset, entry.params.roundedRect.end + offset, entry.params.roundedRect.color,
+                    entry.params.roundedRect.filled, entry.params.roundedRect.topleftr, entry.params.roundedRect.toprightr,
+                    entry.params.roundedRect.bottomrightr, entry.params.roundedRect.bottomleftr, entry.params.roundedRect.thickness);
+                break;
+
+            case DrawingOps::Circle:
+                renderer.DrawCircle(entry.params.circle.center + offset, entry.params.circle.radius, entry.params.circle.color,
+                    entry.params.circle.filled, entry.params.circle.thickness);
+                break;
+
+            case DrawingOps::Sector:
+                renderer.DrawSector(entry.params.sector.center + offset, entry.params.sector.radius, entry.params.sector.start, entry.params.sector.end,
+                    entry.params.sector.color, entry.params.sector.filled, entry.params.sector.inverted, entry.params.sector.thickness);
+                break;
+
+            case DrawingOps::RectGradient:
+                renderer.DrawRectGradient(entry.params.rectGradient.start + offset, entry.params.rectGradient.end + offset, entry.params.rectGradient.from,
+                    entry.params.rectGradient.to, entry.params.rectGradient.dir);
+                break;
+
+            case DrawingOps::RoundedRectGradient:
+                renderer.DrawRoundedRectGradient(entry.params.roundedRectGradient.start + offset, entry.params.roundedRectGradient.end + offset,
+                    entry.params.roundedRectGradient.topleftr, entry.params.roundedRectGradient.toprightr,
+                    entry.params.roundedRectGradient.bottomrightr, entry.params.roundedRectGradient.bottomleftr,
+                    entry.params.roundedRectGradient.from, entry.params.roundedRectGradient.to, entry.params.roundedRectGradient.dir);
+                break;
+
+            case DrawingOps::Text:
+                renderer.DrawText(entry.params.text.text, entry.params.text.pos + offset, entry.params.text.color, entry.params.text.wrapWidth);
+                break;
+
+            case DrawingOps::Tooltip:
+                renderer.DrawTooltip(entry.params.tooltip.pos + offset, entry.params.tooltip.text);
+                break;
+
+            case DrawingOps::Resource:
+                renderer.DrawResource(entry.params.resource.resflags, entry.params.resource.pos + offset,
+                    entry.params.resource.size, entry.params.resource.color, entry.params.resource.content,
+                    entry.params.resource.id);
+                break;
+
+            case DrawingOps::PushClippingRect:
+                renderer.SetClipRect(entry.params.clippingRect.start + offset, entry.params.clippingRect.end + offset,
+                    entry.params.clippingRect.intersect);
+                break;
+
+            case DrawingOps::PopClippingRect:
+                renderer.ResetClipRect();
+                break;
+
+            case DrawingOps::PushFont:
+                renderer.SetCurrentFont(entry.params.font.fontptr, entry.params.font.size);
+                break;
+
+            case DrawingOps::PopFont:
+                renderer.ResetFont();
+                break;
+
+            case DrawingOps::Polyline:
+                for (auto idx = 0; idx < entry.params.polyline.size; ++idx)
+                    entry.params.polyline.points[idx] += offset;
+                renderer.DrawPolyline(entry.params.polyline.points, entry.params.polyline.size,
+                    entry.params.polyline.color, entry.params.polyline.thickness);
+                break;
+
+            case DrawingOps::Polygon:
+                for (auto idx = 0; idx < entry.params.polygon.size; ++idx)
+                    entry.params.polygon.points[idx] += offset;
+                renderer.DrawPolygon(entry.params.polygon.points, entry.params.polygon.size,
+                    entry.params.polygon.color, entry.params.polygon.filled, entry.params.polygon.thickness);
+                break;
+
+            case DrawingOps::PolyGradient:
+                for (auto idx = 0; idx < entry.params.polygradient.size; ++idx)
+                    entry.params.polygradient.points[idx] += offset;
+                renderer.DrawPolyGradient(entry.params.polygradient.points, entry.params.polygradient.color,
+                    entry.params.polygradient.size);
+                break;
+
+            case DrawingOps::RadialGradient:
+                renderer.DrawRadialGradient(entry.params.radialgradient.center + offset, entry.params.radialgradient.radius,
+                    entry.params.radialgradient.in, entry.params.radialgradient.out,
+                    entry.params.radialgradient.start, entry.params.radialgradient.end);
+                break;
+
+            default: break;
+            }
+        }
+
         void Render(IRenderer& renderer, ImVec2 offset, int from, int to) override
         {
             auto prevdl = renderer.UserData;
@@ -425,101 +562,22 @@ namespace glimmer
             for (auto idx = from; idx < to; ++idx)
             {
                 const auto& entry = queue[idx];
+                if (entry.order == DrawOrder::Beginning)
+                    InvokeDrawCall(renderer, offset, entry);
+            }
 
-                switch (entry.first)
-                {
-                case DrawingOps::Line:
-                    renderer.DrawLine(entry.second.line.start + offset, entry.second.line.end + offset, entry.second.line.color,
-                        entry.second.line.thickness);
-                    break;
+            for (auto idx = from; idx < to; ++idx)
+            {
+                const auto& entry = queue[idx];
+                if (entry.order == DrawOrder::Current)
+                    InvokeDrawCall(renderer, offset, entry);
+            }
 
-                case DrawingOps::Triangle:
-                    renderer.DrawTriangle(entry.second.triangle.pos1 + offset, entry.second.triangle.pos2 + offset,
-                        entry.second.triangle.pos3 + offset, entry.second.triangle.color, entry.second.triangle.filled,
-                        entry.second.triangle.thickness);
-                    break;
-
-                case DrawingOps::Rectangle:
-                    renderer.DrawRect(entry.second.rect.start + offset, entry.second.rect.end + offset, entry.second.rect.color,
-                        entry.second.rect.filled, entry.second.rect.thickness);
-                    break;
-
-                case DrawingOps::RoundedRectangle:
-                    renderer.DrawRoundedRect(entry.second.roundedRect.start + offset, entry.second.roundedRect.end + offset, entry.second.roundedRect.color,
-                        entry.second.roundedRect.filled, entry.second.roundedRect.topleftr, entry.second.roundedRect.toprightr,
-                        entry.second.roundedRect.bottomrightr, entry.second.roundedRect.bottomleftr, entry.second.roundedRect.thickness);
-                    break;
-
-                case DrawingOps::Circle:
-                    renderer.DrawCircle(entry.second.circle.center + offset, entry.second.circle.radius, entry.second.circle.color,
-                        entry.second.circle.filled, entry.second.circle.thickness);
-                    break;
-
-                case DrawingOps::Sector:
-                    renderer.DrawSector(entry.second.sector.center + offset, entry.second.sector.radius, entry.second.sector.start, entry.second.sector.end,
-                        entry.second.sector.color, entry.second.sector.filled, entry.second.sector.inverted, entry.second.sector.thickness);
-                    break;
-
-                case DrawingOps::RectGradient:
-                    renderer.DrawRectGradient(entry.second.rectGradient.start + offset, entry.second.rectGradient.end + offset, entry.second.rectGradient.from,
-                        entry.second.rectGradient.to, entry.second.rectGradient.dir);
-                    break;
-
-                case DrawingOps::RoundedRectGradient:
-                    renderer.DrawRoundedRectGradient(entry.second.roundedRectGradient.start + offset, entry.second.roundedRectGradient.end + offset,
-                        entry.second.roundedRectGradient.topleftr, entry.second.roundedRectGradient.toprightr,
-                        entry.second.roundedRectGradient.bottomrightr, entry.second.roundedRectGradient.bottomleftr,
-                        entry.second.roundedRectGradient.from, entry.second.roundedRectGradient.to, entry.second.roundedRectGradient.dir);
-                    break;
-
-                case DrawingOps::Text:
-                    renderer.DrawText(entry.second.text.text, entry.second.text.pos + offset, entry.second.text.color, entry.second.text.wrapWidth);
-                    break;
-
-                case DrawingOps::Tooltip:
-                    renderer.DrawTooltip(entry.second.tooltip.pos + offset, entry.second.tooltip.text);
-                    break;
-
-                case DrawingOps::Resource:
-                    renderer.DrawResource(entry.second.resource.resflags, entry.second.resource.pos + offset,
-                        entry.second.resource.size, entry.second.resource.color, entry.second.resource.content,
-                        entry.second.resource.id);
-                    break;
-
-                case DrawingOps::PushClippingRect:
-                    renderer.SetClipRect(entry.second.clippingRect.start + offset, entry.second.clippingRect.end + offset,
-                        entry.second.clippingRect.intersect);
-                    break;
-
-                case DrawingOps::PopClippingRect:
-                    renderer.ResetClipRect();
-                    break;
-
-                case DrawingOps::PushFont:
-                    renderer.SetCurrentFont(entry.second.font.fontptr, entry.second.font.size);
-                    break;
-
-                case DrawingOps::PopFont:
-                    renderer.ResetFont();
-                    break;
-
-                case DrawingOps::Polyline:
-                    renderer.DrawPolyline(entry.second.polyline.points, entry.second.polyline.size,
-                        entry.second.polyline.color, entry.second.polyline.thickness);
-                    break;
-
-                case DrawingOps::Polygon:
-                    renderer.DrawPolygon(entry.second.polygon.points, entry.second.polygon.size,
-                        entry.second.polygon.color, entry.second.polygon.filled, entry.second.polygon.thickness);
-                    break;
-
-                case DrawingOps::PolyGradient:
-                    renderer.DrawPolyGradient(entry.second.polygradient.points, entry.second.polygradient.color,
-                        entry.second.polygradient.size);
-                    break;
-
-                default: break;
-                }
+            for (auto idx = from; idx < to; ++idx)
+            {
+                const auto& entry = queue[idx];
+                if (entry.order == DrawOrder::End)
+                    InvokeDrawCall(renderer, offset, entry);
             }
 
             renderer.UserData = prevdl;
@@ -529,29 +587,40 @@ namespace glimmer
 
         void SetClipRect(ImVec2 startpos, ImVec2 endpos, bool intersect)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushClippingRect;
-            val.second.clippingRect = { startpos, endpos, intersect };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PushClippingRect;
+            val.params.clippingRect = { startpos, endpos, intersect };
+            val.order = order;
             size = ImMax(size, endpos);
         }
 
-        void ResetClipRect() { auto& val = queue.emplace_back(); val.first = DrawingOps::PopClippingRect; }
+        void ResetClipRect() 
+        { 
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PopClippingRect; val.order = order;
+        }
 
         void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Line;
-            val.second.line = { startpos, endpos, color, thickness };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Line;
+            val.order = order;
+            val.params.line = { startpos, endpos, color, thickness };
             size = ImMax(size, endpos);
         }
 
         void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness)
         {
-            // TODO ...
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Polyline;
+            val.order = order;
+            val.params.polyline = { points, sz, color, thickness };
+            
+            for (auto idx = 0; idx < sz; ++idx)
+                size = ImMax(size, points[idx]);
         }
 
         void DrawTriangle(ImVec2 pos1, ImVec2 pos2, ImVec2 pos3, uint32_t color, bool filled, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Triangle;
-            val.second.triangle = { pos1, pos2, pos3, color, thickness, filled };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Triangle;
+            val.params.triangle = { pos1, pos2, pos3, color, thickness, filled };
+            val.order = order;
             size = ImMax(size, pos1);
             size = ImMax(size, pos2);
             size = ImMax(size, pos3);
@@ -559,71 +628,100 @@ namespace glimmer
 
         void DrawRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Rectangle;
-            val.second.rect = { startpos, endpos, color, thickness, filled };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Rectangle;
+            val.params.rect = { startpos, endpos, color, thickness, filled };
+            val.order = order;
             size = ImMax(size, endpos);
         }
 
         void DrawRoundedRect(ImVec2 startpos, ImVec2 endpos, uint32_t color, bool filled, float topleftr, float toprightr,
             float bottomrightr, float bottomleftr, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectangle;
-            val.second.roundedRect = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, color, thickness, filled };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::RoundedRectangle;
+            val.params.roundedRect = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, color, thickness, filled };
+            val.order = order;
             size = ImMax(size, endpos);
         }
 
         void DrawRectGradient(ImVec2 startpos, ImVec2 endpos, uint32_t colorfrom, uint32_t colorto, Direction dir)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RectGradient;
-            val.second.rectGradient = { startpos, endpos, colorfrom, colorto, dir };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::RectGradient;
+            val.params.rectGradient = { startpos, endpos, colorfrom, colorto, dir };
+            val.order = order;
             size = ImMax(size, endpos);
         }
 
         void DrawRoundedRectGradient(ImVec2 startpos, ImVec2 endpos, float topleftr, float toprightr, float bottomrightr,
             float bottomleftr, uint32_t colorfrom, uint32_t colorto, Direction dir)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::RoundedRectGradient;
-            val.second.roundedRectGradient = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, colorfrom, colorto, dir };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::RoundedRectGradient;
+            val.order = order;
+            val.params.roundedRectGradient = { startpos, endpos, topleftr, toprightr, bottomleftr, bottomrightr, colorfrom, colorto, dir };
             size = ImMax(size, endpos);
         }
 
-        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) {}
+        void DrawPolygon(ImVec2* points, int sz, uint32_t color, bool filled, float thickness = 1.f) 
+        {
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Polygon;
+            val.order = order;
+            val.params.polygon = { points, sz, color, thickness };
 
-        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) {}
+            for (auto idx = 0; idx < sz; ++idx)
+                size = ImMax(size, points[idx]);
+        }
+
+        void DrawPolyGradient(ImVec2* points, uint32_t* colors, int sz) 
+        {
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PolyGradient;
+            val.order = order;
+            val.params.polygradient = { points, colors, sz };
+
+            for (auto idx = 0; idx < sz; ++idx)
+                size = ImMax(size, points[idx]);
+        }
 
         void DrawCircle(ImVec2 center, float radius, uint32_t color, bool filled, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Circle;
-            val.second.circle = { center, radius, color, thickness, filled };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Circle;
+            val.order = order;
+            val.params.circle = { center, radius, color, thickness, filled };
             size = ImMax(size, center + ImVec2{ radius, radius });
         }
 
         void DrawSector(ImVec2 center, float radius, int start, int end, uint32_t color, bool filled, bool inverted, float thickness = 1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Sector;
-            val.second.sector = { center, radius, start, end, color, thickness, filled, inverted };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Sector;
+            val.params.sector = { center, radius, start, end, color, thickness, filled, inverted };
+            val.order = order;
             size = ImMax(size, center + ImVec2{ radius, radius });
         }
 
-        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) {}
+        void DrawRadialGradient(ImVec2 center, float radius, uint32_t in, uint32_t out, int start, int end) 
+        {
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::RadialGradient;
+            val.order = order;
+            val.params.radialgradient = { center, radius, in, out, start, end };
+            size = ImMax(size, center + ImVec2{ radius, radius });
+        }
 
         bool SetCurrentFont(std::string_view family, float sz, FontType type) override
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
-            val.second.font = { GetFont(family, sz, type), sz };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PushFont;
+            val.params.font = { GetFont(family, sz, type), sz };
+            val.order = order;
             return true;
         }
 
         bool SetCurrentFont(void* fontptr, float sz) override
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PushFont;
-            val.second.font = { fontptr, sz };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PushFont;
+            val.params.font = { fontptr, sz };
             return true;
         }
 
         void ResetFont() override
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::PopFont;
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::PopFont; val.order = order;
         }
 
         ImVec2 GetTextSize(std::string_view text, void* fontptr, float sz, float wrapWidth = -1.f)
@@ -633,25 +731,27 @@ namespace glimmer
 
         void DrawText(std::string_view text, ImVec2 pos, uint32_t color, float wrapWidth = -1.f)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Text;
-            ::new (&val.second.text.text) std::string_view{ text };
-            val.second.text.color = color;
-            val.second.text.pos = pos;
-            val.second.text.wrapWidth = wrapWidth;
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Text;
+            ::new (&val.params.text.text) std::string_view{ text };
+            val.params.text.color = color;
+            val.params.text.pos = pos;
+            val.params.text.wrapWidth = wrapWidth;
+            val.order = order;
             size = ImMax(size, pos);
         }
 
         void DrawTooltip(ImVec2 pos, std::string_view text)
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Tooltip;
-            val.second.tooltip.pos = pos;
-            ::new (&val.second.tooltip.text) std::string_view{ text };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Tooltip;
+            val.params.tooltip.pos = pos; val.order = order;
+            ::new (&val.params.tooltip.text) std::string_view{ text };
         }
 
         bool DrawResource(int32_t resflags, ImVec2 pos, ImVec2 size, uint32_t color, std::string_view content, int32_t id) override
         {
-            auto& val = queue.emplace_back(); val.first = DrawingOps::Resource;
-            val.second.resource = { resflags, id, pos, size, color, content };
+            auto& val = queue.emplace_back(); val.ops = DrawingOps::Resource;
+            val.params.resource = { resflags, id, pos, size, color, content };
+            val.order = order;
             return true;
         }
     };

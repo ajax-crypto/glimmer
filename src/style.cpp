@@ -1362,6 +1362,30 @@ namespace glimmer
         }
     }
 
+    template <typename StackT>
+    static void PushStyle(WidgetState state, const StyleDescriptor& css, StackT* stack)
+    {
+        auto idx = log2((unsigned)state);
+
+        if (idx == WSI_Default)
+        {
+            if (!stack[idx].empty())
+            {
+                auto parent = stack[idx].top();
+                auto& style = stack[idx].push();
+                style = parent;
+                ResetNonInheritableProps(style);
+                style.From(css);
+            }
+            else
+                stack[idx].push().From(css);
+        }
+        else
+        {
+            stack[idx].push().From(css);
+        }
+    }
+
     void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
         std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
     {
@@ -1428,6 +1452,31 @@ namespace glimmer
                     PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
 
                     if (!css.empty())
+                    {
+                        auto idx = style;
+                        auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
+                        context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
+                    }
+                }
+
+                PushStyle((WidgetState)(1 << style), css, context.StyleStack);
+            }
+        }
+    }
+
+    void PushStyle(int32_t state, const StyleDescriptor& css)
+    {
+        auto& context = GetContext();
+
+        for (auto style = 0; style < WSI_Total; ++style)
+        {
+            if ((1 << style) & state)
+            {
+                if (!context.layoutStack.empty())
+                {
+                    PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
+
+                    //if (css != StyleDescriptor{})
                     {
                         auto idx = style;
                         auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
@@ -1646,6 +1695,12 @@ namespace glimmer
         : StyleDescriptor{}
     {
         From(css);
+    }
+
+    StyleDescriptor::StyleDescriptor(const FourSidedBorder& pborder)
+        : StyleDescriptor{}
+    {
+        border = pborder;
     }
 
     StyleDescriptor& StyleDescriptor::BgColor(int r, int g, int b, int a) { bgcolor = ToRGBA(r, g, b, a); return *this; }
