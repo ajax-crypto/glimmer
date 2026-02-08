@@ -77,6 +77,8 @@ struct IRenderer
 
     virtual void BeginDefer() {}
     virtual void EndDefer() {}
+    virtual void BeginAdvance() {}
+    virtual void EndAdvance() {}
 
     virtual void DrawLine(ImVec2 startpos, ImVec2 endpos, uint32_t color, float thickness = 1.f) = 0;
     virtual void DrawPolyline(ImVec2* points, int sz, uint32_t color, float thickness) = 0;
@@ -153,7 +155,7 @@ struct IPlatform
 ```
 
 Custom widgets can be added by either combining existing widgets in a layout with custom data binding or
-can be done by implement the `ICustomWidget` interface, and providing it through `UIConfig::CustomWidgetProvider` member.
+can be done by implement the `glimmer::ICustomWidget` interface, and providing it through `glimmer::UIConfig::CustomWidgetProvider` member.
 
 ```c++
 struct ICustomWidget
@@ -243,14 +245,16 @@ Use `build.py` file to build the library. The following options are available:
 
 The script will download dependencies and build a static library out of glimmer. The library will be located in `staticlib/combined/glimmer.lib`. X11 development libraries are required to build on Linux. *Wayland is work in progress* 
 
-Supported platforms include Windows and Linux. (Mac support will come in future)
+Supported platforms include Windows and Linux. (Mac support will come in future).
 Tested compilers include GCC (Linux) and MSVC (Windows).
 
 <h2> TODO(s) </h2>
 
-- [ ] **Improved Focus Handling** : Focus handling for input widgets and handling focus shifts with tab button. (This also enables keyboard navigation of UI)
+- [ ] **Improved Focus Handling** : Focus handling for input widgets and handling focus shifts with tab button. (This also enables keyboard navigation of UI).
 
-- [ ] **Wayland support on Linux** : Currently, X11 libraries are used on Linux for window handling, wayland support has to be added. (This might require small changes as SDL3 already integrates that)
+- [ ] **Wayland support on Linux** : Currently, X11 libraries are used on Linux for window handling, wayland support has to be added. (This might require small changes as SDL3 already integrates that).
+
+- [ ] **Text Selection** : Enable text selection in any label/button or equivalent (including copy to clipboard).
 
 - **Support for more Platforms** : 
   - [ ] Use emscripten to compile glimmer for web as a web-assembly file.
@@ -260,14 +264,16 @@ Tested compilers include GCC (Linux) and MSVC (Windows).
 
 - [ ] **Accessibility** : Implement platform specific interfaces for accessbility i.e. UIA for Windows, etc.
 
-- [ ] **Improve CSS-based Styling** : Support for application wide style sheets including selectors. (Even file watcher support to track external css file changes) Widget specific and more CSS-based properties can be added i.e. animations, color schemes, etc.
+- [ ] **Improve CSS-based Styling** : Support for application wide style sheets including selectors. (including file watcher support to track external css file changes). Widget specific and more CSS-based properties & expressions can be added i.e. animations, color schemes, etc. 
 
-- [ ] **Improved platform integration** : Add support for more platform specific dialogs and other features.
+- [ ] **Improved Platform Integration** : Add support for more platform specific dialogs and other features.
 
 - [ ] **SDF Text Rendering** : SDF-based text rendering and explore further improvements.
 
-- [ ] **Better Multimedia Support** : Improve the limited support for images by supporting more formats (including compressed resources), add video and audio support.
+- [ ] **More Rich Text Formats** : Add support for other rich text formats including Markdown, Mermaid diagrams, [MathML](https://developer.mozilla.org/en-US/docs/Web/MathML), reStructuredText (reST), etc.
 
-- [ ] **Add more Renderers** : Add support for more renderers i.e. [Skia](https://github.com/google/skia) and [Rive](https://github.com/rive-app/rive-runtime).
+- [ ] **Better Multimedia Support** : Improve the limited support for images by supporting more formats (including compressed resources), video and audio support.
+
+- [ ] **Add more Renderers** : Add support for more renderers i.e. [Raylib](https://github.com/raysan5/raylib), [Skia](https://github.com/google/skia) and [Rive](https://github.com/rive-app/rive-runtime).
 
 At least 3 of the above items should be implemented for a 1.0 release.
