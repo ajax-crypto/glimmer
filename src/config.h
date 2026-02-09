@@ -196,7 +196,7 @@ struct ImVec2
 { 
     float x = 0.f, y = 0.f; 
     ImVec2& operator+=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
-    ImVec2& operator-=(const ImVec2& pos) { x += pos.x; y += pos.y; return *this; }
+    ImVec2& operator-=(const ImVec2& pos) { x -= pos.x; y -= pos.y; return *this; }
 };
 // ImVec2 arithmetic operators (ImGui 1.92+ doesn't define these)
 #ifndef GLIMMER_IMVEC2_OPERATORS_DEFINED
