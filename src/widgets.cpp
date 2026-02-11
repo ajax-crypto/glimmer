@@ -7139,7 +7139,8 @@ namespace glimmer
             range.depth = builder.depth; range.row = GetRowId(builder, config, row, epilogue);
             range.from = builder.currentY - builder.startY; range.to = range.from + height + config.cellpadding.y;
             builder.currentY = range.to;
-            builder.perDepthRowCount[builder.depth]++;
+			if(config.isTree)
+            	builder.perDepthRowCount[builder.depth]++;
         }
     }
 
