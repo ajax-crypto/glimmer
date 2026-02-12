@@ -507,14 +507,12 @@ namespace glimmer
     {
         auto& context = ctx == nullptr ? GetContext() : *(WidgetContextData*)ctx;
         auto hasPopup = WidgetContextData::PopupContext != nullptr;
-        auto isWithinPopup = WidgetContextData::ActivePopUpRegion.Contains(desc.mousepos);
         IODescriptor result{};
         result.deltaTime = desc.deltaTime;
 
-        // Either the current context is the popup's context in which case only events that
-        // are within the popup matter or the current context is not for the popup and hence
-        // ignore events that occured within it.
-        if (!hasPopup || (isWithinPopup && WidgetContextData::PopupContext == &context))
+        // Either the current context is the popup's context in which case only pass
+        // events to popup context, or there is no popup and hence nothing to filter
+        if (!hasPopup || (WidgetContextData::PopupContext == &context))
             result = desc;
 
         return result;

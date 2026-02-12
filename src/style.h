@@ -164,16 +164,27 @@ namespace glimmer
 
     struct GlobalWidgetTheme;
 
+    enum class StyleInheritType
+    {
+        CopyEverything,                   // Copy all properties from source style to destination
+        CopyOnlySourceSpecified,          // Copy all specified source properties to destination
+        CopyOnlyDestinationUnspecified,   // Copy all unspecified destination properties from source
+        CopySourceDestinationIntersection // Copy all unspecified destination properties from specified source
+    };
+
     struct StyleDescriptor
     {
         uint64_t specified = 0;
+        uint64_t relative = 0;
+        uint64_t inherited = 0;
+        uint64_t base = 0;
+
         uint32_t bgcolor = IM_COL32_BLACK_TRANS;
         uint32_t fgcolor = IM_COL32_BLACK;
         ImVec2 dimension{ -1.f, -1.f };
         ImVec2 mindim{ 0.f, 0.f };
         ImVec2 maxdim{ FLT_MAX, FLT_MAX };
         int32_t alignment = TextAlignLeading;
-        uint32_t relativeProps = 0;
         CustomStyleDataIndices index;
         FourSidedMeasure padding;
         FourSidedMeasure margin;
@@ -195,8 +206,10 @@ namespace glimmer
         StyleDescriptor& Border(float thick, std::tuple<int, int, int, int> color);
         StyleDescriptor& Raised(float amount);
 
-        StyleDescriptor& From(std::string_view css, bool checkForDuplicate = true);
-        StyleDescriptor& From(const StyleDescriptor& style, bool overwrite = true);
+        StyleDescriptor& From(std::string_view css);
+        StyleDescriptor& InheritFrom(const StyleDescriptor& style, 
+            StyleInheritType type = StyleInheritType::CopySourceDestinationIntersection, 
+            bool addToSpecified = false);
 
         static void(*GlobalThemeProvider)(GlobalWidgetTheme*);
     };
@@ -371,22 +384,25 @@ namespace glimmer
     // of a frame ideally)
     void SetStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css);
     void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...);
-    StyleDescriptor& GetStyle(std::string_view id, WidgetStateIndex index);
-    StyleDescriptor& GetWidgetStyle(WidgetType type, WidgetStateIndex index);
 
     // Push/Pop styles for a widget for temporary style changes
-    void PushStyle(std::string_view defcss, std::string_view hovercss = "", std::string_view pressedcss = "",
-        std::string_view focusedcss = "", std::string_view checkedcss = "", std::string_view disblcss = "");
-    void PushStyleFmt(int32_t state, std::string_view fmt, ...);
-    void PushStyleFmt(std::string_view fmt, ...);
+    void PushStyle(std::string_view defcss);
     void PushStyle(int32_t state, std::string_view css);
     void PushStyle(int32_t state, const StyleDescriptor& style);
-    void PopStyle(int depth = 1, int32_t state = WS_Default);
+    void PushStyleFmt(std::string_view fmt, ...);
+    void PushStyleFmt(int32_t state, std::string_view fmt, ...);
 
-#ifndef GLIMMER_DISABLE_RICHTEXT
-    void PushTextType(TextType type);
-    void PopTextType();
-#endif
+    void PopStyle(int depth = 1, int32_t state = WS_Default);
+    void PopStyleMulti(int depth, int32_t state);
+
+    template <typename... ArgsT>
+    void PopStyle(int depth, int32_t state, ArgsT... args)
+    {
+        int32_t total = state | (args | ...);
+        PopStyleMulti(depth, total);
+    }
+
+    std::string_view StylePropsToStr(int32_t specified);
 
     template <typename... ArgsT>
     void IgnoreStyleStack(ArgsT... args)
@@ -396,7 +412,7 @@ namespace glimmer
     }
     void RestoreStyleStack();
 
-    std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
+    //std::pair<Sizing, bool> ParseLayoutStyle(LayoutBuilder& layout, std::string_view css, float pwidth, float pheight);
 
 #ifndef GLIMMER_DISABLE_RICHTEXT
 

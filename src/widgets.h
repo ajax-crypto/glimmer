@@ -100,7 +100,7 @@ namespace glimmer
     bool BeginDropDown(std::string_view id, std::string_view text, TextType type = TextType::PlainText, int32_t spolicy = DD_FitToLongestOption, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
     void BeginDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
     void AddDropDownOption(std::string_view optionText, TextType type = TextType::PlainText, bool isLongestOption = false);
-	void EndDropDownOption();
+	void EndDropDownOption(int32_t optionId = -1);
     WidgetDrawResult EndDropDown(int32_t* selection, std::optional<std::pair<std::string_view, TextType>> longestopt = std::nullopt);
 
     WidgetDrawResult StaticItemGrid(int32_t id, int32_t geometry = ToBottomRight, const NeighborWidgets& neighbors = NeighborWidgets{});
@@ -180,7 +180,7 @@ namespace glimmer
 
     struct ICustomWidget
     {
-        virtual StyleDescriptor GetStyle(int32_t id, int32_t state, const StyleStackT& stack) = 0;
+        virtual StyleDescriptor GetStyle(int32_t id, int32_t state) = 0;
         virtual ImRect ComputeGeometry(const ImVec2& pos, const LayoutItemDescriptor& layoutItem, 
             const NeighborWidgets& neighbors, ImVec2 maxsz) = 0;
         virtual WidgetDrawResult DrawWidget(const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem, 
@@ -196,7 +196,7 @@ namespace glimmer
 
         static void* PushContext(int32_t id);
         static void PopContext(void* ctx);
-        static StyleDescriptor ComputeStyle(int32_t id, int32_t state, const StyleStackT& stack);
+        static StyleDescriptor ComputeStyle(int32_t id, int32_t state);
         static bool IsInState(int32_t id, WidgetState state);
         static ImRect GetBounds(int32_t id);
         static ImVec2 GetMaximumSize();

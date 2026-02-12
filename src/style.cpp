@@ -12,16 +12,18 @@
 
 namespace glimmer
 {
-    // This maps the styles to classes/ids which do not follow the style stack.
-    // When applying a style to a widget, any class/id specified with the widget will be used to lookup
-    // corresponding styles, merged (with the current stack as well), and then applied.
-    static std::unordered_map<std::string_view, StyleDescriptor[WSI_Total]> StyleSheet;
+    static int32_t IgnoreStyleStackBits = -1;
 
 #ifndef GLIMMER_DISABLE_CSS_CACHING
-    static std::unordered_map<std::string_view, StyleDescriptor> ParsedStyleSheets;
+    std::unordered_map<std::string_view, StyleDescriptor> GlimmerStyleEngine::ParsedStyleSheets;
 #endif
 
-//#pragma optimize( "", on )
+    static bool IsSpecificState(int32_t state)
+    {
+        return (state & (state - 1)) == 0;
+    }
+
+#pragma region Style Parsing
 
     [[nodiscard]] int SkipSpace(const char* text, int idx, int end)
     {
@@ -860,42 +862,42 @@ namespace glimmer
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.dimension.x = pair.first;
-            if (pair.second) style.relativeProps |= StyleWidth;
+            if (pair.second) style.relative |= StyleWidth;
             prop = StyleWidth;
         }
         else if (AreSame(stylePropName, "height"))
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.dimension.y = pair.first;
-            if (pair.second) style.relativeProps |= StyleHeight;
+            if (pair.second) style.relative |= StyleHeight;
             prop = StyleHeight;
         }
         else if (AreSame(stylePropName, "min-width"))
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.mindim.x = pair.first;
-            if (pair.second) style.relativeProps |= StyleMinWidth;
+            if (pair.second) style.relative |= StyleMinWidth;
             prop = StyleMinWidth;
         }
         else if (AreSame(stylePropName, "min-height"))
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.mindim.y = pair.first;
-            if (pair.second) style.relativeProps |= StyleMinHeight;
+            if (pair.second) style.relative |= StyleMinHeight;
             prop = StyleMinHeight;
         }
         else if (AreSame(stylePropName, "max-width"))
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.maxdim.x = pair.first;
-            if (pair.second) style.relativeProps |= StyleMaxWidth;
+            if (pair.second) style.relative |= StyleMaxWidth;
             prop = StyleMaxWidth;
         }
         else if (AreSame(stylePropName, "max-height"))
         {
             auto pair = ExtractFloatWithUnit(stylePropVal, 0, Config.defaultFontSz * Config.fontScaling, 1.f, Config.scaling);
             style.maxdim.y = pair.first;
-            if (pair.second) style.relativeProps |= StyleMaxHeight;
+            if (pair.second) style.relative |= StyleMaxHeight;
             prop = StyleMaxHeight;
         }
         else if (AreSame(stylePropName, "alignment") || AreSame(stylePropName, "text-align"))
@@ -994,7 +996,7 @@ namespace glimmer
         {
             auto radius = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f);
-            if (stylePropVal.back() == '%') style.relativeProps |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius |
+            if (stylePropVal.back() == '%') style.relative |= (RSP_BorderTopLeftRadius | RSP_BorderTopRightRadius | RSP_BorderBottomLeftRadius |
                 RSP_BorderBottomRightRadius);
             style.border.setRadius(radius.first);
             prop = StyleBorder;
@@ -1018,28 +1020,28 @@ namespace glimmer
         {
             style.border.cornerRadius[TopLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f).first;
-            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopLeftRadius;
+            if (stylePropVal.back() == '%') style.relative |= RSP_BorderTopLeftRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-top-right-radius"))
         {
             style.border.cornerRadius[TopRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f).first;
-            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderTopRightRadius;
+            if (stylePropVal.back() == '%') style.relative |= RSP_BorderTopRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-right-radius"))
         {
             style.border.cornerRadius[BottomRightCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f).first;
-            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomRightRadius;
+            if (stylePropVal.back() == '%') style.relative |= RSP_BorderBottomRightRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "border-bottom-left-radius"))
         {
             style.border.cornerRadius[BottomLeftCorner] = ExtractFloatWithUnit(stylePropVal, 0.f, Config.defaultFontSz * Config.fontScaling,
                 1.f, 1.f).first;
-            if (stylePropVal.back() == '%') style.relativeProps |= RSP_BorderBottomLeftRadius;
+            if (stylePropVal.back() == '%') style.relative |= RSP_BorderBottomLeftRadius;
             prop = StyleBorder;
         }
         else if (AreSame(stylePropName, "margin"))
@@ -1119,103 +1121,9 @@ namespace glimmer
         return prop;
     }
 
-#pragma region Style stack
+#pragma endregion
 
-    void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest)
-    {
-        if (&src == &dest || dest.specified & StyleUpdatedFromBase) return;
-        dest.relativeProps |= src.relativeProps;
-
-        for (int64_t idx = 0; idx <= StyleTotal; ++idx)
-        {
-            auto prop = (StyleProperty)((1ll << idx));
-            if ((dest.specified & prop) == 0)
-            {
-                switch (prop)
-                {
-                case glimmer::StyleBackground:
-                    dest.bgcolor = src.bgcolor;
-                    dest.gradient = src.gradient;
-                    break;
-                case glimmer::StyleFgColor:
-                    dest.fgcolor = src.fgcolor;
-                    break;
-                case glimmer::StyleFontSize:
-                    dest.font.size = src.font.size;
-                    break;
-                case glimmer::StyleFontFamily:
-                    dest.font.family = src.font.family;
-                    break;
-                case glimmer::StyleFontWeight:
-                    dest.font.flags = src.font.flags;
-                    break;
-                case glimmer::StyleFontStyle:
-                    dest.font.flags = src.font.flags;
-                    break;
-                case glimmer::StyleHeight:
-                    dest.dimension.y = src.dimension.y;
-                    break;
-                case glimmer::StyleWidth:
-                    dest.dimension.x = src.dimension.x;
-                    break;
-                case glimmer::StyleHAlignment:
-                    (src.alignment & TextAlignLeft) ? dest.alignment |= TextAlignLeft : dest.alignment &= ~TextAlignLeft;
-                    (src.alignment & TextAlignRight) ? dest.alignment |= TextAlignRight : dest.alignment &= ~TextAlignRight;
-                    (src.alignment & TextAlignHCenter) ? dest.alignment |= TextAlignHCenter : dest.alignment &= ~TextAlignHCenter;
-                    break;
-                case glimmer::StyleVAlignment:
-                    (src.alignment & TextAlignTop) ? dest.alignment |= TextAlignTop : dest.alignment &= ~TextAlignTop;
-                    (src.alignment & TextAlignBottom) ? dest.alignment |= TextAlignBottom : dest.alignment &= ~TextAlignBottom;
-                    (src.alignment & TextAlignVCenter) ? dest.alignment |= TextAlignVCenter : dest.alignment &= ~TextAlignVCenter;
-                    break;
-                case glimmer::StylePadding:
-                    dest.padding = src.padding;
-                    break;
-                case glimmer::StyleMargin:
-                    dest.margin = src.margin;
-                    break;
-                case glimmer::StyleBorder:
-                    dest.border = src.border;
-                    break;
-                case glimmer::StyleOverflow:
-                    break;
-                case glimmer::StyleBorderRadius:
-                {
-                    const auto& srcborder = src.border;
-                    auto& dstborder = dest.border;
-                    dstborder.cornerRadius[0] = srcborder.cornerRadius[0];
-                    dstborder.cornerRadius[1] = srcborder.cornerRadius[1];
-                    dstborder.cornerRadius[2] = srcborder.cornerRadius[2];
-                    dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
-                    break;
-                }
-                case glimmer::StyleCellSpacing:
-                    break;
-                case glimmer::StyleTextWrap:
-                    break;
-                case glimmer::StyleBoxShadow:
-                    dest.shadow = src.shadow;
-                    break;
-                case glimmer::StyleTextOverflow:
-                    break;
-                case glimmer::StyleMinWidth:
-                    dest.mindim.x = src.mindim.x;
-                    break;
-                case glimmer::StyleMaxWidth:
-                    dest.maxdim.x = src.maxdim.x;
-                    break;
-                case glimmer::StyleMinHeight:
-                    dest.mindim.y = src.mindim.y;
-                    break;
-                case glimmer::StyleMaxHeight:
-                    dest.maxdim.y = src.maxdim.y;
-                    break;
-                default:
-                    break;
-                }
-            }
-        }
-    }
+#pragma region Style Engine
 
     static void ResetNonInheritableProps(StyleDescriptor& style)
     {
@@ -1302,113 +1210,339 @@ namespace glimmer
             }
 
             style.specified &= ~prop;
+            style.inherited &= ~prop;
         }
     }
 
-    template <typename StackT>
-    static int32_t PushStyle(std::string_view* css, StackT* stack)
+    static void ComputeAbsoluteDimension(StyleDescriptor& style)
     {
-        int32_t res = 0;
-
-        // When pushing style, the default style behaves slightly differently then rest
-        // The default style inherits from parent in the stack if present, parse the CSS and gets pushed
-        // The other styles, inherit from default and then parse the CSS and get pushed
-        for (auto style = 0; style < WSI_Total; ++style)
+        if (GetContext().layoutStack.empty() && (style.relative != 0))
         {
-            if (!css[style].empty())
-            {
-                if (style == WSI_Default)
-                {
-                    auto parent = stack[WSI_Default].empty() ? 
-                        GetContext().StyleStack[WSI_Default].top() : stack[WSI_Default].top();
-                    auto& pushed = stack[style].push();
-                    pushed = parent;
-                    ResetNonInheritableProps(pushed);
-                    pushed.From(css[style]);
-                }
-                else
-                {
-                    stack[style].push().From(css[style]);
-                }
+            auto totalsz = GetContext().MaximumSize();
 
-                res |= (1 << style);
-            }
+            if (style.relative & StyleWidth) style.dimension.x = totalsz.x * style.dimension.x;
+            if (style.relative & StyleMinWidth) style.mindim.x = totalsz.x * style.mindim.x;
+            if (style.relative & StyleMaxWidth) style.maxdim.x = totalsz.x * style.maxdim.x;
+
+            if (style.relative & StyleHeight) style.dimension.y = totalsz.y * style.dimension.y;
+            if (style.relative & StyleMinHeight) style.mindim.y = totalsz.y * style.mindim.y;
+            if (style.relative & StyleMaxHeight) style.maxdim.y = totalsz.y * style.maxdim.y;
+        }
+    }
+
+    StyleDescriptor GlimmerStyleEngine::LookupFromStack(int32_t state) const
+    {
+        if (IsSpecificState(state))
+            return stack.styles[state].top();
+        else
+        {
+            auto it = stack.combined.find(state);
+            return it != stack.combined.end() ? it->second.top() : stack.styles[log2((unsigned)state)].top();
+        }
+    }
+
+    StyleDescriptor GlimmerStyleEngine::GetStyle(int32_t state) const
+    {
+        StyleDescriptor res;
+        res.InheritFrom(LookupFromStack(state), StyleInheritType::CopyOnlyDestinationUnspecified, true);
+
+        if (state != WS_Default)
+        {
+            auto base = stack.styles[WSI_Default].top();
+            res.InheritFrom(base, StyleInheritType::CopyOnlyDestinationUnspecified, true);
         }
 
+        ComputeAbsoluteDimension(res);
+        AddFontPtr(res.font);
         return res;
     }
 
-    template <typename StackT>
-    static void PushStyle(WidgetState state, std::string_view css, StackT* stack)
+    StyleDescriptor GlimmerStyleEngine::GetStyle(int32_t state, int32_t id) const
     {
-        auto idx = log2((unsigned)state);
+        // How style lookup works ====================================
+        // For any given state (CSS pseudo-class), and widget id
+        // Get the current default style, and the current state specific style
+        // The default style is either a parent (when `state` itself is default) or base
+        // Initialize return style with base first
+        // Then, copy from parent after reseting the non-inheritable properties
 
-        if (idx == WSI_Default)
+        StyleDescriptor result;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        auto index = id & WidgetIndexMask;
+
+        if (state == WS_Default)
         {
-            if (!stack[idx].empty())
+            if (wtype < WT_TotalTypes)
             {
-                auto parent = stack[idx].top();
-                auto& style = stack[idx].push();
-                style = parent;
-                ResetNonInheritableProps(style);
-                style.From(css);
+                result.InheritFrom(GetWidgetStyle(wtype, state), StyleInheritType::CopyOnlySourceSpecified, true);
+
+                //if (base.specified == 0) base = stack.resultolved[wtype][index][WSI_Default];
+                //result.InheritFrom(stack.resultolved[wtype][index][style]);
             }
-            else
-                stack[idx].push().From(css);
+            else if (Config.CustomWidgetProvider)
+            {
+                auto wfactory = Config.CustomWidgetProvider(wtype);
+                result.InheritFrom(wfactory->GetStyle(wtype, state), StyleInheritType::CopyOnlySourceSpecified, true);
+            }
+
+            if ((IgnoreStyleStackBits == -1) || !(IgnoreStyleStackBits & (1 << wtype)))
+            {
+                const auto& src = stack.GetObject(state).top();
+                result.InheritFrom(src, StyleInheritType::CopyOnlySourceSpecified, true);
+            }
         }
         else
         {
-            stack[idx].push().From(css);
-        }
-    }
+            StyleDescriptor base;
 
-    template <typename StackT>
-    static void PushStyle(WidgetState state, const StyleDescriptor& css, StackT* stack)
-    {
-        auto idx = log2((unsigned)state);
-
-        if (idx == WSI_Default)
-        {
-            if (!stack[idx].empty())
+            // TODO: Allow user config to change priority i.e. widget specific vs. stack specific
+            if (wtype < WT_TotalTypes)
             {
-                auto parent = stack[idx].top();
-                auto& style = stack[idx].push();
-                style = parent;
-                ResetNonInheritableProps(style);
-                style.From(css);
-            }
-            else
-                stack[idx].push().From(css);
-        }
-        else
-        {
-            stack[idx].push().From(css);
-        }
-    }
+                base = GetWidgetStyle(wtype, WS_Default);
+                result.InheritFrom(GetWidgetStyle(wtype, state), StyleInheritType::CopyOnlySourceSpecified, true);
 
-    void PushStyle(std::string_view defcss, std::string_view hovercss, std::string_view pressedcss,
-        std::string_view focusedcss, std::string_view checkedcss, std::string_view disblcss)
-    {
-        std::string_view css[WSI_Total] = { defcss, focusedcss, hovercss, pressedcss, checkedcss, "", "", "", disblcss };
-        auto& context = GetContext();
+                //if (base.specified == 0) base = stack.resultolved[wtype][index][WSI_Default];
+                //result.InheritFrom(stack.resultolved[wtype][index][style]);
+            }
+            else if (Config.CustomWidgetProvider)
+            {
+                auto wfactory = Config.CustomWidgetProvider(wtype);
+                base = wfactory->GetStyle(id, WS_Default);
+                result.InheritFrom(wfactory->GetStyle(wtype, state), StyleInheritType::CopyOnlySourceSpecified, true);
+                result.InheritFrom(base, StyleInheritType::CopyOnlySourceSpecified, true);
+            }
+
+            if ((IgnoreStyleStackBits == -1) || !(IgnoreStyleStackBits & (1 << wtype)))
+            {
+                const auto& src = stack.GetObject(state).top();
+                result.InheritFrom(src, StyleInheritType::CopyOnlySourceSpecified, true);
+                base = stack.styles[WSI_Default].top();
+            }
+            else if (base.specified == 0)
+                base = *stack.styles[WSI_Default].begin();
+
+            // Since we are populating the missing properties for css with psuedo-classes,
+            // add the base css properties, and hence copy from base, only the ones which are not set.
+            if (state != WS_Default)
+                result.InheritFrom(base, StyleInheritType::CopyOnlyDestinationUnspecified, true);
+        }
         
-        if (!context.layoutStack.empty())
-        {
-            auto& layout = context.layoutStack[0];
-            auto state = PushStyle(css, context.layoutStyles);
+        ComputeAbsoluteDimension(result);
+        AddFontPtr(result.font);
+        return result;
+    }
 
-            // Enqueue multiple layout ops, to capture indexes of each widget state specific style stack
-            for (auto idx = 0; idx < WSI_Total; ++idx)
+    void GlimmerStyleEngine::PushStyle(int32_t state, const StyleDescriptor& style, bool combined)
+    {
+        if (combined && !IsSpecificState(state))
+        {
+            auto& newstyle = stack.combined[state].push();
+            const auto& defstyle = stack.styles[WSI_Default].top();
+            newstyle.InheritFrom(defstyle, StyleInheritType::CopyEverything);
+
+            if (stack.combined[state].size() > 0)
             {
-                if (state & (1 << idx))
+                auto parent = stack.combined[state].top();
+                ResetNonInheritableProps(parent);
+                newstyle.InheritFrom(parent, StyleInheritType::CopyOnlySourceSpecified);
+            }
+
+            newstyle.InheritFrom(style, StyleInheritType::CopyOnlySourceSpecified);
+        }
+        else
+        {
+            for (int32_t idx = WSI_Default; idx < WSI_Total; ++idx)
+            {
+                if ((1 << idx) & state)
                 {
-                    auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
-                    context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
+                    if (idx == WSI_Default)
+                    {
+                        auto parent = stack.styles[idx].top();
+                        ResetNonInheritableProps(parent);
+
+                        auto& newstyle = stack.styles[idx].push();
+                        newstyle.InheritFrom(parent, StyleInheritType::CopyEverything);
+                        newstyle.InheritFrom(style, StyleInheritType::CopyOnlySourceSpecified, true);
+                    }
+                    else
+                    {
+                        const auto& base = stack.styles[WSI_Default].top();
+                        auto parent = stack.styles[idx].top();
+                        auto& newstyle = stack.styles[idx].push();
+
+                        ResetNonInheritableProps(parent);
+                        newstyle.InheritFrom(base, StyleInheritType::CopyEverything);
+                        newstyle.InheritFrom(parent, StyleInheritType::CopyOnlySourceSpecified);
+                        newstyle.InheritFrom(style, StyleInheritType::CopyOnlySourceSpecified, true);
+                    }
                 }
             }
         }
-       
-        PushStyle(css, context.StyleStack);
+    }
+
+    void GlimmerStyleEngine::PushStyle(int32_t state, std::string_view css, bool combined)
+    {
+        StyleDescriptor style;
+        style.From(css);
+        PushStyle(state, style, combined);
+    }
+
+    void GlimmerStyleEngine::PopStyle(int32_t state, int32_t amount, bool combined)
+    {
+        if (combined && !IsSpecificState(state))
+            stack.combined[state].pop(amount, true);
+        else
+        {
+            for (int32_t idx = WSI_Default; idx < WSI_Total; ++idx)
+                if ((1 << idx) & state)
+                    stack.styles[idx].pop(amount, true);
+        }
+    }
+
+    StyleDescriptor& GlimmerStyleEngine::GetNamedStyle(std::string_view id, int32_t state)
+    {
+        static StyleDescriptor invalid{};
+        auto it = StyleEngine.named.find(id);
+        if (it == StyleEngine.named.end()) return invalid;
+        else
+        {
+            if ((state & (state - 1)) == 0) [[likely]]
+                return it->second.styles[log2((unsigned)state)];
+            else
+            {
+                auto sit = it->second.combined.find(state);
+                return sit == it->second.combined.end() ? it->second.styles[log2((unsigned)state)] : sit->second;
+            }
+        }
+    }
+
+    StyleDescriptor& GlimmerStyleEngine::GetWidgetStyle(WidgetType type, int32_t state)
+    {
+        auto name = type < WT_TotalTypes ? Config.widgetNames[type] : Config.CustomWidgetProvider ?
+            Config.CustomWidgetProvider((int16_t)type)->GetName() : "";
+        return GetNamedStyle(name, state);
+    }
+
+    void GlimmerStyleEngine::IgnoreStyleStack(int32_t wtypes)
+    {
+        IgnoreStyleStackBits = IgnoreStyleStackBits == -1 ? wtypes : IgnoreStyleStackBits | wtypes;
+    }
+
+    void GlimmerStyleEngine::RestoreStyleStack()
+    {
+        IgnoreStyleStackBits = -1;
+    }
+
+    void InitContextStyles()
+    {
+        for (auto idx = 0; idx < WSI_Total; ++idx)
+        {
+            StyleEngine.radioButtonStyles.styles[idx].clear(true);
+            StyleEngine.sliderStyles.styles[idx].clear(true);
+            StyleEngine.rangeSliderStyles.styles[idx].clear(true);
+            StyleEngine.spinnerStyles.styles[idx].clear(true);
+            StyleEngine.dropdownStyles.styles[idx].clear(true);
+            StyleEngine.toggleButtonStyles.styles[idx].clear(true);
+            StyleEngine.tabBarStyles.styles[idx].clear(true);
+            StyleEngine.navDrawerStyles.styles[idx].clear(true);
+        }
+
+        if (StyleDescriptor::GlobalThemeProvider != nullptr)
+        {
+            GlobalWidgetTheme theme;
+            StyleDescriptor::GlobalThemeProvider(&theme);
+            theme.toggle.fontsz *= Config.fontScaling;
+            Config.scrollbar = theme.scrollbar;
+
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
+                StyleEngine.stack.styles[idx].push();
+                StyleEngine.radioButtonStyles.styles[idx].push() = theme.radio;
+                StyleEngine.sliderStyles.styles[idx].push() = theme.slider;
+                StyleEngine.rangeSliderStyles.styles[idx].push() = theme.rangeSlider;
+                StyleEngine.spinnerStyles.styles[idx].push() = theme.spinner;
+                StyleEngine.dropdownStyles.styles[idx].push() = theme.dropdown;
+                StyleEngine.toggleButtonStyles.styles[idx].push() = theme.toggle;
+                StyleEngine.tabBarStyles.styles[idx].push() = theme.tabbar;
+                StyleEngine.navDrawerStyles.styles[idx].push() = theme.navdrawer;
+            }
+        }
+        else
+        {
+            for (auto idx = 0; idx < WSI_Total; ++idx)
+            {
+                auto& style = StyleEngine.stack.styles[idx].push();
+
+                StyleEngine.radioButtonStyles.styles[idx].push();
+                auto& ddstyle = StyleEngine.dropdownStyles.styles[idx].push();
+                auto& slider = StyleEngine.sliderStyles.styles[idx].push();
+                auto& rangeslider = StyleEngine.rangeSliderStyles.styles[idx].push();
+                auto& spinner = StyleEngine.spinnerStyles.styles[idx].push();
+                auto& toggle = StyleEngine.toggleButtonStyles.styles[idx].push();
+                auto& tab = StyleEngine.tabBarStyles.styles[idx].push();
+                auto& navdrawer = StyleEngine.navDrawerStyles.styles[idx].push();
+                toggle.fontsz *= Config.fontScaling;
+
+                navdrawer.iconSpacing = 5.f * Config.scaling;
+                navdrawer.itemGap = 5.f * Config.scaling;
+                navdrawer.openAnimationTime = 0.2f;
+
+                switch (idx)
+                {
+                case WSI_Hovered:
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                    slider.thumbColor = ToRGBA(255, 255, 255);
+                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(255, 255, 255);
+                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
+                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(150, 150, 150);
+                    tab.pincolor = ToRGBA(0, 0, 0);
+                    tab.closecolor = ToRGBA(255, 0, 0);
+                    ddstyle.optionBgColor = ToRGBA(100, 100, 100);
+                    ddstyle.optionFgColor = ToRGBA(255, 255, 255);
+                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonbg, 1.5f);
+                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonfg, 1.5f);
+                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Default].track, 1.5f);
+                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Default].grip, 1.5f);
+                    break;
+                case WSI_Checked:
+                    toggle.trackColor = ToRGBA(152, 251, 152);
+                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
+                    slider.trackColor = rangeslider.trackColor = ToRGBA(175, 175, 175);
+                    slider.fillColor = rangeslider.fillColor = ToRGBA(100, 149, 237);
+                    break;
+                case WSI_Pressed:
+                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonbg, 1.2f);
+                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonfg, 1.2f);
+                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Hovered].track, 1.5f);
+                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Hovered].grip, 1.2f);
+                    [[fallthrough]];
+                case WSI_Selected:
+                    ddstyle.optionBgColor = ToRGBA(100, 100, 100);
+                    ddstyle.optionFgColor = ToRGBA(255, 255, 255);
+                    [[fallthrough]];
+                default:
+                    toggle.trackColor = ToRGBA(200, 200, 200);
+                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
+                    slider.thumbColor = ToRGBA(240, 240, 240);
+                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(240, 240, 240);
+                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
+                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(0, 0, 0, 0);
+                    tab.pincolor = ToRGBA(0, 0, 0);
+                    tab.closecolor = ToRGBA(255, 0, 0);
+                    break;
+                }
+            }
+        }
+    }
+
+#pragma endregion
+
+#pragma region Public APIs
+
+    void PushStyle(std::string_view defcss)
+    {
+        StyleEngine.PushStyle(WS_Default, defcss, false);
     }
 
     void PushStyleFmt(int32_t state, std::string_view fmt, ...)
@@ -1441,70 +1575,55 @@ namespace glimmer
 
     void PushStyle(int32_t state, std::string_view css)
     {
-        auto& context = GetContext();
+        StyleEngine.PushStyle(state, css, true);
+    }
 
-        for (auto style = 0; style < WSI_Total; ++style)
-        {
-            if ((1 << style) & state)
-            {
-                if (!context.layoutStack.empty())
-                {
-                    PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
-
-                    if (!css.empty())
-                    {
-                        auto idx = style;
-                        auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
-                        context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
-                    }
-                }
-
-                PushStyle((WidgetState)(1 << style), css, context.StyleStack);
-            }
-        }
+    void PushStyleSet(int32_t state, std::string_view css)
+    {
+        StyleEngine.PushStyle(state, css, false);
     }
 
     void PushStyle(int32_t state, const StyleDescriptor& css)
     {
-        auto& context = GetContext();
+        StyleEngine.PushStyle(state, css, true);
+    }
 
-        for (auto style = 0; style < WSI_Total; ++style)
+    void PushStyleSet(int32_t state, const StyleDescriptor& style)
+    {
+        StyleEngine.PushStyle(state, style, false);
+    }
+
+    WidgetIdClasses ExtractIdClasses(std::string_view input);
+
+    void SetNamedStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css)
+    {
+        auto& dest = StyleEngine.named[id];
+
+        for (const auto& [state, style] : css)
         {
-            if ((1 << style) & state)
+            if (!style.empty())
             {
-                if (!context.layoutStack.empty())
-                {
-                    PushStyle((WidgetState)(1 << style), css, context.layoutStyles);
-
-                    //if (css != StyleDescriptor{})
+                if (state & (state - 1))
+                    dest.combined[state].From(style);
+                else
+                    for (auto idx = 0; idx < WSI_Total; ++idx)
                     {
-                        auto idx = style;
-                        auto sz = (int64_t)(context.layoutStyles[idx].size() - 1);
-                        context.RecordForReplay((sz << 32) | (int64_t)idx, LayoutOps::PushStyle);
+                        auto ws = 1 << idx;
+                        if (ws & state)
+                            dest.styles[idx].From(style);
                     }
-                }
-
-                PushStyle((WidgetState)(1 << style), css, context.StyleStack);
             }
         }
     }
 
     void SetStyle(std::string_view id, const std::initializer_list<std::pair<int32_t, std::string_view>>& css)
     {
-        auto& dest = StyleSheet[id];
-
-        for (const auto& [state, style] : css)
-        {
-            if (!style.empty())
-            {
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                {
-                    auto ws = 1 << idx;
-                    if (ws & state)
-                        dest[idx].From(style);
-                }
-            }
-        }
+        auto idclasses = ExtractIdClasses(id);
+        if (!idclasses.id.empty()) SetNamedStyle(idclasses.id, css);
+        
+        for (auto cls : idclasses.classes)
+            if (!cls.empty())
+                SetNamedStyle(cls, css);
     }
 
     void SetStyle(std::string_view id, int32_t state, std::string_view fmt, ...)
@@ -1515,98 +1634,67 @@ namespace glimmer
         va_list args;
         va_start(args, fmt);
         auto sz = std::vsnprintf(buffer, GLIMMER_STYLE_BUFSZ - 1, fmt.data(), args);
-        buffer[std::min(sz, GLIMMER_STYLE_BUFSZ - 1)] = 0;
+        sz = std::min(sz, GLIMMER_STYLE_BUFSZ - 1);
+        buffer[sz] = 0;
         va_end(args);
 
-        auto& dest = StyleSheet[id];
+        auto& dest = StyleEngine.named[id];
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
             auto ws = 1 << idx;
             if (ws & state)
-                dest[idx].From(buffer);
+                dest.styles[idx].From(std::string_view{ buffer, (std::size_t)sz });
+            else
+                dest.combined[state].From(std::string_view{ buffer, (std::size_t)sz });
         }
-    }
-
-    StyleDescriptor& GetStyle(std::string_view id, WidgetStateIndex index)
-    {
-        static StyleDescriptor invalid{};
-        auto it = StyleSheet.find(id);
-        return it == StyleSheet.end() ? invalid : it->second[index];
-    }
-
-    StyleDescriptor& GetWidgetStyle(WidgetType type, WidgetStateIndex index)
-    {
-        auto name = type < WT_TotalTypes ? Config.widgetNames[type] : Config.CustomWidgetProvider ?
-            Config.CustomWidgetProvider((int16_t)type)->GetName() : "invalid";
-        return GetStyle(name, index);
     }
 
     void PopStyle(int depth, int32_t state)
     {
-        auto& context = GetContext();
-
-        if (!context.layoutStack.empty())
-        {
-            auto dd = (int64_t)depth;
-            context.RecordForReplay((dd << 32) | (int64_t)state, LayoutOps::PopStyle);
-        }
-        
-        for (auto style = 0; style < WSI_Total; ++style)
-        {
-            if ((1 << style) & state)
-            {
-                auto popsz = std::min(context.StyleStack[style].size() - 1, depth);
-                context.StyleStack[style].pop(popsz, true);
-            }
-        }
+        StyleEngine.PopStyle(state, depth, true);
     }
 
-#ifndef GLIMMER_DISABLE_RICHTEXT
-    void PushTextType(TextType type)
+    void PopStyleMulti(int depth, int32_t state)
     {
-        auto& context = GetContext();
-
-        if (!context.layoutStack.empty())
-        {
-            context.RecordForReplay((int64_t)type, LayoutOps::PushTextType);
-        }
-
-        for (auto style = 0; style < WSI_Total; ++style)
-        {
-            auto desc = context.StyleStack[style].top();
-            desc.font.flags = type == TextType::RichText ? (desc.font.flags | TextIsRichText) : 
-                (desc.font.flags & ~TextIsRichText);
-            context.StyleStack[style].push() = desc;
-        }
+        StyleEngine.PopStyle(state, depth, false);
     }
 
-    void PopTextType()
+    std::string_view StylePropsToStr(int32_t specified)
     {
-        PopStyle(1, 0b111111111);
+        static char buffer[2048];
+        memset(buffer, 0, 2048);
+        auto sz = std::snprintf(buffer, 2047, 
+            "Bg:%d Fg:%d \n "
+            "FontSz:%d FontFam:%d FontWt:%d FontStyle:%d \n"
+            "H:%d W:%d MinW:%d MaxW:%d MinH:%d MaxH:%d \n"
+            "Pad:%d Margin:%d Border:%d BorderRad:%d \n",
+            (specified & StyleBackground) ? 1 : 0,
+            (specified & StyleFgColor) ? 1 : 0,
+            (specified & StyleFontSize) ? 1 : 0,
+            (specified & StyleFontFamily) ? 1 : 0,
+            (specified & StyleFontWeight) ? 1 : 0,
+            (specified & StyleFontStyle) ? 1 : 0,
+            (specified & StyleHeight) ? 1 : 0,
+            (specified & StyleWidth) ? 1 : 0,
+            (specified & StyleMinWidth) ? 1 : 0,
+            (specified & StyleMaxWidth) ? 1 : 0,
+            (specified & StyleMinHeight) ? 1 : 0,
+            (specified & StyleMaxHeight) ? 1 : 0,
+            (specified & StylePadding) ? 1 : 0,
+            (specified & StyleMargin) ? 1 : 0,
+            (specified & StyleBorder) ? 1 : 0,
+            (specified & StyleBorderRadius) ? 1 : 0);
+        return std::string_view{ buffer, (std::size_t)sz };
     }
-#endif
 
     void _IgnoreStyleStackInternal(int32_t wtypes)
     {
-        if (!GetContext().layoutStack.empty())
-        {
-            auto& op = GetContext().replayContent.emplace_back();
-            op.first = wtypes;
-            op.second = LayoutOps::IgnoreStyleStack;
-        }
-
-        WidgetContextData::IgnoreStyleStack(wtypes);
+        GlimmerStyleEngine::IgnoreStyleStack(wtypes);
     }
 
     void RestoreStyleStack()
     {
-        if (!GetContext().layoutStack.empty())
-        {
-            auto& op = GetContext().replayContent.emplace_back();
-            op.second = LayoutOps::RestoreStyleStack;
-        }
-
-        WidgetContextData::RestoreStyleStack();
+        GlimmerStyleEngine::RestoreStyleStack();
     }
 
     // TODO: Fix layout generation from stylesheet
@@ -1684,6 +1772,10 @@ namespace glimmer
         return { sizing, hasSizing };
     }*/
 
+#pragma endregion
+
+#pragma region Style Descriptor
+
     StyleDescriptor::StyleDescriptor()
     {
         font.size = Config.defaultFontSz * Config.fontScaling;
@@ -1721,13 +1813,13 @@ namespace glimmer
         return *this;
     }
 
-    StyleDescriptor& StyleDescriptor::From(std::string_view css, bool checkForDuplicate)
+    StyleDescriptor& StyleDescriptor::From(std::string_view css)
     {
         if (css.empty()) return *this;
 
 #ifndef GLIMMER_DISABLE_CSS_CACHING
-		auto it = ParsedStyleSheets.find(css);
-        if (it == ParsedStyleSheets.end())
+		auto it = GlimmerStyleEngine::ParsedStyleSheets.find(css);
+        if (it == GlimmerStyleEngine::ParsedStyleSheets.end())
         {
 #endif
             auto sidx = 0;
@@ -1767,7 +1859,7 @@ namespace glimmer
             specified |= prop;
 
 #ifndef GLIMMER_DISABLE_CSS_CACHING
-            ParsedStyleSheets.emplace(css, *this);
+            GlimmerStyleEngine::ParsedStyleSheets.emplace(css, *this);
         }
         else
 			*this = it->second;
@@ -1776,14 +1868,18 @@ namespace glimmer
         return *this;
     }
 
-    StyleDescriptor& StyleDescriptor::From(const StyleDescriptor& style, bool overwrite)
+    StyleDescriptor& StyleDescriptor::InheritFrom(const StyleDescriptor& style, StyleInheritType type, bool addToSpecified)
     {
-        relativeProps |= style.relativeProps;
-
         for (auto idx = 0; idx < StyleTotal; ++idx)
         {
             auto styleprop = 1 << idx;
-            if ((overwrite || !(styleprop & specified)) && (styleprop & style.specified))
+            auto destSpecified = (styleprop & specified) != 0;
+            auto srcSpecified = (styleprop & style.specified) != 0;
+
+            if ((type == StyleInheritType::CopyEverything) || 
+                (type == StyleInheritType::CopyOnlyDestinationUnspecified && !destSpecified) ||
+                (type == StyleInheritType::CopyOnlySourceSpecified && srcSpecified) ||
+                (type == StyleInheritType::CopySourceDestinationIntersection && srcSpecified && !destSpecified))
             {
                 switch (styleprop)
                 {
@@ -1805,9 +1901,13 @@ namespace glimmer
                     break;
                 case StyleHeight:
                     dimension.y = style.dimension.y;
+                    if (style.relative & StyleHeight)
+                        relative |= StyleHeight;
                     break;
                 case StyleWidth:
                     dimension.x = style.dimension.x;
+                    if (style.relative & StyleHeight)
+                        relative |= StyleHeight;
                     break;
                 case StyleHAlignment:
                     alignment |= (style.alignment & TextAlignLeft) ? TextAlignLeft : 0;
@@ -1841,9 +1941,30 @@ namespace glimmer
                     dstborder.cornerRadius[3] = srcborder.cornerRadius[3];
                 }
                 break;
+                case StyleMinWidth:
+                    mindim.x = style.mindim.x;
+                    if (style.relative & StyleMinWidth)
+                        relative |= StyleMinWidth;
+                    break;
+                case StyleMaxWidth:
+                    maxdim.x = style.maxdim.x;
+                    if (style.relative & StyleMaxWidth)
+                        relative |= StyleMaxWidth;
+                    break;
+                case StyleMinHeight:
+                    mindim.y = style.mindim.y;
+                    if (style.relative & StyleMinHeight)
+                        relative |= StyleMinHeight;
+                    break;
+                case StyleMaxHeight:
+                    maxdim.y = style.maxdim.y;
+                    if (style.relative & StyleMaxHeight)
+                        relative |= StyleMaxHeight;
+                    break;
                 default: break;
                 }
-                specified |= styleprop;
+                type == StyleInheritType::CopyEverything ? base |= styleprop : inherited |= styleprop;
+                if (addToSpecified) specified |= styleprop;
             }
         }
 
@@ -1854,6 +1975,8 @@ namespace glimmer
 
     void (*StyleDescriptor::GlobalThemeProvider)(GlobalWidgetTheme*) = nullptr;
 }
+
+#pragma region Animation Functions
 
 float glimmer::anim::EaseIn(float& progress, float duration)
 {
@@ -2006,3 +2129,5 @@ float glimmer::anim::EaseOutBounce(float& progress, float duration, float bounce
     progress = glimmer::clamp(progress + (glimmer::Config.platform->desc.deltaTime / duration), 0.f, 1.f);
     return ratio;
 }
+
+#pragma endregion

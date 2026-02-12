@@ -17,41 +17,12 @@ namespace glimmer
     static bool StartedRendering = false;
     static bool HasImPlotContext = false;
     static bool RemovePopupAtFrameExit = false;
-    static int32_t IgnoreStyleStackBits = -1;
 
-    void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
-    void HandleRegionEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleLabelEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleRadioButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, float maxrad, IRenderer& renderer, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleToggleButtonEvent(WidgetContextData& context, int32_t id, const ImRect& extent, ImVec2 center, IRenderer& renderer, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleCheckboxEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& thumb, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleRangeSliderEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& minthumb, const ImRect& maxthumb, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleTextInputEvent(WidgetContextData& context, int32_t id, const ImRect& content, const ImRect& clear, const IODescriptor& io,
-        IRenderer& renderer, WidgetDrawResult& result);
-    void HandleDropDownEvent(WidgetContextData& context, int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleSpinnerEvent(WidgetContextData& context, int32_t id, const ImRect& extent, const ImRect& incbtn, const ImRect& decbtn, const IODescriptor& io,
-        WidgetDrawResult& result);
-    void HandleTabBarEvent(WidgetContextData& context, int32_t id, const ImRect& content, const IODescriptor& io, IRenderer& renderer, WidgetDrawResult& result);
-    void HandleNavDrawerEvents(WidgetContextData& context, const NavDrawerBuilder& nav, NavDrawerPersistentState& navstate,
-        WidgetDrawResult& result, const IODescriptor& io, ImVec2 offset);
-    void HandleAccordionEvent(WidgetContextData& context, int32_t id, const ImRect& region, int ridx, const IODescriptor& io, WidgetDrawResult& result);
-    void HandleMediaResourceEvent(WidgetContextData& context, int32_t id, const ImRect& padding, const ImRect& content, const IODescriptor& io, WidgetDrawResult& result);
+    WidgetDrawResult HandleDeferredEvent(WidgetContextData& context, EventDeferInfo& ev, ImVec2 origin, IRenderer& renderer);
+    void InitContextStyles();
 
     LayoutBuilder::LayoutBuilder()
-    {
-        for (auto idx = 0; idx < WSI_Total; ++idx) styleStartIdx[idx] = -1;
-    }
+    {}
 
     void LayoutBuilder::reset()
     {
@@ -76,12 +47,6 @@ namespace glimmer
         tabbar.reset();
         popSizingOnEnd = false;
         currspan.first = currspan.second = 1;
-
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            styleStartIdx[idx] = -1;
-        }
-
         itemIndexes.clear(true);
         griditems.clear(true);
         containerStack.clear(true);
@@ -175,12 +140,12 @@ namespace glimmer
             {
                 auto& accordion = accordions.top();
                 const auto& state = AccordionState(accordion.id);
-                offset = state.scrolls[accordion.totalRegions].state.pos;
+                offset = state.scrolls[accordion.totalRegions].barstate.pos;
                 return state.scrolls[accordion.totalRegions].viewport.Min + offset;
             }
             else if (type == WT_Scrollable && !layout.addedOffset)
             {
-                offset = states[type][index].state.scroll.state.pos;
+                offset = configs[type][index].config.scroll.barstate.pos;
             }
         }
 
@@ -246,7 +211,7 @@ namespace glimmer
         }
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
-            AddFontPtr(WidgetContextData::StyleStack[idx].top().font);
+            AddFontPtr(StyleEngine.stack.styles[idx].top().font);
 
         if (Config.platform->desc.isRightClicked())
             WidgetContextData::RightClickContext.pos = Config.platform->desc.mousepos;
@@ -292,8 +257,8 @@ namespace glimmer
 
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
-            auto popsz = WidgetContextData::StyleStack[idx].size() - 1;
-            if (popsz > 0) WidgetContextData::StyleStack[idx].pop(popsz, true);
+            auto popsz = StyleEngine.stack.styles[idx].size() - 1;
+            if (popsz > 0) StyleEngine.stack.styles[idx].pop(popsz, true);
         }
 
         if (RemovePopupAtFrameExit)
@@ -320,17 +285,19 @@ namespace glimmer
             auto sz = Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount(type) :
                 WidgetContextData::GetExpectedWidgetCount(type);
             states[type].reserve(states[type].size() + sz);
+            configs[type].reserve(states[type].size() + sz);
 
-            auto oldsz = WidgetStyles[type].size();
-            WidgetStyles[type].expand_and_create(sz, false);
+            //auto oldsz = WidgetStyles[type].size();
+            //WidgetStyles[type].expand_and_create(sz, false);
 
             for (auto idx = 0; idx < sz; ++idx)
             {
-                states[type].emplace_back(WidgetConfigData{ type });
-                auto& styles = WidgetStyles[type][idx + oldsz];
+                configs[type].emplace_back(WidgetConfigData{ type });
+                states[type].emplace_back();
+                /*auto& styles = WidgetStyles[type][idx + oldsz];
 
                 for (auto ws = 0; ws < WSI_Total; ++ws)
-                    styles[ws] = StyleDescriptor{};
+                    styles[ws] = StyleDescriptor{};*/
             }
 
             switch (type)
@@ -403,40 +370,140 @@ namespace glimmer
         return count;
     }
 
-    StyleDescriptor WidgetContextData::GetStyle(int32_t state)
+    int32_t WidgetContextData::GetState(int32_t id) const
     {
-        auto style = log2((unsigned)state);
-        auto res = StyleStack[style].top();
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        return states[wtype][index].state;
+    }
+
+    WidgetStateData& WidgetContextData::GetStateData(int32_t id)
+    {
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        return states[wtype][index];
+    }
+
+    void WidgetContextData::SetTooltip(int32_t id, std::string_view tooltip, TextType type)
+    {
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        
+        switch (wtype)
+        {
+        case WT_Region: {
+            auto& config = configs[wtype][index].config.region;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_Label: {
+            auto& config = configs[wtype][index].config.label;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_Button: {
+            auto& config = configs[wtype][index].config.button;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_ToggleButton: {
+            auto& config = configs[wtype][index].config.toggle;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_RadioButton: {
+            auto& config = configs[wtype][index].config.radio;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_Checkbox: {
+            auto& config = configs[wtype][index].config.checkbox;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_Slider: {
+            auto& config = configs[wtype][index].config.slider;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_RangeSlider: {
+            auto& config = configs[wtype][index].config.rangeSlider;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_Spinner: {
+            auto& config = configs[wtype][index].config.spinner;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_TextInput: {
+            auto& config = configs[wtype][index].config.input;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_DropDown: {
+            auto& config = configs[wtype][index].config.dropdown;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_TabBar: {
+            auto& config = configs[wtype][index].config.tab;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_ItemGrid: {
+            auto& config = configs[wtype][index].config.grid;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        case WT_MediaResource: {
+            auto& config = configs[wtype][index].config.media;
+            config.tooltip = tooltip; config.tooltipType = type;
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    StyleDescriptor WidgetContextData::GetStateStyle(int32_t state)
+    {
+        auto res = StyleEngine.GetStyle(state);
         AddFontPtr(res.font);
-        if (style != WSI_Default) CopyStyle(StyleStack[WSI_Default].top(), res);
         return res;
-    }
-
-    void WidgetContextData::IgnoreStyleStack(int32_t wtypes)
-    {
-        IgnoreStyleStackBits = IgnoreStyleStackBits == -1 ? wtypes : IgnoreStyleStackBits | wtypes;
-    }
-
-    void WidgetContextData::RestoreStyleStack()
-    {
-        IgnoreStyleStackBits = -1;
     }
 
     StyleDescriptor WidgetContextData::GetStyle(int32_t state, int32_t id)
     {
-        return glimmer::GetStyle(*this, id, StyleStack, state);
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        if (state == -1)
+            state = states[wtype][index].state;
+        auto& style = states[wtype][index].style;
+        AddFontPtr(style.font);
+        return style;
+    }
+
+    StyleDescriptor WidgetContextData::GetStyle(int32_t id)
+    {
+        auto index = id & WidgetIndexMask;
+        auto wtype = (WidgetType)(id >> WidgetTypeBits);
+        auto state = states[wtype][index].state;
+        auto& style = states[wtype][index].style;
+        AddFontPtr(style.font);
+        return style;
     }
 
     void WidgetContextData::RegisterWidgetIdClass(WidgetType wt, int32_t index, const WidgetIdClasses& idClasses)
     {
-        if (!idClasses.classes.empty())
+        /*if (!idClasses.classes.empty())
         {
             for (int i = 0; i < idClasses.classes.size(); ++i)
             {
                 for (auto idx = 0; idx < WSI_Total; ++idx)
                 {
                     auto& style = glimmer::GetStyle(idClasses.classes[i], (WidgetStateIndex)idx);
-                    WidgetStyles[wt][index][idx].From(style);
+                    WidgetStyles[wt][index][idx].InheritFrom(style);
                 }
             }
         }
@@ -444,8 +511,8 @@ namespace glimmer
         for (auto idx = 0; idx < WSI_Total; ++idx)
         {
             auto& style = glimmer::GetStyle(idClasses.id, (WidgetStateIndex)idx);
-            WidgetStyles[wt][index][idx].From(style);
-        }
+            WidgetStyles[wt][index][idx].InheritFrom(style);
+        }*/
     }
 
     void WidgetContextData::RemovePopup()
@@ -556,7 +623,7 @@ namespace glimmer
             if (wtype == WT_Scrollable)
             {
                 index = id & WidgetIndexMask;
-                auto& region = states[wtype][index].state.scroll;
+                auto& region = configs[wtype][index].config.scroll;
                 region.content.x = std::max(region.content.x, geometry.Max.x);
                 region.content.y = std::max(region.content.y, geometry.Max.y);
             }
@@ -567,12 +634,6 @@ namespace glimmer
                 accordion.extent.y = std::max(accordion.extent.y, geometry.Max.y);
             }
         }
-
-        /*if (currSpanDepth > 0 && spans[currSpanDepth].popWhenUsed)
-        {
-            spans[currSpanDepth] = ElementSpan{};
-            --currSpanDepth;
-        }*/
     }
 
     EventDeferInfo EventDeferInfo::ForRegion(int32_t id, const ImRect& margin, const ImRect& border, const ImRect& padding, const ImRect& content)
@@ -752,118 +813,18 @@ namespace glimmer
 
     WidgetDrawResult WidgetContextData::HandleEvents(ImVec2 origin, int from, int to)
     {
-        auto io = Config.platform->CurrentIO(this);
-        auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
         WidgetDrawResult result;
+        auto& renderer = usingDeferred ? *deferedRenderer : *Config.renderer;
         to = to == -1 ? deferedEvents.size() : to;
 
         for (auto idx = from; idx < to; ++idx)
         {
             auto ev = deferedEvents[idx];
-
-            switch (ev.type)
-            {
-            case WT_Region:
-                ev.params.region.margin.Translate(origin);
-                ev.params.region.border.Translate(origin);
-                ev.params.region.padding.Translate(origin);
-                ev.params.region.content.Translate(origin);
-                HandleRegionEvent(*this, ev.id, ev.params.label.margin, ev.params.label.border,
-                    ev.params.label.padding, ev.params.label.content, renderer, io, result);
-                break;
-            case WT_Label: 
-                ev.params.label.margin.Translate(origin);
-                ev.params.label.border.Translate(origin);
-                ev.params.label.padding.Translate(origin);
-                ev.params.label.content.Translate(origin);
-                ev.params.label.text.Translate(origin);
-                HandleLabelEvent(*this, ev.id, ev.params.label.margin, ev.params.label.border,
-                    ev.params.label.padding, ev.params.label.content, ev.params.label.text, 
-                    renderer, io, result);
-                break;
-            case WT_Button:
-                ev.params.button.margin.Translate(origin);
-                ev.params.button.border.Translate(origin);
-                ev.params.button.padding.Translate(origin);
-                ev.params.button.content.Translate(origin);
-                ev.params.button.text.Translate(origin);
-                HandleButtonEvent(*this, ev.id, ev.params.button.margin, ev.params.button.border,
-                    ev.params.button.padding, ev.params.button.content, ev.params.button.text, 
-                    renderer, io, result);
-                break;
-            case WT_Checkbox:
-                ev.params.checkbox.extent.Translate(origin);
-                HandleCheckboxEvent(*this, ev.id, ev.params.checkbox.extent, io, result);
-                break;
-            case WT_RadioButton:
-                ev.params.radio.extent.Translate(origin);
-                HandleRadioButtonEvent(*this, ev.id, ev.params.radio.extent, ev.params.radio.maxrad, renderer, io, result);
-                break;
-            case WT_ToggleButton:
-                ev.params.toggle.extent.Translate(origin);
-                ev.params.toggle.center += origin;
-                HandleToggleButtonEvent(*this, ev.id, ev.params.toggle.extent, ev.params.toggle.center, renderer, io, result);
-                break;
-            case WT_Spinner:
-                ev.params.spinner.extent.Translate(origin);
-                ev.params.spinner.incbtn.Translate(origin);
-                ev.params.spinner.decbtn.Translate(origin);
-                HandleSpinnerEvent(*this, ev.id, ev.params.spinner.extent, ev.params.spinner.incbtn, ev.params.spinner.decbtn,
-                    io, result);
-                break;
-            case WT_Slider:
-                ev.params.slider.extent.Translate(origin);
-                ev.params.slider.thumb.Translate(origin);
-                HandleSliderEvent(*this, ev.id, ev.params.slider.extent, ev.params.slider.thumb, io, result);
-                break;
-            case WT_RangeSlider:
-                ev.params.rangeslider.extent.Translate(origin);
-                ev.params.rangeslider.minThumb.Translate(origin);
-                ev.params.rangeslider.maxThumb.Translate(origin);
-                HandleRangeSliderEvent(*this, ev.id, ev.params.rangeslider.extent, ev.params.rangeslider.minThumb,
-                    ev.params.rangeslider.maxThumb, io, result);
-                break;
-            case WT_TextInput:
-                ev.params.input.content.Translate(origin);
-                ev.params.input.clear.Translate(origin);
-                HandleTextInputEvent(*this, ev.id, ev.params.input.content, ev.params.input.clear, io, renderer, result);
-                break;
-            case WT_DropDown:
-                ev.params.dropdown.margin.Translate(origin);
-                ev.params.dropdown.border.Translate(origin);
-                ev.params.dropdown.padding.Translate(origin);
-                ev.params.dropdown.content.Translate(origin);
-                HandleDropDownEvent(*this, ev.id, ev.params.dropdown.margin, ev.params.dropdown.border,
-                    ev.params.dropdown.padding, ev.params.dropdown.content, io, renderer, result);
-                break;
-            case WT_TabBar:
-                ev.params.tabbar.content.Translate(origin);
-                HandleTabBarEvent(*this, ev.id, ev.params.tabbar.content, io, renderer, result);
-                break;
-            case WT_NavDrawer:
-            {
-                auto& navstate = NavDrawerState(ev.id);
-                HandleNavDrawerEvents(*this, currentNavDrawer, navstate, result, io, origin);
-                break;
-            }
-            case WT_Accordion:
-                ev.params.accordion.region.Translate(origin);
-                HandleAccordionEvent(*this, ev.id, ev.params.accordion.region, ev.params.accordion.ridx, io, result);
-                break;
-            case WT_Scrollable:
-                // TODO: Handle scrollable events if any in future
-                break;
-            case WT_MediaResource:
-                ev.params.media.content.Translate(origin);
-                ev.params.media.padding.Translate(origin);
-                HandleMediaResourceEvent(*this, ev.id, ev.params.media.padding, ev.params.media.content, io, result);
-                break;
-            case WT_Custom:
-                Config.CustomWidgetProvider((int16_t)(ev.id >> WidgetTypeBits))->HandleEvents(ev.id, origin, io, result);
-                break;
-            default:
-                break;
-            }
+            auto res = HandleDeferredEvent(*this, ev, origin, renderer);
+            if (res.event != WidgetEvent::None)
+                result = res;
+            result.id = ev.id;
+            result.geometry = res.geometry;
         }
 
         if (to == -1) deferedEvents.clear(true);
@@ -893,11 +854,10 @@ namespace glimmer
 
         if (wtype < WT_TotalTypes)
         {
-            //assert(index < itemGeometries[wtype].size());
             return itemGeometries[wtype].size() > index ?
                 itemGeometries[wtype][index] : ImRect{};
         }
-        else Config.CustomWidgetProvider ?
+        else return Config.CustomWidgetProvider ?
             Config.CustomWidgetProvider(wtype)->GetGeometry(id) : ImRect{};
     }
 
@@ -924,7 +884,7 @@ namespace glimmer
             {
                 auto index = id & WidgetIndexMask;
                 auto type = id >> WidgetTypeBits;
-                auto& region = states[type][index].state.scroll;
+                auto& region = configs[type][index].config.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x : region.viewport.GetWidth(),
                     (region.type & ST_Vertical) ? region.extent.y : region.viewport.GetHeight() };
                 if (region.type & ST_Always_H) sz.y -= Config.scrollbar.width;
@@ -964,7 +924,7 @@ namespace glimmer
             if (wtype == WT_ItemGrid)
             {
                 auto& grid = CurrentItemGridContext->itemGrids.top();
-                const auto& config = CurrentItemGridContext->GetState(id).state.grid;
+                const auto& config = CurrentItemGridContext->GetConfig(id).config.grid;
                 auto max = grid.headers[grid.currlevel][grid.currCol].extent.Max - config.cellpadding;
                 return max;
             }
@@ -972,7 +932,7 @@ namespace glimmer
             {
                 auto index = id & WidgetIndexMask;
                 auto type = id >> WidgetTypeBits;
-                auto& region = states[type][index].state.scroll;
+                auto& region = configs[type][index].config.scroll;
                 auto sz = ImVec2{ (region.type & ST_Horizontal) ? region.extent.x + region.viewport.Min.x : region.viewport.Max.x,
                     (region.type & ST_Vertical) ? region.extent.y + region.viewport.Min.y : region.viewport.Max.y };
                 if (region.type & ST_Always_H) sz.y -= Config.scrollbar.width;
@@ -1033,8 +993,9 @@ namespace glimmer
             {
                 auto count = Config.GetTotalWidgetCount ? Config.GetTotalWidgetCount((WidgetType)idx) : 
                     GetExpectedWidgetCount((WidgetType)idx);
-                states[idx].resize(count, WidgetConfigData{ (WidgetType)idx });
-                WidgetStyles[idx].resize(count);
+                configs[idx].resize(count, WidgetConfigData{ (WidgetType)idx });
+                states[idx].resize(count, WidgetStateData{});
+                //WidgetStyles[idx].resize(count);
 
                 switch (idx)
                 {
@@ -1073,109 +1034,6 @@ namespace glimmer
     WidgetContextData& GetContext()
     {
         return *CurrentContext;
-    }
-
-    static void InitContextStyles()
-    {
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            WidgetContextData::radioButtonStyles[idx].clear(true);
-            WidgetContextData::sliderStyles[idx].clear(true);
-            WidgetContextData::rangeSliderStyles[idx].clear(true);
-            WidgetContextData::spinnerStyles[idx].clear(true);
-            WidgetContextData::dropdownStyles[idx].clear(true);
-            WidgetContextData::toggleButtonStyles[idx].clear(true);
-            WidgetContextData::tabBarStyles[idx].clear(true);
-            WidgetContextData::navDrawerStyles[idx].clear(true);
-        }
-
-        if (StyleDescriptor::GlobalThemeProvider != nullptr)
-        {
-            GlobalWidgetTheme theme;
-            StyleDescriptor::GlobalThemeProvider(&theme);
-            theme.toggle.fontsz *= Config.fontScaling;
-            Config.scrollbar = theme.scrollbar;
-
-            for (auto idx = 0; idx < WSI_Total; ++idx)
-            {
-                WidgetContextData::StyleStack[idx].push();
-                WidgetContextData::radioButtonStyles[idx].push() = theme.radio;
-                WidgetContextData::sliderStyles[idx].push() = theme.slider;
-                WidgetContextData::rangeSliderStyles[idx].push() = theme.rangeSlider;
-                WidgetContextData::spinnerStyles[idx].push() = theme.spinner;
-                WidgetContextData::dropdownStyles[idx].push() = theme.dropdown;
-                WidgetContextData::toggleButtonStyles[idx].push() = theme.toggle;
-                WidgetContextData::tabBarStyles[idx].push() = theme.tabbar;
-                WidgetContextData::navDrawerStyles[idx].push() = theme.navdrawer;
-            }
-        }
-        else
-        {
-            for (auto idx = 0; idx < WSI_Total; ++idx)
-            {
-                auto& style = WidgetContextData::StyleStack[idx].push();
-
-                WidgetContextData::radioButtonStyles[idx].push();
-                auto& ddstyle = WidgetContextData::dropdownStyles[idx].push();
-                auto& slider = WidgetContextData::sliderStyles[idx].push();
-                auto& rangeslider = WidgetContextData::rangeSliderStyles[idx].push();
-                auto& spinner = WidgetContextData::spinnerStyles[idx].push();
-                auto& toggle = WidgetContextData::toggleButtonStyles[idx].push();
-                auto& tab = WidgetContextData::tabBarStyles[idx].push();
-                auto& navdrawer = WidgetContextData::navDrawerStyles[idx].push();
-                toggle.fontsz *= Config.fontScaling;
-
-                navdrawer.iconSpacing = 5.f * Config.scaling;
-                navdrawer.itemGap = 5.f * Config.scaling;
-                navdrawer.openAnimationTime = 0.2f;
-
-                switch (idx)
-                {
-                case WSI_Hovered:
-                    toggle.trackColor = ToRGBA(200, 200, 200);
-                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-                    slider.thumbColor = ToRGBA(255, 255, 255);
-                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(255, 255, 255);
-                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(240, 240, 240);
-                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(150, 150, 150);
-                    tab.pincolor = ToRGBA(0, 0, 0);
-                    tab.closecolor = ToRGBA(255, 0, 0);
-					ddstyle.optionBgColor = ToRGBA(100, 100, 100);
-					ddstyle.optionFgColor = ToRGBA(255, 255, 255);
-                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonbg, 1.5f);
-                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Default].buttonfg, 1.5f);
-                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Default].track, 1.5f);
-                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Default].grip, 1.5f);
-                    break;
-                case WSI_Checked:
-                    toggle.trackColor = ToRGBA(152, 251, 152);
-                    toggle.indicatorTextColor = ToRGBA(0, 100, 0);
-                    slider.trackColor = rangeslider.trackColor = ToRGBA(175, 175, 175);
-                    slider.fillColor = rangeslider.fillColor = ToRGBA(100, 149, 237);
-                    break;
-                case WSI_Pressed:
-                    Config.scrollbar.colors[idx].buttonbg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonbg, 1.2f);
-                    Config.scrollbar.colors[idx].buttonfg = DarkenColor(Config.scrollbar.colors[WSI_Hovered].buttonfg, 1.2f);
-                    //Config.scrollbar.colors[idx].track = DarkenColor(Config.scrollbar.colors[WSI_Hovered].track, 1.5f);
-                    Config.scrollbar.colors[idx].grip = DarkenColor(Config.scrollbar.colors[WSI_Hovered].grip, 1.2f);
-                    [[fallthrough]];
-                case WSI_Selected:
-                    ddstyle.optionBgColor = ToRGBA(100, 100, 100);
-                    ddstyle.optionFgColor = ToRGBA(255, 255, 255);
-					[[fallthrough]];
-                default:
-                    toggle.trackColor = ToRGBA(200, 200, 200);
-                    toggle.indicatorTextColor = ToRGBA(100, 100, 100);
-                    slider.thumbColor = ToRGBA(240, 240, 240);
-                    rangeslider.minThumb.color = rangeslider.maxThumb.color = ToRGBA(240, 240, 240);
-                    spinner.downbtnColor = spinner.upbtnColor = ToRGBA(200, 200, 200);
-                    tab.closebgcolor = tab.pinbgcolor = ToRGBA(0, 0, 0, 0);
-                    tab.pincolor = ToRGBA(0, 0, 0);
-                    tab.closecolor = ToRGBA(255, 0, 0);
-                    break;
-                }
-            }
-        }
     }
 
     WidgetContextData& PushContext(int32_t id)
@@ -1268,63 +1126,12 @@ namespace glimmer
         if (Config.logger) Config.logger->Finish();
     }
 
-    static void ComputeAbsoluteDimension(StyleDescriptor& style)
-    {
-        if (GetContext().layoutStack.empty() && (style.relativeProps != 0))
-        {
-            auto totalsz = GetContext().MaximumSize();
-
-            if (style.relativeProps & StyleWidth) style.dimension.x = totalsz.x * style.dimension.x;
-            if (style.relativeProps & StyleMinWidth) style.mindim.x = totalsz.x * style.mindim.x;
-            if (style.relativeProps & StyleMaxWidth) style.maxdim.x = totalsz.x * style.maxdim.x;
-
-            if (style.relativeProps & StyleHeight) style.dimension.y = totalsz.y * style.dimension.y;
-            if (style.relativeProps & StyleMinHeight) style.mindim.y = totalsz.y * style.mindim.y;
-            if (style.relativeProps & StyleMaxHeight) style.maxdim.y = totalsz.y * style.maxdim.y;
-        }
-    }
-
-    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state)
-    {
-        StyleDescriptor res;
-        StyleDescriptor defstyle;
-        auto style = (WidgetStateIndex)log2((unsigned)state);
-        auto wtype = (WidgetType)(id >> WidgetTypeBits);
-        auto index = id & WidgetIndexMask;
-
-        if (wtype < WT_TotalTypes)
-        {
-            defstyle = glimmer::GetWidgetStyle(wtype, WidgetStateIndex::WSI_Default);
-            res.From(glimmer::GetWidgetStyle(wtype, style));
-
-            if (defstyle.specified == 0) defstyle = context.WidgetStyles[wtype][index][WSI_Default];
-            res.From(context.WidgetStyles[wtype][index][style]);
-        }
-        else if (Config.CustomWidgetProvider)
-        {
-            auto wfactory = Config.CustomWidgetProvider(wtype);
-            defstyle = wfactory->GetStyle(id, state, *StyleStack);
-            res.From(glimmer::GetWidgetStyle(wtype, style));
-            res.From(defstyle);
-        }
-
-        if ((IgnoreStyleStackBits == -1) || !(IgnoreStyleStackBits & (1 << wtype)))
-        {
-            res.From(StyleStack[style].top());
-            defstyle = StyleStack[WSI_Default].top();
-        }
-        else if (defstyle.specified == 0)
-            defstyle = *StyleStack[WSI_Default].begin();
-
-        if (style != WSI_Default) CopyStyle(defstyle, res);
-        ComputeAbsoluteDimension(res);
-        AddFontPtr(res.font);
-        return res;
-    }
-
     // This is a global config which can only be set during initialization
     // Read-only access is provided once set for subsequent frames
     UIConfig Config{};
+
+    // Default global style engine
+    GlimmerStyleEngine StyleEngine{};
 
     NestedContextSource InvalidSource{};
 
@@ -1335,16 +1142,6 @@ namespace glimmer
     Vector<ContextMenuItemDescriptor, int16_t, 16> WidgetContextData::ContextMenuOptions{ false };
     Vector<ContextMenuItemParams, int16_t, 16> WidgetContextData::ContextMenuOptionParams{ false };
     int32_t WidgetContextData::PopupTarget = -1;
-    StyleStackT WidgetContextData::StyleStack[WSI_Total]{ false, false, false, false,
-        false, false, false, false, false };
     WidgetContextData* WidgetContextData::CurrentItemGridContext = nullptr;
     int32_t WidgetContextData::CurrentWidgetId = -1;
-    DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::toggleButtonStyles[WSI_Total];
-    DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>  WidgetContextData::radioButtonStyles[WSI_Total];
-    DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::sliderStyles[WSI_Total];
-    DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::rangeSliderStyles[WSI_Total];
-    DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::spinnerStyles[WSI_Total];
-    DynamicStack<DropDownStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::dropdownStyles[WSI_Total];
-    DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::tabBarStyles[WSI_Total];
-    DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> WidgetContextData::navDrawerStyles[WSI_Total];
 }

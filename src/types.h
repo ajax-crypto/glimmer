@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "utils.h"
+#include "stdint.h"
 
 #include <string_view>
 #include <optional>
@@ -147,6 +148,7 @@ namespace glimmer
     {
         WSI_Default, WSI_Focused, WSI_Hovered, WSI_Pressed, WSI_Checked,
         WSI_PartiallyChecked, WSI_Selected, WSI_Dragged, WSI_Disabled,
+        WSI_Error, WSI_Unavailable,
         WSI_Total
     };
 
@@ -244,8 +246,11 @@ namespace glimmer
         WS_Selected = 1 << 6,
         WS_Dragged = 1 << 7,
         WS_Disabled = 1 << 8,
+        WS_Error = 1 << 9,
+        WS_Unavailable = 1 << 10,
         WS_AllStates = WS_Default | WS_Focused | WS_Hovered | WS_Pressed | WS_Checked | 
-            WS_PartialCheck | WS_Selected | WS_Dragged | WS_Disabled
+            WS_PartialCheck | WS_Selected | WS_Dragged | WS_Disabled | WS_Error | WS_Unavailable,
+        WS_Custom = 1 << 11
     };
 
     enum EventsToProcess
@@ -262,10 +267,10 @@ namespace glimmer
 
     struct CommonWidgetData
     {
-        int32_t state = WS_Default;
         int32_t id = -1;
+        std::string_view name;
         std::string_view tooltip = "";
-        float _hoverDuration = 0; // for tooltip, in seconds
+        TextType tooltipType = TextType::PlainText;
     };
 
     enum ResourceType : int32_t
@@ -287,21 +292,22 @@ namespace glimmer
         int32_t top = -1, left = -1, right = -1, bottom = -1;
     };
 
-    struct RegionState : public CommonWidgetData
+    struct RegionConfig : public CommonWidgetData
     {
         int32_t events = 0; // bitmask of WidgetState
         NeighborWidgets neighbors;
     };
 
-    struct ButtonState : public CommonWidgetData
+    struct ButtonConfig : public CommonWidgetData
     {
         std::string_view text;
         TextType type = TextType::PlainText;
         std::string_view prefix, suffix;
         std::pair<int32_t, int32_t> resTypes;
+        std::pair<int32_t, int32_t> selection;
     };
 
-    using LabelState = ButtonState;
+    using LabelConfig = ButtonConfig;
 
     enum class IconSizingType
     {
@@ -319,7 +325,7 @@ namespace glimmer
         Home, Search, Browse, Pin, Spanner, Gears, Cut, Copy, Paste, Warning, Error, Info
     };
 
-    struct MediaState : public CommonWidgetData
+    struct MediaResourceConfig : public CommonWidgetData
     {
         std::string_view content;
         IconSizingType sztype = IconSizingType::CurrentFontSz;
@@ -327,20 +333,20 @@ namespace glimmer
         SymbolIcon symbol = SymbolIcon::None;
     };
 
-    struct ToggleButtonState : public CommonWidgetData
+    struct ToggleButtonConfig : public CommonWidgetData
     {
         bool checked = false;
         bool* out = nullptr;
     };
 
-    using RadioButtonState = ToggleButtonState;
+    using RadioButtonConfig = ToggleButtonConfig;
 
     enum class CheckState 
     {
         Checked, Unchecked, Partial
     };
 
-    struct CheckboxState : public CommonWidgetData
+    struct CheckboxConfig : public CommonWidgetData
     {
         CheckState check = CheckState::Unchecked;
         CheckState* out = nullptr;
@@ -353,7 +359,7 @@ namespace glimmer
         Invalid, i32, f32, f64
     };
 
-    struct SpinnerState : public CommonWidgetData
+    struct SpinnerConfig : public CommonWidgetData
     {
         float data = 0.f;
         float min = 0.f, max = (float)INT_MAX, delta = 1.f;
@@ -366,7 +372,7 @@ namespace glimmer
         OutPtrType outType = OutPtrType::Invalid;
     };
 
-    struct SliderState : public CommonWidgetData
+    struct SliderConfig : public CommonWidgetData
     {
         float data = 0.f;
         float min = 0.f, max = FLT_MAX, delta = 1.f;
@@ -376,7 +382,7 @@ namespace glimmer
         OutPtrType outType = OutPtrType::Invalid;
     };
 
-    struct RangeSliderState : public CommonWidgetData
+    struct RangeSliderConfig : public CommonWidgetData
     {
         float min_val = 0.f, max_val = 0.f;
         float min_range = 0.f, max_range = FLT_MAX, delta = 1.f;
@@ -409,17 +415,17 @@ namespace glimmer
         bool mouseDownOnHGrip = false;
     };
 
-    struct ScrollableRegion
+    struct ScrollableRegion : public CommonWidgetData
     {
         //std::pair<bool, bool> enabled; // enable scroll in horizontal and vertical direction respectively
         int32_t type = ST_ShowScrollBarInsideViewport; // scroll bar properties
         ImRect viewport{ { -1.f, -1.f }, {} }; // visible region of content
         ImVec2 content; // total occupied size of the widgets inside region
         ImVec2 extent{ FLT_MAX, FLT_MAX }; // total available space inside the scroll region, default is infinite if scroll enabled
-        ScrollBarState state;
+        ScrollBarState barstate;
     };
 
-    struct TextInputState : public CommonWidgetData
+    struct TextInputConfig : public CommonWidgetData
     {
         std::vector<char> text;
         Span<char> out;
@@ -428,7 +434,7 @@ namespace glimmer
         std::string_view prefix, suffix;
         int32_t prefixType = RT_INVALID, suffixType = RT_INVALID;
         std::string_view maskchar = "�";
-        void (*ShowList)(const TextInputState&, ImVec2, ImVec2) = nullptr;
+        void (*ShowList)(const TextInputConfig&, ImVec2, ImVec2) = nullptr;
         float overlayHeight = FLT_MAX;
         SymbolIcon suffixIcon = SymbolIcon::None;
         bool isMasked = false;
@@ -442,7 +448,7 @@ namespace glimmer
         DD_SetPopupWidthToInitial = 4
     };
 
-    struct DropDownState : public CommonWidgetData
+    struct DropDownConfig : public CommonWidgetData
     {
         std::string_view text, selectedText;
         TextType textType = TextType::PlainText;
@@ -456,7 +462,7 @@ namespace glimmer
         
         bool isComboBox = false;
         bool opened = false;
-        bool hasSelection = true;
+        //bool hasSelection = true;
     };
 
     enum TabItemProperty
@@ -478,7 +484,7 @@ namespace glimmer
         Scrollable, ResizeToFit, MultiRow, DropDown
     };
 
-    struct TabBarState
+    struct TabBarConfig : public CommonWidgetData
     {
         std::string_view newTabTooltip;
         TabBarItemSizing sizing = TabBarItemSizing::DropDown;
@@ -539,33 +545,6 @@ namespace glimmer
         bool wrapText = false;
         bool isContentWidget = false;
         bool disabled = false;
-    };
-
-    enum class WidgetEvent
-    {
-        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked, 
-        Dragged, Edited, Selected, Scrolled, Reordered
-    };
-
-    enum class TabButtonType
-    {
-        None, AddedTab, NewTab, PinTab, CloseTab, ExpandTabs, MoreTabs, MoveBackward, MoveForward, EndTab
-    };
-
-    struct WidgetDrawResult
-    {
-        int32_t id = -1;
-        WidgetEvent event = WidgetEvent::None;
-        int32_t row = -1;
-        int16_t col = -1;
-        int16_t depth = -1;
-        int16_t tabidx = -1;
-        int16_t optidx = -1;
-        std::pair<int32_t, int32_t> range; // For reorder events
-        ImRect geometry, content;
-        float wheel = 0.f;
-        TabButtonType tabtype = TabButtonType::None;
-        bool order = false;
     };
 
     enum class ItemGridPopulateMethod
@@ -679,28 +658,26 @@ namespace glimmer
         WidgetType type;
 
         union SharedWidgetState {
-            RegionState region;
-            LabelState label;
-            ButtonState button;
-            ToggleButtonState toggle;
-            RadioButtonState radio;
-            CheckboxState checkbox;
-            SpinnerState spinner;
-            SliderState slider;
-            RangeSliderState rangeSlider;
-            TextInputState input;
-            DropDownState dropdown;
-            TabBarState tab;
+            RegionConfig region;
+            LabelConfig label;
+            ButtonConfig button;
+            ToggleButtonConfig toggle;
+            RadioButtonConfig radio;
+            CheckboxConfig checkbox;
+            SpinnerConfig spinner;
+            SliderConfig slider;
+            RangeSliderConfig rangeSlider;
+            TextInputConfig input;
+            DropDownConfig dropdown;
+            TabBarConfig tab;
             ItemGridConfig grid;
             ScrollableRegion scroll;
-            MediaState media;
+            MediaResourceConfig media;
             // Add others...
 
             SharedWidgetState() {}
             ~SharedWidgetState() {}
-        } state;
-
-        CommonWidgetData data;
+        } config;
 
         WidgetConfigData(WidgetType type);
         WidgetConfigData(const WidgetConfigData& src);
@@ -833,5 +810,32 @@ namespace glimmer
         int16_t row = 0, col = 0;
         int16_t from = -1, to = -1;
         void* implData = nullptr;
+    };
+
+    enum class WidgetEvent
+    {
+        None, Focused, Clicked, Hovered, Pressed, DoubleClicked, RightClicked,
+        Dragged, Edited, Selected, Scrolled, Reordered
+    };
+
+    enum class TabButtonType
+    {
+        None, AddedTab, NewTab, PinTab, CloseTab, ExpandTabs, MoreTabs, MoveBackward, MoveForward, EndTab
+    };
+
+    struct WidgetDrawResult
+    {
+        int32_t id = -1;
+        WidgetEvent event = WidgetEvent::None;
+        int32_t row = -1;
+        int16_t col = -1;
+        int16_t depth = -1;
+        int16_t tabidx = -1;
+        int16_t optidx = -1;
+        std::pair<int32_t, int32_t> range; // For reorder events
+        ImRect geometry, content;
+        float wheel = 0.f;
+        TabButtonType tabtype = TabButtonType::None;
+        bool order = false;
     };
 }

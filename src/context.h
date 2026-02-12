@@ -84,6 +84,7 @@ namespace glimmer
         std::string_view text;
 		TextType textType = TextType::PlainText;
         ImRect geometry{ { FLT_MAX, FLT_MAX }, { 0.f, 0.f } };
+        int32_t optionId = -1;
 	};
 
     struct WidgetContextData;
@@ -342,12 +343,12 @@ namespace glimmer
 
         void moveLeft(float amount)
         {
-            scroll.state.pos.x = std::max(0.f, scroll.state.pos.x - amount);
+            scroll.barstate.pos.x = std::max(0.f, scroll.barstate.pos.x - amount);
         }
 
         void moveRight(float amount)
         {
-            scroll.state.pos.x = std::min(scroll.state.pos.x + amount, pixelpos.back());
+            scroll.barstate.pos.x = std::min(scroll.barstate.pos.x + amount, pixelpos.back());
         }
     };
 
@@ -557,8 +558,6 @@ namespace glimmer
 
     enum class LayoutOps 
     { 
-        PushStyle, PopStyle, SetStyle, IgnoreStyleStack, RestoreStyleStack, 
-        PushTextType, PopTextType,
         PushRegion, PopRegion,
         PushScrollRegion, PopScrollRegion,
         AddWidget, AddLayout 
@@ -571,7 +570,6 @@ namespace glimmer
         int32_t fill = FD_None;
         int32_t alignment = TextAlignLeading;
         int16_t from = -1, to = -1, itemidx = -1;
-        int16_t styleStartIdx[WSI_Total];
         int16_t currow = -1, currcol = -1;
         ImRect geometry{ { FIT_SZ, FIT_SZ }, { FIT_SZ, FIT_SZ } };
         ImRect available; // Available space in the direction of layout in current window
@@ -749,12 +747,20 @@ namespace glimmer
     constexpr int32_t WidgetIndexMask = 0xffff;
     constexpr int32_t WidgetTypeBits = 16;
 
+    struct WidgetStateData
+    {
+        int32_t state = WS_Default;
+        float _hoverDuration = 0; // for tooltip, in seconds
+        StyleDescriptor style; // style as determined at widget function
+    };
+
     // Captures widget states, is stored as a linked-list, each context representing
     // a window or overlay, this enables serialized Id's for nested overlays as well
     struct WidgetContextData
     {
-        // This is quasi-persistent
-        std::vector<WidgetConfigData> states[WT_TotalTypes];
+        std::vector<WidgetStateData>  states[WT_TotalTypes];
+        std::vector<WidgetConfigData> configs[WT_TotalTypes];
+
         std::vector<ItemGridPersistentState> gridStates;
         std::vector<ToggleButtonPersistentState> toggleStates;
         std::vector<RadioButtonPersistentState> radioStates;
@@ -788,22 +794,6 @@ namespace glimmer
 
         std::vector<WidgetContextData*> nestedContexts[WT_TotalNestedContexts];
         WidgetContextData* parentContext = nullptr;
-
-        // Styling data is static as it is persisted across contexts
-        static StyleStackT StyleStack[WSI_Total];
-
-        // Per widget specific style objects
-        static DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> toggleButtonStyles[WSI_Total];
-        static DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> radioButtonStyles[WSI_Total];
-        static DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> sliderStyles[WSI_Total];
-        static DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> rangeSliderStyles[WSI_Total];
-        static DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> spinnerStyles[WSI_Total];
-        static DynamicStack<DropDownStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> dropdownStyles[WSI_Total];
-        static DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> tabBarStyles[WSI_Total];
-        static DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES> navDrawerStyles[WSI_Total];
-
-        // Resolved styles, after applying widget, class(es) and id specific styles
-        Vector<StyleDescriptor[WSI_Total], int16_t, 32> WidgetStyles[WT_TotalTypes];
 
         // Layout related members
         Vector<LayoutItemDescriptor, int16_t> layoutItems{ 128 };
@@ -873,18 +863,104 @@ namespace glimmer
 
         int32_t GetNextCount(WidgetType type);
 
-        WidgetConfigData& GetState(int32_t id)
+        WidgetConfigData& GetConfig(int32_t id)
         {
             auto index = id & WidgetIndexMask;
             auto wtype = (WidgetType)(id >> WidgetTypeBits);
-            return states[wtype][index];
+            return configs[wtype][index];
         }
 
-        WidgetConfigData const& GetState(int32_t id) const
+        WidgetConfigData const& GetConfig(int32_t id) const
         {
             auto index = id & WidgetIndexMask;
             auto wtype = (WidgetType)(id >> WidgetTypeBits);
-            return states[wtype][index];
+            return configs[wtype][index];
+        }
+
+        int32_t GetState(int32_t id) const;
+        WidgetStateData& GetStateData(int32_t id);
+
+        template <WidgetType wtype>
+        auto GetWidgetConfig(int32_t id)
+        {
+            static auto Invalid = std::nullopt;
+            auto type = id >> WidgetTypeBits;
+            auto index = id & WidgetIndexMask;
+            assert(type == wtype);
+
+            if constexpr (wtype == WT_Region)
+                return configs[type][index].config.region;
+            else if constexpr (wtype == WT_Label)
+                return configs[type][index].config.label;
+            else if constexpr (wtype == WT_Button)
+                return configs[type][index].config.button;
+            else if constexpr (wtype == WT_ToggleButton)
+                return configs[type][index].config.toggle;
+            else if constexpr (wtype == WT_RadioButton)
+                return configs[type][index].config.radio;
+            else if constexpr (wtype == WT_Checkbox)
+                return configs[type][index].config.checkbox;
+            else if constexpr (wtype == WT_Slider)
+                return configs[type][index].config.slider;
+            else if constexpr (wtype == WT_RangeSlider)
+                return configs[type][index].config.rangeSlider;
+            else if constexpr (wtype == WT_TextInput)
+                return configs[type][index].config.input;
+            else if constexpr (wtype == WT_DropDown)
+                return configs[type][index].config.dropdown;
+            else if constexpr (wtype == WT_Spinner)
+                return configs[type][index].config.spinner;
+            else if constexpr (wtype == WT_ItemGrid)
+                return configs[type][index].config.grid;
+            else if constexpr (wtype == WT_TabBar)
+                return configs[type][index].config.tab;
+            else if constexpr (wtype == WT_Scrollable)
+                return configs[type][index].config.scroll;
+            else if constexpr (wtype == WT_NavDrawer)
+                return configs[type][index];
+            else if constexpr (wtype == WT_Accordion)
+                return configs[type][index];
+            else if constexpr (wtype == WT_MediaResource)
+                return configs[type][index].config.media;
+            else if constexpr (wtype == WT_Custom)
+                return configs[type][index];
+            else
+                return Invalid;
+        }
+
+        void SetTooltip(int32_t id, std::string_view tooltip, TextType type);
+
+        template <WidgetType type>
+        auto& GetPersistentState(int32_t id)
+        {
+            auto index = id & WidgetIndexMask;
+            if constexpr (type == WT_ToggleButton)
+                return toggleStates[index];
+            else if constexpr (type == WT_RadioButton)
+                return radioStates[index];
+            else if constexpr (type == WT_Checkbox)
+                return checkboxStates[index];
+            else if constexpr (type == WT_TextInput)
+                return inputTextStates[index];
+            else if constexpr (type == WT_Splitter)
+                return splitterStates[index];
+            else if constexpr (type == WT_Spinner)
+                return spinnerStates[index];
+            else if constexpr (type == WT_DropDown)
+                return dropdownStates[index];
+            else if constexpr (type == WT_TabBar)
+                return tabBarStates[index];
+            else if constexpr (type == WT_NavDrawer)
+                return navDrawerStates[index];
+            else if constexpr (type == WT_Accordion)
+                return accordionStates[index];
+            else if constexpr (type == WT_ItemGrid)
+                return gridStates[index];
+            else
+            {
+                static std::optional<std::nullptr_t> nullstate = std::nullopt;
+                return nullstate;
+            }
         }
 
         ItemGridPersistentState& GridState(int32_t id)
@@ -963,19 +1039,17 @@ namespace glimmer
         {
             auto index = id & WidgetIndexMask;
             auto type = id >> WidgetTypeBits;
-            return states[type][index].state.scroll;
+            return configs[type][index].config.scroll;
         }
 
         ScrollableRegion const& ScrollRegion(int32_t id) const
         {
             auto index = id & WidgetIndexMask;
             auto type = id >> WidgetTypeBits;
-            return states[type][index].state.scroll;
+            return configs[type][index].config.scroll;
         }
 
-        static StyleDescriptor GetStyle(int32_t state);
-        static void IgnoreStyleStack(int32_t wtypes);
-        static void RestoreStyleStack();
+        static StyleDescriptor GetStateStyle(int32_t state);
         static void RemovePopup();
         static int GetExpectedWidgetCount(WidgetType type);
 
@@ -988,6 +1062,7 @@ namespace glimmer
 
         void RegisterWidgetIdClass(WidgetType wt, int32_t index, const WidgetIdClasses& idClasses);
         StyleDescriptor GetStyle(int32_t state, int32_t id);
+        StyleDescriptor GetStyle(int32_t id);
         
         void RecordForReplay(int64_t data, LayoutOps ops);
         void ResetLayoutData();
@@ -1017,9 +1092,150 @@ namespace glimmer
     void PopNestedSource(WidgetContextData* context = nullptr);
     void Cleanup();
 
-    StyleDescriptor GetStyle(WidgetContextData& context, int32_t id, StyleStackT const* StyleStack, int32_t state);
-
     extern NestedContextSource InvalidSource;
+
+#pragma endregion
+
+#pragma region Style Engine
+
+    template <typename T>
+    struct StateStyleMap
+    {
+        // Styles with single state i.e. default or hovered or pressed
+        // The ordering/priority of styles is as declared in WidgetStateIndex, from low to high
+        T styles[WSI_Total];
+
+        // Styles with combined widget states i.e. hovered + pressed
+        std::unordered_map<int32_t, T> combined;
+
+        const T& GetObject(int32_t state) const
+        {
+            if ((state & (state - 1)) == 0)
+                return styles[log2((unsigned)state)];
+            else
+            {
+                auto it = combined.find(state);
+                return it == combined.end() ? styles[log2((unsigned)state)] : it->second;
+            }
+        }
+
+        T& GetObject(int32_t state)
+        {
+            if ((state & (state - 1)) == 0)
+                return styles[log2((unsigned)state)];
+            else
+            {
+                auto it = combined.find(state);
+                return it == combined.end() ? styles[log2((unsigned)state)] : it->second;
+            }
+        }
+    };
+
+    using DynamicStyleStackT = DynamicStack<StyleDescriptor, int16_t, GLIMMER_MAX_STYLE_STACKSZ>;
+
+    struct GlimmerStyleEngine
+    {
+        // This maps the styles to classes/ids which do not follow the style stack.
+        // When applying a style to a widget, any class/id specified with the widget will be used to lookup
+        // corresponding styles, merged (with the current stack as well), and then applied.
+        std::unordered_map<std::string_view, StateStyleMap<StyleDescriptor>> named;
+        StateStyleMap<DynamicStyleStackT> stack;
+
+        // Per widget specific style objects
+        StateStyleMap<DynamicStack<ToggleButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> toggleButtonStyles;
+        StateStyleMap<DynamicStack<RadioButtonStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> radioButtonStyles;
+        StateStyleMap<DynamicStack<SliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> sliderStyles;
+        StateStyleMap<DynamicStack<RangeSliderStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> rangeSliderStyles;
+        StateStyleMap<DynamicStack<SpinnerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> spinnerStyles;
+        StateStyleMap<DynamicStack<DropDownStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> dropdownStyles;
+        StateStyleMap<DynamicStack<TabBarStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> tabBarStyles;
+        StateStyleMap<DynamicStack<NavDrawerStyleDescriptor, int16_t, GLIMMER_MAX_WIDGET_SPECIFIC_STYLES>> navDrawerStyles;
+
+        StyleDescriptor LookupFromStack(int32_t state) const;
+        StyleDescriptor GetStyle(int32_t state, int32_t id) const;
+        StyleDescriptor GetStyle(int32_t state) const;
+
+        void PushStyle(int32_t state, const StyleDescriptor& style, bool combined);
+        void PushStyle(int32_t state, std::string_view style, bool combined);
+        void PopStyle(int32_t state, int32_t amount, bool combined);
+
+#ifndef GLIMMER_DISABLE_CSS_CACHING
+        static std::unordered_map<std::string_view, StyleDescriptor> ParsedStyleSheets;
+#endif
+
+        template <WidgetType wtype>
+        const auto& GetWidgetStyle(int32_t state) const
+        {
+            if constexpr (wtype == WidgetType::WT_ToggleButton)
+                return toggleButtonStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_RadioButton)
+                return radioButtonStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_Slider)
+                return sliderStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_RangeSlider)
+                return rangeSliderStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_Spinner)
+                return spinnerStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_DropDown)
+                return dropdownStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_TabBar)
+                return tabBarStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_NavDrawer)
+                return navDrawerStyles.GetObject(state).top();
+            else
+            {
+                static const std::nullopt_t invalid = std::nullopt;
+                return invalid;
+            }
+        }
+
+        template <WidgetType wtype>
+        auto& GetWidgetStyle(int32_t state)
+        {
+            if constexpr (wtype == WidgetType::WT_ToggleButton)
+                return toggleButtonStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_RadioButton)
+                return radioButtonStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_Slider)
+                return sliderStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_RangeSlider)
+                return rangeSliderStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_Spinner)
+                return spinnerStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_DropDown)
+                return dropdownStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_TabBar)
+                return tabBarStyles.GetObject(state).top();
+            else if constexpr (wtype == WidgetType::WT_NavDrawer)
+                return navDrawerStyles.GetObject(state).top();
+            else
+            {
+                static const std::nullopt_t invalid = std::nullopt;
+                return invalid;
+            }
+        }
+
+        template <WidgetType wtype>
+        const auto& GetWidgetStyle(const WidgetContextData& context, int32_t id) const
+        {
+            auto state = context.GetState(id);
+            return GetWidgetStyle<wtype>(state);
+        }
+
+        template <WidgetType wtype>
+        auto& GetWidgetStyle(const WidgetContextData& context, int32_t id)
+        {
+            auto state = context.GetState(id);
+            return GetWidgetStyle<wtype>(state);
+        }
+
+        static StyleDescriptor& GetNamedStyle(std::string_view id, int32_t state);
+        static StyleDescriptor& GetWidgetStyle(WidgetType type, int32_t state);
+        static void IgnoreStyleStack(int32_t wtypes);
+        static void RestoreStyleStack();
+    };
+
+    extern GlimmerStyleEngine StyleEngine;
 
 #pragma endregion
 }

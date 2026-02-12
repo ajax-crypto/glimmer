@@ -485,6 +485,9 @@ namespace glimmer
         T& top() { return _data.back(); }
         T const& top() const { return _data.back(); }
 
+        T& top(int32_t depth) { return *(_data._data + _data._size - depth); }
+        T const& top(int32_t depth) const { return *(_data._data + _data._size - depth); }
+
         T& next(int amount) { return _data[_data.size() - 1 - amount]; }
         T const& next(int amount) const { return _data[_data.size() - 1 - amount]; }
 

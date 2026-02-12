@@ -155,10 +155,6 @@ void PopYogaLayoutNode()
             ResetYogaRoot(root);
         }
     }
-
-    // If root stack is empty => we do not have any parents
-    // which are flexbox layout, which implies nodes can be reused
-    //if (FlexLayoutRootStack.empty()) NextFreeNodeIdx = 0;
 }
 
 void ResetYogaLayoutSystem(int from)
@@ -189,37 +185,11 @@ namespace glimmer
     static Vector<GridLayoutItem, int16_t, 64> GridLayoutItems;
 
     std::tuple<ImRect, ImRect, ImRect, ImRect> GetBoxModelBounds(ImRect content, const StyleDescriptor& style);
+    WidgetDrawResult RenderWidgetPostLayout(LayoutItemDescriptor& item, const IODescriptor& io, bool render);
+    WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
+    std::pair<int32_t, bool> GetIdFromString(std::string_view id, WidgetType type);
     WidgetDrawResult RegionImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
         const ImRect& content, IRenderer& renderer, const IODescriptor& io, int depth);
-    WidgetDrawResult LabelImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io, int32_t textflags);
-    WidgetDrawResult ButtonImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, const ImRect& prefix, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult ToggleButtonImpl(int32_t id, ToggleButtonState& state, const StyleDescriptor& style, const ImRect& extent, ImVec2 textsz, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult RadioButtonImpl(int32_t id, RadioButtonState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult CheckboxImpl(int32_t id, CheckboxState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& padding, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult SliderImpl(int32_t id, SliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult RangeSliderImpl(int32_t id, RangeSliderState& state, const StyleDescriptor& style, const ImRect& extent, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult SpinnerImpl(int32_t id, const SpinnerState& state, const StyleDescriptor& style, const ImRect& extent, const IODescriptor& io, IRenderer& renderer);
-    WidgetDrawResult TextInputImpl(int32_t id, TextInputState& state, const StyleDescriptor& style, const ImRect& extent, const ImRect& content, 
-        const ImRect& prefix, const ImRect& suffix, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult DropDownImpl(int32_t id, DropDownState& state, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult ItemGridImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, const ImRect& text, IRenderer& renderer, const IODescriptor& io);
-    void StartScrollableImpl(int32_t id, int32_t flags, ImVec2 maxsz, const StyleDescriptor& style,
-        const ImRect& border, const ImRect& content, IRenderer& renderer);
-    ImRect EndScrollableImpl(int32_t id, IRenderer& renderer);
-    WidgetDrawResult TabBarImpl(int32_t id, const ImRect& content, const StyleDescriptor& style, const IODescriptor& io,
-        IRenderer& renderer);
-    WidgetDrawResult MediaResourceImpl(int32_t id, const StyleDescriptor& style, const ImRect& margin, const ImRect& border, const ImRect& padding,
-        const ImRect& content, IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult DrawCustomWidget(int32_t id, const StyleDescriptor& style, const LayoutItemDescriptor& layoutItem,
-        IRenderer& renderer, const IODescriptor& io);
-    WidgetDrawResult EndPopUp(WidgetContextData& overlayctx, std::optional<uint32_t> bgcoloropt, int32_t flags);
-    void UpdateParentWidgetGeometry(const LayoutItemDescriptor& layoutItem, const StyleDescriptor& style);
-    void CopyStyle(const StyleDescriptor& src, StyleDescriptor& dest);
-    std::pair<int32_t, bool> GetIdFromString(std::string_view id, WidgetType type);
 
 #pragma region Layout functions
 
@@ -408,7 +378,7 @@ namespace glimmer
         if (style.dimension.x > 0.f)
         {
             // TODO: Implement multiple box sizing modes?
-            auto w = style.relativeProps & StyleWidth ?
+            auto w = style.relative & StyleWidth ?
                 clamp(style.dimension.x, style.mindim.x, style.maxdim.x) :
                 clamp(style.dimension.x, style.mindim.x, style.maxdim.x);
 
@@ -504,7 +474,7 @@ namespace glimmer
     {
         if (layoutItem.wtype == WT_Scrollable)
         {
-            auto type = context.GetState(layoutItem.id).state.scroll.type;
+            auto type = context.GetConfig(layoutItem.id).config.scroll.type;
             if (type & ST_Always_H)
             {
                 layoutItem.border.Max.x -= Config.scrollbar.width;
@@ -815,7 +785,7 @@ namespace glimmer
         if (!(fill & FD_Horizontal))
             if (size.x > 0.f)
                 YGNodeStyleSetWidth(root, size.x);
-            else if (style.relativeProps & StyleWidth)
+            else if (style.relative & StyleWidth)
                 YGNodeStyleSetWidthPercent(root, style.dimension.x * 100.f);
             else if (style.dimension.x > 0.f)
                 YGNodeStyleSetWidth(root, style.dimension.x);
@@ -823,13 +793,13 @@ namespace glimmer
         if (fill & FD_Horizontal)
             YGNodeStyleSetWidthPercent(root, 100);
         else if (style.maxdim.x != FLT_MAX)
-            if (style.relativeProps & StyleMaxWidth)
+            if (style.relative & StyleMaxWidth)
                 YGNodeStyleSetMaxWidthPercent(root, style.maxdim.x * 100.f);
             else
                 YGNodeStyleSetMaxWidth(root, style.maxdim.x);
 
         if (style.mindim.x > 0.f)
-            if (style.relativeProps & StyleMaxWidth)
+            if (style.relative & StyleMaxWidth)
                 YGNodeStyleSetMinWidthPercent(root, style.mindim.x * 100.f);
             else
                 YGNodeStyleSetMinWidth(root, style.mindim.x);
@@ -837,7 +807,7 @@ namespace glimmer
         if (!(fill & FD_Vertical))
             if (size.y > 0.f)
                 YGNodeStyleSetHeight(root, size.y);
-            else if (style.relativeProps & StyleHeight)
+            else if (style.relative & StyleHeight)
                 YGNodeStyleSetHeightPercent(root, style.dimension.y * 100.f);
             else if (style.dimension.y > 0.f)
                 YGNodeStyleSetHeight(root, style.dimension.y);
@@ -845,13 +815,13 @@ namespace glimmer
         if (fill & FD_Vertical)
             YGNodeStyleSetHeightPercent(root, 100);
         else if (style.maxdim.y != FLT_MAX)
-            if (style.relativeProps & StyleMaxWidth)
+            if (style.relative & StyleMaxWidth)
                 YGNodeStyleSetMaxHeightPercent(root, style.maxdim.y * 100.f);
             else
                 YGNodeStyleSetHeight(root, style.maxdim.y);
 
         if (style.mindim.y > 0.f)
-            if (style.relativeProps & StyleMaxWidth)
+            if (style.relative & StyleMaxWidth)
                 YGNodeStyleSetMinHeightPercent(root, style.mindim.y * 100.f);
             else
                 YGNodeStyleSetMinHeight(root, style.mindim.y);
@@ -1201,10 +1171,10 @@ namespace glimmer
             if (regionIdx != -1)
             {
                 auto regionId = context.regions[regionIdx].id;
-                auto& state = context.GetState(regionId).state.region;
-                auto style = context.GetStyle(state.state, regionId);
+                auto& state = context.GetStateData(regionId);
+                auto style = context.GetStyle(regionId);
                 layout.startpos += ImVec2{ style.margin.left, style.margin.top };
-                state.neighbors = neighbors;
+                //state.neighbors = neighbors;
             }
         }
     }
@@ -1223,12 +1193,11 @@ namespace glimmer
         if (regionIdx != -1)
         {
             auto rid = context.regions[regionIdx].id;
-            auto& state = context.GetState(rid).state.region;
-            auto style = context.GetStyle(state.state, rid);
+            auto style = context.GetStyle(rid);
 
             if (size.x > 0.f)
                 res.x = clamp(size.x, style.mindim.x, style.maxdim.x);
-            else if (style.relativeProps & StyleWidth)
+            else if (style.relative & StyleWidth)
                 res.x = clamp(available.GetWidth() * style.dimension.x, style.mindim.x, style.maxdim.x);
             else if (style.dimension.x > 0.f)
                 res.x = clamp(style.dimension.x, style.mindim.x, style.maxdim.x);
@@ -1240,7 +1209,7 @@ namespace glimmer
 
             if (size.y > 0.f)
                 res.y = clamp(size.y, style.mindim.y, style.maxdim.y);
-            else if (style.relativeProps & StyleHeight)
+            else if (style.relative & StyleHeight)
                 res.y = clamp(available.GetHeight() * style.dimension.y, style.mindim.y, style.maxdim.y);
             else if (style.dimension.y > 0.f)
                 res.y = clamp(style.dimension.y, style.mindim.y, style.maxdim.y);
@@ -1287,8 +1256,8 @@ namespace glimmer
         if (size.y > 0.f) layout.alignment |= ExplicitV;
 
         // Record style stack states for context, will be restored in EndLayout()
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-            layout.styleStartIdx[idx] = context.StyleStack[idx].size() - 1;
+        /*for (auto idx = 0; idx < WSI_Total; ++idx)
+            layout.styleStartIdx[idx] = context.StyleStack[idx].size() - 1;*/
 
         auto nextpos = context.layoutStack.size() == 1 ? context.NextAdHocPos() :
             context.layouts[context.layoutStack.top(1)].nextpos;
@@ -1391,8 +1360,7 @@ namespace glimmer
                 if (regionIdx != -1)
                 {
                     auto rid = context.regions[regionIdx].id;
-                    auto& state = context.GetState(rid).state.region;
-                    auto style = context.GetStyle(state.state, rid);
+                    auto style = context.GetStyle(rid);
                     SetYogaNodeSizingProperties(root, style, size, layout.fill);
                 }
                 else
@@ -1446,8 +1414,7 @@ namespace glimmer
             if (regionIdx != -1)
             {
                 auto rid = context.regions[regionIdx].id;
-                auto& state = context.GetState(rid).state.region;
-                auto style = context.GetStyle(state.state, rid);
+                auto style = context.GetStyle(rid);
 
                 YGNodeStyleSetMargin(root, YGEdgeTop, style.margin.top);
                 YGNodeStyleSetMargin(root, YGEdgeBottom, style.margin.bottom);
@@ -1517,8 +1484,7 @@ namespace glimmer
             if (regionIdx != -1)
             {
                 auto rid = context.regions[regionIdx].id;
-                auto& state = context.GetState(rid).state.region;
-                auto style = context.GetStyle(state.state, rid);
+                auto style = context.GetStyle(rid);
 
                 lay_set_margins_ltrb(&root.ctx, litem,
                     style.margin.left + style.padding.left + style.border.left.thickness,
@@ -1725,7 +1691,7 @@ namespace glimmer
         }
     }
 
-    static void ComputeBoxModelGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
+    void ComputeBoxModelGeometry(LayoutItemDescriptor& item, const ImRect& bbox, const StyleDescriptor& style)
     {
         item.margin.Min.x = bbox.Min.x;
         item.margin.Max.x = bbox.Max.x;
@@ -1778,257 +1744,7 @@ namespace glimmer
         item.text.Max.y = item.text.Min.y + texth;
     }
 
-    static WidgetDrawResult RenderWidgetInstance(LayoutItemDescriptor& item, StyleStackT* StyleStack,
-        const IODescriptor& io, bool render)
-    {
-        WidgetDrawResult result;
-        auto& context = GetContext();
-        auto bbox = item.margin;
-        auto wtype = item.wtype;
-        auto& renderer =  context.GetRenderer();
-        renderer.SetClipRect(bbox.Min, bbox.Max);
-
-        if (wtype < WT_TotalTypes)
-        {
-            switch (wtype)
-            {
-            case glimmer::WT_Label: {
-                auto& state = context.GetState(item.id).state.label;
-                auto flags = ToTextFlags(state.type);
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = LabelImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io, flags);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_Button: {
-                auto& state = context.GetState(item.id).state.button;
-                auto flags = ToTextFlags(state.type);
-                const auto style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = ButtonImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, item.prefix, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_RadioButton: {
-                auto& state = context.GetState(item.id).state.radio;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = RadioButtonImpl(item.id, state, style, item.margin, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_ToggleButton: {
-                auto& state = context.GetState(item.id).state.toggle;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = ToggleButtonImpl(item.id, state, style, item.margin, ImVec2{ item.text.GetWidth(), item.text.GetHeight() }, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_Checkbox: {
-                auto& state = context.GetState(item.id).state.checkbox;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = CheckboxImpl(item.id, state, style, item.margin, item.padding, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case WT_Spinner: {
-                auto& state = context.GetState(item.id).state.spinner;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = SpinnerImpl(item.id, state, style, item.padding, io, renderer);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_Slider: {
-                auto& state = context.GetState(item.id).state.slider;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = SliderImpl(item.id, state, style, item.border, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_RangeSlider: {
-                auto& state = context.GetState(item.id).state.rangeSlider;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = RangeSliderImpl(item.id, state, style, item.border, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_TextInput: {
-                auto& state = context.GetState(item.id).state.input;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = TextInputImpl(item.id, state, style, item.margin, item.content, item.prefix, item.suffix, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_DropDown: {
-                auto& state = context.GetState(item.id).state.dropdown;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = DropDownImpl(item.id, state, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case glimmer::WT_ItemGrid: {
-                /*auto& state = context.GetState(item.id).state.grid;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-                context.AddItemGeometry(item.id, bbox);
-                result = ItemGridImpl(item.id, style, item.margin, item.border, item.padding, item.content, item.text, renderer, io);
-                */
-                assert(false);
-                break;
-            }
-            case WT_Scrollable: {
-                auto& region = context.ScrollRegion(item.id);
-                const auto style = context.GetStyle(WS_Default, item.id);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result.geometry = EndScrollableImpl(item.id, renderer);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case WT_TabBar: {
-                auto& state = context.GetState(item.id).state.tab;
-                const auto& style = GetStyle(context, item.id, StyleStack, WS_Default);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = TabBarImpl(item.id, item.margin, style, io, renderer);
-                    if (result.event != WidgetEvent::Clicked)
-                        result.tabidx = context.TabBarState(item.id).current;
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            case WT_MediaResource: {
-                auto& state = context.GetState(item.id).state.media;
-                const auto& style = GetStyle(context, item.id, StyleStack, state.state);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    context.AddItemGeometry(item.id, bbox);
-                    result = MediaResourceImpl(item.id, style, item.margin, item.border, item.padding, item.content, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-
-                break;
-            }
-            default:
-                break;
-            }
-        }
-        else if (Config.CustomWidgetProvider != nullptr)
-        {
-            auto customType = (int16_t)(item.id >> WidgetTypeBits);
-            auto wfactory = Config.CustomWidgetProvider(customType);
-
-            if (wfactory != nullptr)
-            {
-                auto state = wfactory->GetState(item.id);
-                const auto style = wfactory->GetStyle(item.id, state, StyleStack[WSI_Default]);
-                ComputeBoxModelGeometry(item, bbox, style);
-
-                if (render)
-                {
-                    wfactory->RecordItemGeometry(item.id, bbox);
-                    result = DrawCustomWidget(item.id, style, item, renderer, io);
-                    if (!context.nestedContextStack.empty())
-                        UpdateParentWidgetGeometry(item, style);
-                }
-            }
-        }
-
-        renderer.ResetClipRect();
-        return result;
-    }
+    //static 
 
     static ImVec2 GetTotalSize(GridLayoutItem& item, const LayoutBuilder& layout, int currow, int currcol)
     {
@@ -2325,7 +2041,7 @@ namespace glimmer
 		if (layout.regionIdx != -1)
         {
 			auto& region = context.regions[layout.regionIdx];
-            const auto style = context.GetStyle(context.GetState(region.id).state.region.state, region.id);
+            const auto style = context.GetStyle(region.id);
             shift += { style.padding.right + style.border.right.thickness + style.margin.right,
 				style.padding.bottom + style.border.bottom.thickness + style.margin.bottom };
         }
@@ -2432,20 +2148,6 @@ namespace glimmer
         }
     }
 
-    static void InitLocalStyleStack(WidgetContextData& context, LayoutBuilder& layout, StyleStackT* stack)
-    {
-        for (auto idx = 0; idx < WSI_Total; ++idx)
-        {
-            stack[idx].clear(true);
-            stack[idx].push() = context.StyleStack[idx][layout.styleStartIdx[idx]];
-        }
-    }
-
-    static void InitLocalRegionStack(WidgetContextData& context, LayoutBuilder& layout, RegionStackT& stack)
-    {
-        stack.clear(true);
-    }
-
     // Translate layout items by layout.geometry.Min
     static void UpdateItemGeometry(WidgetContextData& context, LayoutItemDescriptor& item, const LayoutBuilder& layout)
     {
@@ -2455,7 +2157,7 @@ namespace glimmer
         if (item.scrollid != -1)
         {
             const auto& region = context.ScrollRegion(item.scrollid);
-            item.margin.Translate(region.state.pos);
+            item.margin.Translate(region.barstate.pos);
         }
         else if (item.wtype == WT_Scrollable)
         {
@@ -2467,7 +2169,7 @@ namespace glimmer
 
     // Convert layout-local coordinates of widgets to global coordinates
     static void UpdateWidgetGeometryPass(WidgetContextData& context, LayoutBuilder& layout, 
-        const IODescriptor& io, RegionStackT& regionStack, StyleStackT* styleStack)
+        const IODescriptor& io, RegionStackT& regionStack)
     {
         // An inverted stack at per-depth level
         static Vector<int32_t, int16_t> RegionDrawStack[GLIMMER_MAX_REGION_NESTING];
@@ -2493,48 +2195,11 @@ namespace glimmer
                     UpdateItemGeometry(context, item, sublayout);
 
                 // This does not generate any draw commands but only computes widget geometry
-                RenderWidgetInstance(item, styleStack, io, false);
+                RenderWidgetPostLayout(item, io, false);
                 break;
             }
-            case LayoutOps::PushStyle:
-            {
-                auto state = data & std::numeric_limits<int32_t>::max();
-                auto index = data >> 32;
-                assert(state < WSI_Total);
-                assert(index < context.layoutStyles[state].size());
-                styleStack[state].push() = context.layoutStyles[state][index];
-                break;
-            }
-            case LayoutOps::PopStyle:
-            {
-                auto states = data & std::numeric_limits<int32_t>::max();
-                auto amount = data >> 32;
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                    if ((1 << idx) & states)
-                        styleStack[idx].pop(amount, true);
-                break;
-            }
-            case LayoutOps::IgnoreStyleStack:
-            {
-                WidgetContextData::IgnoreStyleStack(data);
-                break;
-            }
-            case LayoutOps::RestoreStyleStack:
-            {
-                WidgetContextData::RestoreStyleStack();
-                break;
-            }
-            case LayoutOps::PushTextType:
-                PushTextType((TextType)(data));
-                break;
-            case LayoutOps::PopTextType:
-                PopTextType();
-                break;
             case LayoutOps::PushRegion:
             {
-                auto& region = context.regions[(int32_t)data];
-                const auto& state = context.GetState(region.id).state.region;
-                region.style = GetStyle(context, region.id, styleStack, state.state);
                 regionStack.push() = (int32_t)data;
                 depth++;
                 break;
@@ -2566,7 +2231,7 @@ namespace glimmer
     }
 
     static void RenderWidgetPass(WidgetContextData& context, LayoutBuilder& layout,
-        WidgetDrawResult& result, const IODescriptor& io, StyleStackT* stack)
+        WidgetDrawResult& result, const IODescriptor& io)
     {
         for (const auto [data, op] : context.replayContent)
         {
@@ -2577,42 +2242,10 @@ namespace glimmer
                 auto& item = context.layoutItems[(int16_t)data];
                 if (WidgetContextData::CacheItemGeometry) 
                     item.margin = context.GetGeometry(item.id);
-                if (auto res = RenderWidgetInstance(item, stack, io, true); res.event != WidgetEvent::None)
+                if (auto res = RenderWidgetPostLayout(item, io, true); res.event != WidgetEvent::None)
                     result = res;
                 break;
             }
-            case LayoutOps::PushStyle:
-            {
-                auto state = data & 0xffffffff;
-                auto index = data >> 32;
-                stack[state].push() = context.layoutStyles[state][index];
-                break;
-            }
-            case LayoutOps::PopStyle:
-            {
-                auto states = data & 0xffffffff;
-                auto amount = data >> 32;
-                for (auto idx = 0; idx < WSI_Total; ++idx)
-                    if ((1 << idx) & states)
-                        stack[idx].pop(amount, true);
-                break;
-            }
-            case LayoutOps::IgnoreStyleStack:
-            {
-                WidgetContextData::IgnoreStyleStack(data);
-                break;
-            }
-            case LayoutOps::RestoreStyleStack:
-            {
-                WidgetContextData::RestoreStyleStack();
-                break;
-            }
-            case LayoutOps::PushTextType:
-                PushTextType((TextType)(data));
-                break;
-            case LayoutOps::PopTextType:
-                PopTextType();
-                break;
             case LayoutOps::PushRegion:
             {
                 auto& region = context.regions[(int32_t)data];
@@ -2630,17 +2263,18 @@ namespace glimmer
         }
     }
 
+    static void InitLocalRegionStack(WidgetContextData& context, LayoutBuilder& layout, RegionStackT& stack)
+    {
+        stack.clear(true);
+    }
+
     static void RenderWidgets(WidgetContextData& context, LayoutBuilder& layout, WidgetDrawResult& result)
     {
-        // This stores the data for replay of style push/pop operations within a layout block
-        static StyleStackT StyleStack[WSI_Total];
         static RegionStackT RegionStack;
-        InitLocalStyleStack(context, layout, StyleStack);
         InitLocalRegionStack(context, layout, RegionStack);
-
         auto io = Config.platform->CurrentIO();
-        UpdateWidgetGeometryPass(context, layout, io, RegionStack, StyleStack);
-        RenderWidgetPass(context, layout, result, io, StyleStack);
+        UpdateWidgetGeometryPass(context, layout, io, RegionStack);
+        RenderWidgetPass(context, layout, result, io);
     }
 
     static ImVec2 UpdateRegionGeometry(WidgetContextData& context, LayoutBuilder& layout, bool isTopLevel)
