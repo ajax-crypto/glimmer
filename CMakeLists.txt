@@ -30,13 +30,13 @@ elseif(WIN32)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
     add_definitions(-DUNICODE -D_UNICODE)
     
-elseif(UNIX AND NOT APPLE)
+elseif(UNIX)
     set(GLIMMER_OS_DIR "linux")
     set(LIB_EXT ".a")
     set(LIB_PREFIX "lib")
     
 else()
-    message(FATAL_ERROR "Unsupported platform. This script supports Linux, Windows, and Emscripten.")
+    message(FATAL_ERROR "Unsupported platform. This script supports Linux, Windows, and Emscripten only.")
 endif()
 
 #==============================================================================
@@ -229,7 +229,6 @@ target_compile_definitions(${LIBRARY_NAME} PRIVATE
     IMGUI_ENABLE_FREETYPE
     IMGUI_USE_WCHAR32
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-    IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS
     IMGUI_DISABLE_DEMO_WINDOWS
     GLIMMER_DISABLE_BLEND2D_RENDERER
 )
@@ -285,7 +284,7 @@ if(WIN32)
     target_link_libraries(${LIBRARY_NAME} PUBLIC
         user32 gdi32 shell32 advapi32 ole32 oleaut32 imm32 version winmm setupapi shlwapi
     )
-elseif(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND GLIMMER_PLATFORM MATCHES "sdl3|glfw")
+elseif(UNIX AND NOT EMSCRIPTEN AND GLIMMER_PLATFORM MATCHES "sdl3|glfw")
     # Linux X11
     find_package(X11 REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC ${X11_LIBRARIES})
@@ -376,7 +375,7 @@ if(NOT EMSCRIPTEN)
         endforeach()
 
         # Blend2D
-        if(UNIX AND NOT APPLE)
+        if(UNIX)
             if(GLIMMER_ENABLE_BLEND2D)
                 set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
                 if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
