@@ -111,7 +111,14 @@ namespace glimmer
             int i = 0;
             for (const auto& pInfo : data.pathsInfo)
                 if (pInfo.state != AnimState::Disappearing && i < data.userPaths->count)
+#ifdef _WIN32
+                    // Windows-specific code using strncpy_s
                     strncpy_s(data.userPaths->out[i], data.userPaths->size, pInfo.path.c_str(), _TRUNCATE);
+#else
+                    // Linux-specific code using strncpy
+                    strncpy(data.userPaths->out[i], pInfo.path.c_str(), data.userPaths->size - 1);
+                    data.userPaths->out[i][data.userPaths->size - 1] = '\0'; // Ensure null-termination
+#endif
             i++;
 
             data.currentPathCount = i;
