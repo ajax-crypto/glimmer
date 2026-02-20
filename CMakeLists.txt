@@ -15,44 +15,29 @@ endif()
 #==============================================================================
 # OS & Path Configuration
 #==============================================================================
-if(EMSCRIPTEN)
-    # ===== NEW: Emscripten Configuration =====
-    set(GLIMMER_OS_DIR "emscripten")
-    set(LIB_EXT ".a")
-    set(LIB_PREFIX "lib")
-    message(STATUS "Building for Emscripten (WebAssembly)")
-    
-elseif(WIN32)
+if(WIN32)
     set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
     set(GLIMMER_OS_DIR "win32")
     set(LIB_EXT ".lib")
-    set(LIB_PREFIX "")
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions(-DUNICODE -D_UNICODE)
-    
-elseif(UNIX)
+    set(LIB_PREFIX "") # Windows libs usually don't have 'lib' prefix in this project
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS) # Silence MSVC warnings
+    add_definitions(-DUNICODE -D_UNICODE) # Ensure Unicode character set
+elseif(UNIX AND NOT APPLE)
     set(GLIMMER_OS_DIR "linux")
     set(LIB_EXT ".a")
     set(LIB_PREFIX "lib")
-    
 else()
-    message(FATAL_ERROR "Unsupported platform. This script supports Linux, Windows, and Emscripten only.")
+    message(FATAL_ERROR "Unsupported platform. This script supports Linux and Windows.")
 endif()
 
 #==============================================================================
 # Platform Configuration
 #==============================================================================
-set(GLIMMER_PLATFORM "sdl3" CACHE STRING "Target platform: test, tui, sdl3, glfw")
+set(GLIMMER_PLATFORM "sdl3" CACHE STRING "Target platform: test, tui, sdl3, glfw, webgpu")
 
 # Validate platform
-if(NOT GLIMMER_PLATFORM MATCHES "^(test|tui|sdl3|glfw)$")
-    message(FATAL_ERROR "Invalid GLIMMER_PLATFORM: ${GLIMMER_PLATFORM}. Must be: test, tui, sdl3, or glfw")
-endif()
-
-# ===== NEW: Emscripten can only use SDL3 platform =====
-if(EMSCRIPTEN AND NOT GLIMMER_PLATFORM STREQUAL "sdl3")
-    message(WARNING "Emscripten only supports sdl3 platform. Forcing GLIMMER_PLATFORM=sdl3")
-    set(GLIMMER_PLATFORM "sdl3")
+if(NOT GLIMMER_PLATFORM MATCHES "^(test|tui|sdl3|glfw|webgpu)$")
+    message(FATAL_ERROR "Invalid GLIMMER_PLATFORM: ${GLIMMER_PLATFORM}. Must be: test, tui, sdl3, glfw, or webgpu")
 endif()
 
 # Map platform to library name and define
@@ -68,6 +53,9 @@ elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
 elseif(GLIMMER_PLATFORM STREQUAL "glfw")
     set(LIBRARY_NAME "glimmer_glfw")
     set(PLATFORM_DEFINE "GLIMMER_PLATFORM_GLFW=2")
+elseif(GLIMMER_PLATFORM STREQUAL "webgpu")
+    set(LIBRARY_NAME "glimmer_webgpu")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_WEBGPU=3")
 endif()
 
 message(STATUS "Platform: ${GLIMMER_PLATFORM} (${GLIMMER_OS_DIR})")
@@ -75,42 +63,20 @@ message(STATUS "Platform: ${GLIMMER_PLATFORM} (${GLIMMER_OS_DIR})")
 #==============================================================================
 # Compiler Flags
 #==============================================================================
-if(EMSCRIPTEN)
-    # ===== NEW: Emscripten-specific flags =====
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
-    
-    # Emscripten linker flags
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
-        -sUSE_SDL=3 \
-        -sUSE_WEBGPU=1 \
-        -sALLOW_MEMORY_GROWTH=1 \
-        -sMAXIMUM_MEMORY=4GB \
-        -sFORCE_FILESYSTEM=1 \
-        -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap'] \
-        --preload-file assets@/assets \
-    ")
-    
-    # Debug vs Release
-    if(CMAKE_BUILD_TYPE MATCHES "Debug")
-        set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -sASSERTIONS=1")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASSERTIONS=1 -sSAFE_HEAP=1")
-    else()
-        set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -O3")
-    endif()
-    
-elseif(MSVC)
+if(MSVC)
     # MSVC specific flags
+    # /W4: High warning level, /MP: Multi-processor build, /utf-8: Source encoding
     add_compile_options(/MP /utf-8)
+    
     set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Ob0 /Od /RTC1")
     set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /Ob2 /DNDEBUG")
-    
 else()
     # GCC/Clang specific flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
     set(CMAKE_CXX_FLAGS_DEBUG "-g -Og")
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -fno-math-errno -fdevirtualize-speculatively")
 
+    # Allow implicit fallthrough
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-implicit-fallthrough")
     endif()
@@ -125,13 +91,8 @@ option(GLIMMER_DISABLE_RICHTEXT "Disable rich text rendering" OFF)
 option(GLIMMER_DISABLE_PLOTS "Disable plotting/graph library integration" OFF)
 option(GLIMMER_ENABLE_NFDEXT "Enable nfd-extended library for file pickers" OFF)
 option(GLIMMER_ENABLE_BLEND2D "Enable Blend2D renderer" OFF)
+option(GLIMMER_ENABLE_WEBGPU "Enable WebGPU library" OFF)
 option(GLIMMER_FORCE_UPDATE "Force dependency refresh" OFF)
-
-# ===== NEW: Disable features not supported in Emscripten =====
-if(EMSCRIPTEN)
-    set(GLIMMER_ENABLE_NFDEXT OFF CACHE BOOL "NFD not supported in Emscripten" FORCE)
-    set(GLIMMER_ENABLE_BLEND2D OFF CACHE BOOL "Blend2D not needed in Emscripten" FORCE)
-endif()
 
 # Configure compile definitions
 add_compile_definitions(${PLATFORM_DEFINE})
@@ -154,6 +115,9 @@ if(GLIMMER_ENABLE_NFDEXT)
 endif()
 if(NOT GLIMMER_ENABLE_BLEND2D)
     add_compile_definitions(GLIMMER_DISABLE_BLEND2D_RENDERER)
+endif()
+if(GLIMMER_ENABLE_WEBGPU)
+    add_compile_definitions(GLIMMER_ENABLE_WEBGPU)
 endif()
 if(GLIMMER_FORCE_UPDATE)
     add_compile_definitions(GLIMMER_FORCE_UPDATE)
@@ -188,7 +152,7 @@ endif()
 set(ALL_SOURCES ${GLIMMER_SOURCES} ${EXTRA_SOURCES})
 
 #==============================================================================
-# Visual Studio Code Organization
+# Visual Studio Code Oragnization
 #==============================================================================
 if (WIN32)
     set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -229,6 +193,7 @@ target_compile_definitions(${LIBRARY_NAME} PRIVATE
     IMGUI_ENABLE_FREETYPE
     IMGUI_USE_WCHAR32
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+    IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS
     IMGUI_DISABLE_DEMO_WINDOWS
     GLIMMER_DISABLE_BLEND2D_RENDERER
 )
@@ -255,25 +220,18 @@ target_include_directories(${LIBRARY_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/imguisdl3
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/blend2d
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/nlohmann
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/webgpu
 )
-
-# ===== NEW: Add WebGPU headers for Emscripten =====
-if(EMSCRIPTEN)
-    target_include_directories(${LIBRARY_NAME} PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/webgpu
-    )
-endif()
 
 #==============================================================================
 # System Libraries
 #==============================================================================
-if(NOT EMSCRIPTEN)
-    find_package(Threads REQUIRED)
-    target_link_libraries(${LIBRARY_NAME} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-endif()
+find_package(Threads REQUIRED)
 
-# OpenGL (required for GLFW platform on native)
-if(GLIMMER_PLATFORM MATCHES "glfw" AND NOT EMSCRIPTEN)
+target_link_libraries(${LIBRARY_NAME} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+
+# OpenGL (required for graphical platforms)
+if(GLIMMER_PLATFORM MATCHES "glfw")
     find_package(OpenGL REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC OpenGL::GL)
 endif()
@@ -284,7 +242,7 @@ if(WIN32)
     target_link_libraries(${LIBRARY_NAME} PUBLIC
         user32 gdi32 shell32 advapi32 ole32 oleaut32 imm32 version winmm setupapi shlwapi
     )
-elseif(UNIX AND NOT EMSCRIPTEN AND GLIMMER_PLATFORM MATCHES "sdl3|glfw")
+elseif(UNIX AND NOT APPLE AND GLIMMER_PLATFORM MATCHES "sdl3|glfw|webgpu")
     # Linux X11
     find_package(X11 REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC ${X11_LIBRARIES})
@@ -300,126 +258,152 @@ else()
     set(LIB_SUBDIR "release")
 endif()
 
-# Path now uses GLIMMER_OS_DIR (win32, linux, or emscripten)
+# Path now uses GLIMMER_OS_DIR (win32 or linux)
 set(PLATFORM_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/libs/lib/${GLIMMER_OS_DIR}/${LIB_SUBDIR}")
 
 message(STATUS "Looking for libraries in: ${PLATFORM_LIB_DIR}")
 
-# ===== MODIFIED: Skip library linking for Emscripten (uses USE_SDL=3, USE_WEBGPU=1) =====
-if(NOT EMSCRIPTEN)
-    # Define Core Libs based on Platform naming convention
-    if(WIN32)
-        if(EXISTS "${PLATFORM_LIB_DIR}/imgui_static.lib")
-            set(IMGUI_LIB_NAME "imgui_static")
-        else()
-            set(IMGUI_LIB_NAME "libimgui_static")
-        endif()
-        set(CORE_LIBS ${IMGUI_LIB_NAME} freetype yoga)
+# Define Core Libs based on Platform naming convention
+if(WIN32)
+    # Check if imgui_static.lib exists (CMake build), else fallback to imgui.lib
+    if(EXISTS "${PLATFORM_LIB_DIR}/imgui_static.lib")
+        set(IMGUI_LIB_NAME "imgui_static")
     else()
-        if(EXISTS "${PLATFORM_LIB_DIR}/libimgui_static.a")
-            set(IMGUI_LIB_NAME "libimgui_static")
-        else()
-            set(IMGUI_LIB_NAME "libimgui")
-        endif()
-        set(CORE_LIBS ${IMGUI_LIB_NAME} libfreetype libyoga)
+        set(IMGUI_LIB_NAME "libimgui_static")
+    endif()
+    set(CORE_LIBS ${IMGUI_LIB_NAME} freetype yoga)
+else()
+    # Prefer imgui_static if present, fallback to libimgui
+    if(EXISTS "${PLATFORM_LIB_DIR}/libimgui_static.a")
+        set(IMGUI_LIB_NAME "libimgui_static")
+    else()
+        set(IMGUI_LIB_NAME "libimgui")
+    endif()
+    set(CORE_LIBS ${IMGUI_LIB_NAME} libfreetype libyoga)
+endif()
+
+# Link Core Libs
+foreach(lib_base ${CORE_LIBS})
+    # Construct full filename: prefix + base + extension
+    # Win: "" + "imgui" + ".lib" -> "imgui.lib"
+    # Lin: "" + "libimgui" + ".a" -> "libimgui.a" (Note: Linux base names in list above already had 'lib')
+    
+    # Actually, simpler logic: explicit names or construct carefully
+    if(WIN32)
+        set(full_name "${lib_base}${LIB_EXT}")
+    else()
+        set(full_name "${lib_base}${LIB_EXT}")
     endif()
 
-    # Link Core Libs
-    foreach(lib_base ${CORE_LIBS})
-        if(WIN32)
-            set(full_name "${lib_base}${LIB_EXT}")
-        else()
-            set(full_name "${lib_base}${LIB_EXT}")
-        endif()
+    set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
+    if(EXISTS "${lib_path}")
+        target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+        message(STATUS "✓ Linking ${full_name}")
+    else()
+        message(FATAL_ERROR "Required library not found: ${lib_path}")
+    endif()
+endforeach()
 
+# Platform-specific dependencies
+if(GLIMMER_PLATFORM STREQUAL "test")
+    # No extra libs
+
+elseif(GLIMMER_PLATFORM STREQUAL "tui")
+    # PDCurses
+    set(tui_lib_name "${LIB_PREFIX}pdcurses${LIB_EXT}")
+    if(EXISTS "${PLATFORM_LIB_DIR}/${tui_lib_name}")
+        target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${tui_lib_name}")
+        message(STATUS "✓ Linking ${tui_lib_name}")
+    else()
+        message(FATAL_ERROR "${tui_lib_name} not found")
+    endif()
+
+elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
+    # SDL3 + SVG + Plots
+    if(WIN32)
+        set(SDL3_LIBS SDL3 plutovg lunasvg imgui_static)
+    else()
+        set(SDL3_LIBS libSDL3 liblunasvg libimgui_static)
+    endif()
+
+    foreach(lib_base ${SDL3_LIBS})
+        set(full_name "${lib_base}${LIB_EXT}")
         set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
         if(EXISTS "${lib_path}")
             target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
             message(STATUS "✓ Linking ${full_name}")
         else()
-            message(FATAL_ERROR "Required library not found: ${lib_path}")
+            message(WARNING "${full_name} not found (may be optional)")
         endif()
     endforeach()
 
-    # Platform-specific dependencies
-    if(GLIMMER_PLATFORM STREQUAL "test")
-        # No extra libs
-
-    elseif(GLIMMER_PLATFORM STREQUAL "tui")
-        # PDCurses
-        set(tui_lib_name "${LIB_PREFIX}pdcurses${LIB_EXT}")
-        if(EXISTS "${PLATFORM_LIB_DIR}/${tui_lib_name}")
-            target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${tui_lib_name}")
-            message(STATUS "✓ Linking ${tui_lib_name}")
-        else()
-            message(FATAL_ERROR "${tui_lib_name} not found")
-        endif()
-
-    elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
-        # SDL3 + SVG + Plots
-        if(WIN32)
-            set(SDL3_LIBS SDL3 plutovg lunasvg imgui_static)
-        else()
-            set(SDL3_LIBS libSDL3 liblunasvg libimgui_static)
-        endif()
-
-        foreach(lib_base ${SDL3_LIBS})
-            set(full_name "${lib_base}${LIB_EXT}")
-            set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
-            if(EXISTS "${lib_path}")
-                target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
-                message(STATUS "✓ Linking ${full_name}")
+    # Blend2D
+    if(UNIX AND NOT APPLE)
+        if(GLIMMER_ENABLE_BLEND2D)
+            set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
+            if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
+                target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
+                message(STATUS "✓ Linking ${b2d_name}")
             else()
-                message(WARNING "${full_name} not found (may be optional)")
-            endif()
-        endforeach()
-
-        # Blend2D
-        if(UNIX)
-            if(GLIMMER_ENABLE_BLEND2D)
-                set(b2d_name "${LIB_PREFIX}blend2d${LIB_EXT}")
-                if(EXISTS "${PLATFORM_LIB_DIR}/${b2d_name}")
-                    target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${b2d_name}")
-                    message(STATUS "✓ Linking ${b2d_name}")
-                else()
-                    message(WARNING "Blend2D requested but ${b2d_name} not found")
-                endif()
-            endif()
-        endif()
-
-    elseif(GLIMMER_PLATFORM STREQUAL "glfw")
-        # GLFW + SVG + Plots + NFD
-        if(WIN32)
-            set(GLFW_LIBS glfw3 plutovg lunasvg imgui_static)
-        else()
-            set(GLFW_LIBS libglfw3 libplutovg liblunasvg libimgui)
-        endif()
-
-        foreach(lib_base ${GLFW_LIBS})
-            set(full_name "${lib_base}${LIB_EXT}")
-            set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
-            if(EXISTS "${lib_path}")
-                target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
-                message(STATUS "✓ Linking ${full_name}")
-            else()
-                message(WARNING "${full_name} not found (may be optional)")
-            endif()
-        endforeach()
-
-        # NFD
-        if(GLIMMER_ENABLE_NFDEXT)
-            set(nfd_name "${LIB_PREFIX}nfd${LIB_EXT}")
-            if(EXISTS "${PLATFORM_LIB_DIR}/${nfd_name}")
-                target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${nfd_name}")
-                message(STATUS "✓ Linking ${nfd_name}")
-            else()
-                message(WARNING "NFD requested but ${nfd_name} not found")
+                message(WARNING "Blend2D requested but ${b2d_name} not found")
             endif()
         endif()
     endif()
-else()
-    # ===== NEW: Emscripten uses port system, no static libs needed =====
-    message(STATUS "Emscripten build: Using -sUSE_SDL=3 and -sUSE_WEBGPU=1 (no static libs needed)")
+
+elseif(GLIMMER_PLATFORM STREQUAL "glfw")
+    # GLFW + SVG + Plots + NFD
+    if(WIN32)
+        set(GLFW_LIBS glfw3 plutovg lunasvg imgui_static)
+    else()
+        set(GLFW_LIBS libglfw3 libplutovg liblunasvg libimgui)
+    endif()
+
+    foreach(lib_base ${GLFW_LIBS})
+        set(full_name "${lib_base}${LIB_EXT}")
+        set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
+        if(EXISTS "${lib_path}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+            message(STATUS "✓ Linking ${full_name}")
+        else()
+            message(WARNING "${full_name} not found (may be optional)")
+        endif()
+    endforeach()
+
+    # NFD
+    if(GLIMMER_ENABLE_NFDEXT)
+        set(nfd_name "${LIB_PREFIX}nfd${LIB_EXT}")
+        if(EXISTS "${PLATFORM_LIB_DIR}/${nfd_name}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${PLATFORM_LIB_DIR}/${nfd_name}")
+            message(STATUS "✓ Linking ${nfd_name}")
+        else()
+            message(WARNING "NFD requested but ${nfd_name} not found")
+        endif()
+    endif()
+
+elseif(GLIMMER_PLATFORM STREQUAL "webgpu")
+    # WebGPU + SDL3 + SVG + Plots + Icons
+    if(WIN32)
+        set(WEBGPU_LIBS SDL3 plutovg lunasvg imgui_static)
+    else()
+        set(WEBGPU_LIBS libSDL3 libplutovg liblunasvg libimgui_static)
+    endif()
+
+    foreach(lib_base ${WEBGPU_LIBS})
+        set(full_name "${lib_base}${LIB_EXT}")
+        set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
+        if(EXISTS "${lib_path}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+            message(STATUS "✓ Linking ${full_name}")
+        else()
+            message(WARNING "${full_name} not found (may be optional)")
+        endif()
+    endforeach()
+
+    # WebGPU (header-only, no library linking needed)
+    if(GLIMMER_ENABLE_WEBGPU)
+        message(STATUS "✓ WebGPU enabled (header-only library)")
+    endif()
+
 endif()
 
 #==============================================================================
@@ -446,13 +430,5 @@ message(STATUS "Glimmer Static Library Configuration")
 message(STATUS "========================================")
 message(STATUS "  OS: ${GLIMMER_OS_DIR}")
 message(STATUS "  Platform: ${GLIMMER_PLATFORM}")
-
-# ===== MODIFIED: Show WebGPU info for Emscripten =====
-if(EMSCRIPTEN)
-    message(STATUS "  Renderer: WebGPU (via Emscripten)")
-    message(STATUS "  IO: SDL3 (via Emscripten)")
-else()
-    message(STATUS "  Output: lib${LIBRARY_NAME}.a / ${LIBRARY_NAME}.lib")
-endif()
-
+message(STATUS "  Output: lib${LIBRARY_NAME}.a / ${LIBRARY_NAME}.lib")
 message(STATUS "========================================")
