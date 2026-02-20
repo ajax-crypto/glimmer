@@ -240,7 +240,7 @@ def main():
     parser.add_argument("--disable-icon-font", action="store_true")
     parser.add_argument("--disable-richtext", action="store_true")
     parser.add_argument("--enable-blend2d", action="store_true")
-    parser.add_argument("--disable-webgpu", action="store_true")
+    parser.add_argument("--webgpu", action="store_true")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--fast", action="store_true")
     parser.add_argument("--output", type=str, help="Copy the combined static library to the specified path (absolute or relative)")
@@ -290,7 +290,7 @@ def main():
     if args.disable_images: feats["STB"] = False
     if args.disable_icon_font: feats["ICONS"] = False
     if not args.enable_blend2d: feats["BLEND2D"] = False
-    if args.disable_webgpu: feats["WEBGPU"] = False
+    if args.webgpu: feats["WEBGPU"] = True
 
     log("\nSetting up environment...")
     ts = timer()
