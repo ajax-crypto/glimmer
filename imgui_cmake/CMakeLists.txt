@@ -4,6 +4,16 @@ cmake_minimum_required(VERSION 3.24)
 project(ImGuiStaticLib VERSION 1.0.0 LANGUAGES CXX)
 
 # ==============================================================================
+# Platform Detection
+# ==============================================================================
+if(EMSCRIPTEN)
+    message(STATUS "Building for Emscripten/WebAssembly")
+    set(IS_EMSCRIPTEN TRUE)
+else()
+    set(IS_EMSCRIPTEN FALSE)
+endif()
+
+# ==============================================================================
 # Paths & Dependencies
 # ==============================================================================
 # Allow user to override FreeType include path via command line:
@@ -16,6 +26,18 @@ option(FREETYPE_INCLUDE_DIR "" "${CMAKE_CURRENT_SOURCE_DIR}/../src/libs/inc/free
 option(BUILD_WITH_SDL3 "Build ImGui with SDL3 backend" ON)
 option(BUILD_WITH_GLFW "Build ImGui with GLFW backend" OFF)
 option(BUILD_IMPLOT    "Include ImPlot in the library" ON)
+
+# Emscripten forces SDL3 + WebGPU backend
+if(IS_EMSCRIPTEN)
+    if(NOT BUILD_WITH_SDL3)
+        message(WARNING "Emscripten requires SDL3 backend. Forcing BUILD_WITH_SDL3=ON")
+        set(BUILD_WITH_SDL3 ON CACHE BOOL "Build ImGui with SDL3 backend" FORCE)
+    endif()
+    if(BUILD_WITH_GLFW)
+        message(WARNING "Emscripten does not support GLFW. Disabling BUILD_WITH_GLFW")
+        set(BUILD_WITH_GLFW OFF CACHE BOOL "Build ImGui with GLFW backend" FORCE)
+    endif()
+endif()
 
 # Default Build Type (Release) if not specified (Mostly for Linux/Ninja/Makefiles)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -30,10 +52,28 @@ option(IMGUI_DIR "" "${CMAKE_CURRENT_SOURCE_DIR}/../dependency/imgui")
 option(IMPLOT_DIR "" "${CMAKE_CURRENT_SOURCE_DIR}/../dependency/implot")
 option(INCLUDE_DIR "" "${CMAKE_CURRENT_SOURCE_DIR}/../src/libs/inc")
 
-#==============================================================================
+# ==============================================================================
 # Compiler Flags
-#==============================================================================
-if(MSVC)
+# ==============================================================================
+if(IS_EMSCRIPTEN)
+    # Emscripten-specific flags
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
+    
+    # Emscripten linker flags (these will be inherited by targets linking this library)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} \
+        -sUSE_SDL=3 \
+        -sUSE_WEBGPU=1 \
+        -sALLOW_MEMORY_GROWTH=1 \
+        -sMAXIMUM_MEMORY=4GB \
+    ")
+    
+    if(CMAKE_BUILD_TYPE MATCHES "Debug")
+        set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -sASSERTIONS=1")
+    else()
+        set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+    endif()
+    
+elseif(MSVC)
     add_definitions(-DUNICODE -D_UNICODE) # Ensure Unicode character set
     
     # MSVC specific flags
@@ -46,7 +86,7 @@ else()
     # GCC/Clang specific flags
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
     set(CMAKE_CXX_FLAGS_DEBUG "-g -Og")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -fno-math-errno -fdevirtualize-speculatively")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -fno-math-errno -fdevirtualize-speculatively")
 
     # Allow implicit fallthrough
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -66,42 +106,87 @@ target_sources(imgui_static PRIVATE
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp
 )
 
-# 2. Core Includes (FreeType assumed present in include/freetype2)
+# FreeType support (skip for Emscripten - uses built-in font rendering)
+if(NOT IS_EMSCRIPTEN)
+    target_sources(imgui_static PRIVATE
+        ${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp
+    )
+endif()
+
+# 2. Core Includes
 target_include_directories(imgui_static PUBLIC
     ${IMGUI_DIR}
     ${INCLUDE_DIR}
-    ${FREETYPE_INCLUDE_DIR}
 )
+
+# FreeType include (only for native builds)
+if(NOT IS_EMSCRIPTEN)
+    target_include_directories(imgui_static PUBLIC
+        ${FREETYPE_INCLUDE_DIR}
+    )
+endif()
 
 # 3. Core Definitions
 target_compile_definitions(imgui_static PUBLIC
-    IMGUI_ENABLE_FREETYPE
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-    IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS
     IMGUI_DISABLE_DEMO_WINDOWS
     IMGUI_USE_WCHAR32
 )
+
+# FreeType definition (only for native builds)
+if(NOT IS_EMSCRIPTEN)
+    target_compile_definitions(imgui_static PUBLIC
+        IMGUI_ENABLE_FREETYPE
+        IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS
+    )
+endif()
 
 # ==============================================================================
 # Platform Backend Selection
 # ==============================================================================
 if(BUILD_WITH_SDL3)
-    message(STATUS "Configuring ImGui with SDL3 Backend...")
-    
-    # Sources
-    target_sources(imgui_static PRIVATE
-        ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp
-        ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp
-    )
-    
-    # Definitions
-    target_compile_definitions(imgui_static PUBLIC IMGUI_IMPL_SDL3)
+    if(IS_EMSCRIPTEN)
+        # ===== EMSCRIPTEN: SDL3 + WebGPU Backend =====
+        message(STATUS "Configuring ImGui with SDL3 + WebGPU Backend (Emscripten)...")
+        
+        # Sources - Use WebGPU backend for Emscripten
+        target_sources(imgui_static PRIVATE
+            ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_wgpu.cpp
+        )
+        
+        # Definitions
+        target_compile_definitions(imgui_static PUBLIC 
+            IMGUI_IMPL_SDL3
+            IMGUI_IMPL_WEBGPU
+        )
+        
+        # Emscripten provides SDL3 and WebGPU via ports
+        # No need to link libraries explicitly
+        
+    else()
+        # ===== NATIVE: SDL3 + SDL_GPU Backend =====
+        message(STATUS "Configuring ImGui with SDL3 + SDL_GPU Backend (Native)...")
+        
+        # Sources - Use SDL_GPU backend for native
+        target_sources(imgui_static PRIVATE
+            ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp
+        )
+        
+        # Definitions
+        target_compile_definitions(imgui_static PUBLIC IMGUI_IMPL_SDL3)
+    endif()
 
 elseif(BUILD_WITH_GLFW)
+    if(IS_EMSCRIPTEN)
+        message(FATAL_ERROR "GLFW backend is not supported on Emscripten. Use SDL3 instead.")
+    endif()
+    
+    # ===== NATIVE: GLFW + OpenGL3 Backend =====
     message(STATUS "Configuring ImGui with GLFW + OpenGL3 Backend...")
     
     # Sources
@@ -133,9 +218,13 @@ if(BUILD_IMPLOT)
 endif()
 
 # ==============================================================================
-# Compiler Flags
+# Compiler Flags (Target-specific)
 # ==============================================================================
-if(MSVC)
+if(IS_EMSCRIPTEN)
+    target_compile_options(imgui_static PRIVATE
+        -std=c++20
+    )
+elseif(MSVC)
     target_compile_options(imgui_static PRIVATE
         /std:c++20
         /EHsc
@@ -156,4 +245,22 @@ set_target_properties(imgui_static PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
-message(STATUS "Build configured for: ${CMAKE_BUILD_TYPE}")
+# ==============================================================================
+# Platform-specific notes
+# ==============================================================================
+if(IS_EMSCRIPTEN)
+    message(STATUS "")
+    message(STATUS "========================================")
+    message(STATUS "Emscripten ImGui Configuration")
+    message(STATUS "========================================")
+    message(STATUS "  Backend: SDL3 + WebGPU")
+    message(STATUS "  FreeType: Disabled (using native fonts)")
+    message(STATUS "  SDL3: Provided via -sUSE_SDL=3")
+    message(STATUS "  WebGPU: Provided via -sUSE_WEBGPU=1")
+    message(STATUS "")
+    message(STATUS "Link your application with:")
+    message(STATUS "  emcc ... -lglimmer_sdl3 -sUSE_SDL=3 -sUSE_WEBGPU=1")
+    message(STATUS "========================================")
+else()
+    message(STATUS "Build configured for: ${CMAKE_BUILD_TYPE}")
+endif()

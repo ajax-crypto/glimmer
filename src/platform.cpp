@@ -288,6 +288,15 @@ extern "C"
 #include "libs/inc/imguisdl3/imgui_impl_sdlgpu3.h"
 #include "libs/inc/imguisdl3/imgui_impl_sdlrenderer3.h"
 
+#ifdef __EMSCRIPTEN__
+    #include "imgui_impl_wgpu.h"
+    #include <webgpu/webgpu.h>
+    #include <emscripten.h>
+    #include <emscripten/html5.h>
+    #include "libs/emscripten/emscripten_mainloop_stub.h"
+    #include <cstdint>
+#endif
+
 #include <deque>
 #include <list>
 #endif
@@ -313,6 +322,10 @@ extern "C"
 #include "libs/inc/GLFW/glfw3.h" // Will drag system OpenGL headers
 
 #ifdef __EMSCRIPTEN__
+#include "imgui_impl_wgpu.h"
+#include <webgpu/webgpu.h>
+#include <emscripten.h>
+#include <emscripten/html5.h>
 #include "libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
@@ -914,6 +927,53 @@ static void DetermineKeyStatus(Display* display, glimmer::IODescriptor& desc)
 }
 #endif
 
+#ifdef __EMSCRIPTEN__
+    // Forward declare for async callbacks
+    static WGPUAdapter acquired_adapter = nullptr;
+    static WGPUDevice acquired_device = nullptr;
+    
+    static void handle_request_adapter(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void* userdata1, void* userdata2)
+    {
+        if (status == WGPURequestAdapterStatus_Success)
+        {
+            acquired_adapter = adapter;
+        }
+        else
+        {
+            printf("Request_adapter failed: %.*s\n", (int)message.length, message.data);
+        }
+    }
+
+    static void handle_request_device(WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView message, void* userdata1, void* userdata2)
+    {
+        if (status == WGPURequestDeviceStatus_Success)
+        {
+            acquired_device = device;
+        }
+        else
+        {
+            printf("Request_device failed: %.*s\n", (int)message.length, message.data);
+        }
+    }
+
+    static WGPUAdapter RequestAdapter(WGPUInstance& instance)
+    {
+        WGPURequestAdapterOptions adapter_options = {};
+        WGPURequestAdapterCallbackInfo adapterCallbackInfo = {};
+        adapterCallbackInfo.callback = handle_request_adapter;
+        wgpuInstanceRequestAdapter(instance, &adapter_options, adapterCallbackInfo);
+        return acquired_adapter;
+    }
+
+    static WGPUDevice RequestDevice(WGPUAdapter& adapter)
+    {
+        WGPURequestDeviceCallbackInfo deviceCallbackInfo = {};
+        deviceCallbackInfo.callback = handle_request_device;
+        wgpuAdapterRequestDevice(adapter, nullptr, deviceCallbackInfo);
+        return acquired_device;
+    }
+#endif
+
 namespace glimmer {
 #endif
 
@@ -1008,8 +1068,108 @@ namespace glimmer {
             return SDL_GetClipboardText();
         }
 
+
         bool CreateWindow(const WindowParams& params)
         {
+#ifdef __EMSCRIPTEN__
+            // 1. Initialize SDL
+            if (!SDL_Init(SDL_INIT_VIDEO))
+            {
+                printf("Error: SDL_Init(): %s\n", SDL_GetError());
+                return false;
+            }
+
+            // 2. Create SDL window (for canvas integration)
+            SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+            window = SDL_CreateWindow(params.title.data(), 1280, 800, window_flags);
+            if (window == nullptr)
+            {
+                printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
+                return false;
+            }
+
+            int width = 1280, height = 800;
+
+            // 3. Create WebGPU instance
+            wgpu_instance = wgpuCreateInstance(nullptr);
+            if (wgpu_instance == nullptr)
+            {
+                printf("Error: Failed to create WebGPU instance\n");
+                return false;
+            }
+
+            // 4. Request adapter and device
+            WGPUAdapter adapter = RequestAdapter(wgpu_instance);
+            if (adapter == nullptr)
+            {
+                printf("Error: Failed to get WebGPU adapter\n");
+                return false;
+            }
+
+            wgpu_device = RequestDevice(adapter);
+            if (wgpu_device == nullptr)
+            {
+                printf("Error: Failed to get WebGPU device\n");
+                return false;
+            }
+
+            // 5. Create surface from canvas
+            WGPUSurfaceDescriptorFromCanvasHTMLSelector canvas_desc = {};
+            canvas_desc.selector = "#canvas";
+            WGPUSurfaceDescriptor surface_desc = {};
+            surface_desc.nextInChain = (WGPUChainedStruct*)&canvas_desc;
+            wgpu_surface = wgpuInstanceCreateSurface(wgpu_instance, &surface_desc);
+            if (wgpu_surface == nullptr)
+            {
+                printf("Error: Failed to create WebGPU surface\n");
+                return false;
+            }
+
+            // 6. Get preferred format and configure surface
+            wgpu_format = wgpuSurfaceGetPreferredFormat(wgpu_surface, adapter);
+            WGPUSurfaceConfiguration config = {};
+            config.device = wgpu_device;
+            config.format = wgpu_format;
+            config.width = (uint32_t)width;
+            config.height = (uint32_t)height;
+            config.presentMode = WGPUPresentMode_Fifo;
+            config.alphaMode = WGPUCompositeAlphaMode_Auto;
+            config.usage = WGPUTextureUsage_RenderAttachment;
+            wgpuSurfaceConfigure(wgpu_surface, &config);
+
+            // 7. Get queue
+            wgpu_queue = wgpuDeviceGetQueue(wgpu_device);
+
+            // 8. Create ImGui context
+            ImGui::CreateContext();
+            ImGuiIO& io = ImGui::GetIO();
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            io.IniFilename = nullptr;
+
+            bgcolor[0] = (float)params.bgcolor[0] / 255.f;
+            bgcolor[1] = (float)params.bgcolor[1] / 255.f;
+            bgcolor[2] = (float)params.bgcolor[2] / 255.f;
+            bgcolor[3] = (float)params.bgcolor[3] / 255.f;
+            softwareCursor = params.softwareCursor;
+
+            // 9. Init ImGui SDL3 window/input backend
+            ImGui_ImplSDL3_InitForOther(window);
+
+            // 10. Init ImGui WebGPU rendering backend
+            ImGui_ImplWGPU_InitInfo init_info = {};
+            init_info.Device = wgpu_device;
+            init_info.Queue = wgpu_queue;
+            init_info.RenderTargetFormat = wgpu_format;
+            init_info.NumFramesInFlight = 3;
+            ImGui_ImplWGPU_Init(&init_info);
+
+            // 11. Set Config.renderer (WGPU-backed renderer)
+            Config.renderer = CreateWGPURenderer();
+
+            targetFPS = params.targetFPS;
+            return true;
+
+#else
             if (!SDL_Init(SDL_INIT_VIDEO))
             {
                 printf("Error: SDL_Init(): %s\n", SDL_GetError());
@@ -1158,9 +1318,10 @@ namespace glimmer {
 
 #ifdef _DEBUG
             _CrtSetDbgFlag(_CRTDBG_DELAY_FREE_MEM_DF);
-#endif //  _DEBUG
+#endif
 
             device ? ImGui_ImplSDL3_InitForSDLGPU(window) : ImGui_ImplSDL3_InitForSDLRenderer(window, fallback);
+#endif
             return true;
         }
 
@@ -1224,8 +1385,12 @@ namespace glimmer {
                 }
 
                 // Start the Dear ImGui frame
-                device ? ImGui_ImplSDLGPU3_NewFrame() : ImGui_ImplSDLRenderer3_NewFrame();
                 ImGui_ImplSDL3_NewFrame();
+#ifdef __EMSCRIPTEN__
+                ImGui_ImplWGPU_NewFrame();
+#else
+                device ? ImGui_ImplSDLGPU3_NewFrame() : ImGui_ImplSDLRenderer3_NewFrame();
+#endif
 
                 if (EnterFrame(width, height, custom.empty() ? CustomEventData{} : custom.front()))
                 {
@@ -1238,9 +1403,100 @@ namespace glimmer {
 
                 ExitFrame();
 
+#ifdef __EMSCRIPTEN__
+                // WebGPU rendering (Emscripten)
+                ImDrawData* draw_data = ImGui::GetDrawData();
+                WGPUSurfaceTexture surface_texture;
+                wgpuSurfaceGetCurrentTexture(wgpu_surface, &surface_texture);
+    
+                if (surface_texture.texture != nullptr)
+                {
+                    WGPUTextureViewDescriptor view_desc = {};
+                    view_desc.format = wgpu_format;
+                    view_desc.dimension = WGPUTextureViewDimension_2D;
+                    view_desc.mipLevelCount = 1;
+                    view_desc.arrayLayerCount = 1;
+                    WGPUTextureView texture_view = wgpuTextureCreateView(surface_texture.texture, &view_desc);
+        
+                    WGPURenderPassColorAttachment color_attachment = {};
+                    color_attachment.view = texture_view;
+                    color_attachment.loadOp = WGPULoadOp_Clear;
+                    color_attachment.storeOp = WGPUStoreOp_Store;
+                    color_attachment.clearValue = { bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] };
+        
+                    WGPURenderPassDescriptor render_pass_desc = {};
+                    render_pass_desc.colorAttachmentCount = 1;
+                    render_pass_desc.colorAttachments = &color_attachment;
+        
+                    WGPUCommandEncoderDescriptor enc_desc = {};
+                    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(wgpu_device, &enc_desc);
+        
+                    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
+                    ImGui_ImplWGPU_RenderDrawData(draw_data, pass);
+                    wgpuRenderPassEncoderEnd(pass);
+        
+                    WGPUCommandBufferDescriptor cmd_desc = {};
+                    WGPUCommandBuffer cmd_buffer = wgpuCommandEncoderFinish(encoder, &cmd_desc);
+                    wgpuQueueSubmit(wgpu_queue, 1, &cmd_buffer);
+        
+                    wgpuSurfacePresent(wgpu_surface);
+        
+                    // Cleanup
+                    wgpuTextureViewRelease(texture_view);
+                    wgpuRenderPassEncoderRelease(pass);
+                    wgpuCommandEncoderRelease(encoder);
+                    wgpuCommandBufferRelease(cmd_buffer);
+                }
+#else
+                // Desktop SDL GPU/Renderer rendering
                 if (device)
                 {
                     ImDrawData* draw_data = ImGui::GetDrawData();
+
+#ifdef __EMSCRIPTEN__
+                    // WebGPU rendering
+                    WGPUSurfaceTexture surface_texture;
+                    wgpuSurfaceGetCurrentTexture(wgpu_surface, &surface_texture);
+        
+                    if (surface_texture.texture != nullptr)
+                    {
+                        WGPUTextureViewDescriptor view_desc = {};
+                        view_desc.format = wgpu_format;
+                        view_desc.dimension = WGPUTextureViewDimension_2D;
+                        view_desc.mipLevelCount = 1;
+                        view_desc.arrayLayerCount = 1;
+                        WGPUTextureView texture_view = wgpuTextureCreateView(surface_texture.texture, &view_desc);
+            
+                        WGPURenderPassColorAttachment color_attachment = {};
+                        color_attachment.view = texture_view;
+                        color_attachment.loadOp = WGPULoadOp_Clear;
+                        color_attachment.storeOp = WGPUStoreOp_Store;
+                        color_attachment.clearValue = { bgcolor[0], bgcolor[1], bgcolor[2], bgcolor[3] };
+            
+                        WGPURenderPassDescriptor render_pass_desc = {};
+                        render_pass_desc.colorAttachmentCount = 1;
+                        render_pass_desc.colorAttachments = &color_attachment;
+            
+                        WGPUCommandEncoderDescriptor enc_desc = {};
+                        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(wgpu_device, &enc_desc);
+            
+                        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_desc);
+                        ImGui_ImplWGPU_RenderDrawData(draw_data, pass);
+                        wgpuRenderPassEncoderEnd(pass);
+            
+                        WGPUCommandBufferDescriptor cmd_desc = {};
+                        WGPUCommandBuffer cmd_buffer = wgpuCommandEncoderFinish(encoder, &cmd_desc);
+                        wgpuQueueSubmit(wgpu_queue, 1, &cmd_buffer);
+            
+                        wgpuSurfacePresent(wgpu_surface);
+            
+                        // Cleanup
+                        wgpuTextureViewRelease(texture_view);
+                        wgpuRenderPassEncoderRelease(pass);
+                        wgpuCommandEncoderRelease(encoder);
+                        wgpuCommandBufferRelease(cmd_buffer);
+                    }
+#else
                     const bool is_minimized = (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
 
                     SDL_GPUCommandBuffer* command_buffer = SDL_AcquireGPUCommandBuffer(device); // Acquire a GPU command buffer
@@ -1319,11 +1575,77 @@ namespace glimmer {
 #endif
             SDL_Quit();
             Cleanup();
+#else
+            // Emscripten WebGPU shutdown
+#ifdef __EMSCRIPTEN__
+            ImGui_ImplWGPU_Shutdown();
+            ImGui_ImplSDL3_Shutdown();
+            ImGui::DestroyContext();
+            
+            wgpuSurfaceUnconfigure(wgpu_surface);
+            wgpuSurfaceRelease(wgpu_surface);
+            wgpuQueueRelease(wgpu_queue);
+            wgpuDeviceRelease(wgpu_device);
+            wgpuInstanceRelease(wgpu_instance);
+#endif
+
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            Cleanup();
+#endif
             return done;
         }
 
         ImTextureID UploadTexturesToGPU(ImVec2 size, unsigned char* pixels)
         {
+#ifdef __EMSCRIPTEN__
+            // WebGPU texture upload
+            WGPUTextureDescriptor texture_desc = {};
+            texture_desc.size = { (uint32_t)size.x, (uint32_t)size.y, 1 };
+            texture_desc.mipLevelCount = 1;
+            texture_desc.sampleCount = 1;
+            texture_desc.dimension = WGPUTextureDimension_2D;
+            texture_desc.format = WGPUTextureFormat_RGBA8Unorm;
+            texture_desc.usage = WGPUTextureUsage_CopyDst | WGPUTextureUsage_TextureBinding;
+    
+            WGPUTexture texture = wgpuDeviceCreateTexture(wgpu_device, &texture_desc);
+    
+            // Create transfer buffer
+            WGPUBufferDescriptor buffer_desc = {};
+            buffer_desc.usage = WGPUBufferUsage_CopySrc;
+            buffer_desc.size = (uint32_t)(size.x * size.y * 4);
+            buffer_desc.mappedAtCreation = true;
+            WGPUBuffer buffer = wgpuDeviceCreateBuffer(wgpu_device, &buffer_desc);
+    
+            memcpy(wgpuBufferGetMappedRange(buffer, 0, buffer_desc.size), pixels, buffer_desc.size);
+            wgpuBufferUnmap(buffer);
+    
+            // Copy buffer to texture
+            WGPUCommandEncoderDescriptor enc_desc = {};
+            WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(wgpu_device, &enc_desc);
+    
+            WGPUImageCopyBuffer copy_buffer = {};
+            copy_buffer.buffer = buffer;
+            copy_buffer.layout.bytesPerRow = (uint32_t)(size.x * 4);
+    
+            WGPUImageCopyTexture copy_texture = {};
+            copy_texture.texture = texture;
+    
+            WGPUExtent3D extent = { (uint32_t)size.x, (uint32_t)size.y, 1 };
+            wgpuCommandEncoderCopyBufferToTexture(encoder, &copy_buffer, &copy_texture, &extent);
+    
+            WGPUCommandBufferDescriptor cmd_desc = {};
+            WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, &cmd_desc);
+            wgpuQueueSubmit(wgpu_queue, 1, &cmd);
+    
+            // Cleanup
+            wgpuBufferRelease(buffer);
+            wgpuCommandEncoderRelease(encoder);
+            wgpuCommandBufferRelease(cmd);
+    
+            return (ImTextureID)(intptr_t)texture;
+
+#else
             if (device)
             {
                 SDL_GPUTextureCreateInfo textureInfo = {
@@ -1405,6 +1727,7 @@ namespace glimmer {
                 SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
                 return (ImTextureID)(intptr_t)(texture);
             }
+#endif
         }
 
 #if !defined(__EMSCRIPTEN__)
@@ -1589,6 +1912,14 @@ namespace glimmer {
         SDL_Renderer* fallback = nullptr;
 #ifdef GLIMMER_ENABLE_NFDEXT
         std::once_flag nfdInitialized;
+#endif
+
+#ifdef __EMSCRIPTEN__
+        WGPUInstance wgpu_instance = nullptr;
+        WGPUDevice wgpu_device = nullptr;
+        WGPUSurface wgpu_surface = nullptr;
+        WGPUQueue wgpu_queue = nullptr;
+        WGPUTextureFormat wgpu_format = WGPUTextureFormat_RGBA8Unorm;
 #endif
 
         std::vector<EventHandlerDescriptor> handlers;

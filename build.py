@@ -1,4 +1,3 @@
-
 import os
 import sys
 import argparse
@@ -40,6 +39,7 @@ VERSIONS = {
     "ASMJIT": "2024-11-18",
     "NFD": "1.3.0",
     "JSON": "3.12.0",
+    "WEBGPU": "0.19.3",
 }
 
 URLS = {
@@ -57,6 +57,7 @@ URLS = {
     "JSON": f"https://github.com/nlohmann/json/archive/refs/tags/v{VERSIONS['JSON']}.tar.gz",
     "ICONFONT": "https://github.com/juliettef/IconFontCppHeaders/archive/refs/heads/main.zip",
     "STB_IMAGE": "https://raw.githubusercontent.com/nothings/stb/master/stb_image.h",
+    "WEBGPU": f"https://github.com/eliemichel/WebGPU-distribution/releases/download/v{VERSIONS['WEBGPU']}/WebGPU-release.tar.gz",
 }
 
 # ==============================================================================
@@ -229,7 +230,7 @@ def setup_linux_toolchain():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--platform", default="sdl3", choices=["test", "sdl3", "glfw"])
+    parser.add_argument("--platform", default="sdl3", choices=["test", "sdl3", "glfw", "webgpu"])
     parser.add_argument("--release", "-r", action="store_true")
     parser.add_argument("--debug", "-d", action="store_true")
     parser.add_argument("--update", action="store_true")
@@ -239,6 +240,7 @@ def main():
     parser.add_argument("--disable-icon-font", action="store_true")
     parser.add_argument("--disable-richtext", action="store_true")
     parser.add_argument("--enable-blend2d", action="store_true")
+    parser.add_argument("--webgpu", action="store_true")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--fast", action="store_true")
     parser.add_argument("--output", type=str, help="Copy the combined static library to the specified path (absolute or relative)")
@@ -272,13 +274,15 @@ def main():
         "IMGUI": True, "FREETYPE": True, "YOGA": True,
         "IMPLOT": False, "PLUTOVG": False, "LUNASVG": False,
         "SDL3": False, "GLFW": False, "BLEND2D": False,
-        "NFD": False, "JSON": False, "STB": False, "ICONS": False
+        "NFD": False, "JSON": False, "STB": False, "ICONS": False, "WEBGPU": False
     }
     
     if args.platform == "sdl3":
         feats.update({"IMPLOT": True, "PLUTOVG": True, "LUNASVG": True, "SDL3": True, "BLEND2D": True, "STB": True, "ICONS": True})
     elif args.platform == "glfw":
         feats.update({"IMPLOT": True, "PLUTOVG": True, "LUNASVG": True, "GLFW": True, "NFD": True, "STB": True, "ICONS": True})
+    elif args.platform == "webgpu":
+        feats.update({"IMPLOT": True, "SDL3": True, "ICONS": True, "LUNASVG": True, "PLUTOVG": True, "WEBGPU": True})
 
     # Apply overrides
     if args.disable_plots: feats["IMPLOT"] = False
@@ -286,6 +290,7 @@ def main():
     if args.disable_images: feats["STB"] = False
     if args.disable_icon_font: feats["ICONS"] = False
     if not args.enable_blend2d: feats["BLEND2D"] = False
+    if args.webgpu: feats["WEBGPU"] = True
 
     log("\nSetting up environment...")
     ts = timer()
@@ -644,7 +649,34 @@ def main():
             os.chdir(dependency_dir)
 
     # -------------------------------------------------------------------------
-    # 8. Build ImGui (Unified CMake Build with ImPlot)
+    # 8. WebGPU (Header-only library)
+    # -------------------------------------------------------------------------
+    if feats["WEBGPU"]:
+        webgpu_header_dir = os.path.join(libs_header_dir, "webgpu")
+        webgpu_target = os.path.join(webgpu_header_dir, "webgpu.h")
+
+        if update_all or not os.path.exists(webgpu_target):
+            log(f"Setting up WebGPU v{VERSIONS['WEBGPU']}...")
+            
+            # Create destination directory
+            if not os.path.exists(webgpu_header_dir): os.makedirs(webgpu_header_dir)
+            
+            # Download and extract
+            dirname = f"WebGPU-release"
+            if not os.path.exists(dirname):
+                download_file(URLS["WEBGPU"], "webgpu.tar.gz")
+                extract_archive("webgpu.tar.gz", ".")
+            
+            # Copy WebGPU headers
+            src_include = os.path.join(dirname, "include", "webgpu")
+            if os.path.exists(src_include):
+                copy_tree(src_include, webgpu_header_dir)
+                log("Copying WebGPU Headers...")
+            else:
+                log(f"[WARNING] Could not find WebGPU headers in {src_include}")
+
+    # -------------------------------------------------------------------------
+    # 9. Build ImGui (Unified CMake Build with ImPlot)
     # -------------------------------------------------------------------------
     if feats["IMGUI"]:
         # We check for the final library name (imgui_static.lib based on CMake)
@@ -715,6 +747,9 @@ def main():
             elif args.platform == "glfw":
                 cmake_args.append('-DBUILD_WITH_SDL3=OFF')
                 cmake_args.append('-DBUILD_WITH_GLFW=ON')
+            elif args.platform == "webgpu":
+                cmake_args.append('-DBUILD_WITH_SDL3=ON')
+                cmake_args.append('-DBUILD_WITH_GLFW=OFF')
             else:
                 # Test platform or minimal
                 cmake_args.append('-DBUILD_WITH_SDL3=OFF')
@@ -768,6 +803,12 @@ def main():
                 shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_glfw.h"), imgui_glfw_dest)
                 shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_opengl3.h"), imgui_glfw_dest)
                 shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_opengl3_loader.h"), imgui_glfw_dest)
+            elif args.platform == "webgpu":
+                imgui_sdl_dest = os.path.join(libs_header_dir, "imguisdl3")
+                if os.path.exists(imgui_sdl_dest) == False: os.makedirs(imgui_sdl_dest)
+                shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_sdl3.h"), imgui_sdl_dest)
+                shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_sdlgpu3.h"), imgui_sdl_dest)
+                shutil.copy(os.path.join(abs_imgui_dir, "backends", "imgui_impl_sdlrenderer3.h"), imgui_sdl_dest)
 
             # Copy Misc
             copy_tree(os.path.join(abs_imgui_dir, "misc"), os.path.join(dest_inc_imgui, "misc"))
@@ -782,7 +823,7 @@ def main():
             os.chdir(dependency_dir)
 
     # -------------------------------------------------------------------------
-    # 9. Build NFD-Extended
+    # 10. Build NFD-Extended
     # -------------------------------------------------------------------------
     if feats["NFD"]:
         if update_all or not os.path.exists(os.path.join(lib_output_dir, f"nfd{LIB_EXT}")):
@@ -836,7 +877,7 @@ def main():
             os.chdir(dependency_dir)
 
     # -------------------------------------------------------------------------
-    # 10. nlohmann-json (Header-only)
+    # 11. nlohmann-json (Header-only)
     # -------------------------------------------------------------------------
     if feats["JSON"]:
         json_header_dir = os.path.join(libs_header_dir, "nlohmann")
@@ -862,7 +903,7 @@ def main():
                 log(f"[WARNING] Could not find json.hpp in {src_header}")
 
     # -------------------------------------------------------------------------
-    # 11. stb_image (Header-only)
+    # 12. stb_image (Header-only)
     # -------------------------------------------------------------------------
     if feats["STB"]:
         stb_header_dir = os.path.join(libs_header_dir, "stb_image")
@@ -877,7 +918,7 @@ def main():
             download_file(URLS["STB_IMAGE"], stb_target)
 
     # -------------------------------------------------------------------------
-    # 12. IconFontCppHeaders (Header-only)
+    # 13. IconFontCppHeaders (Header-only)
     # -------------------------------------------------------------------------
     if feats["ICONS"]:
         icon_header_dir = os.path.join(libs_header_dir, "iconfonts")
@@ -936,6 +977,7 @@ def main():
     if args.disable_plots: cmake_cmd.append("-DGLIMMER_DISABLE_PLOTS=ON")
     if feats["NFD"]: cmake_cmd.append("-DGLIMMER_ENABLE_NFDEXT=ON")
     if feats["BLEND2D"]: cmake_cmd.append("-DGLIMMER_ENABLE_BLEND2D=ON")
+    if feats["WEBGPU"]: cmake_cmd.append("-DGLIMMER_ENABLE_WEBGPU=ON")
     if args.update: cmake_cmd.append("-DGLIMMER_FORCE_UPDATE=ON")
     if args.clean: shutil.rmtree(os.path.join(BUILD_DIR, "..", "dependency"), ignore_errors=True)
 

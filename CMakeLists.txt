@@ -33,11 +33,11 @@ endif()
 #==============================================================================
 # Platform Configuration
 #==============================================================================
-set(GLIMMER_PLATFORM "sdl3" CACHE STRING "Target platform: test, tui, sdl3, glfw")
+set(GLIMMER_PLATFORM "sdl3" CACHE STRING "Target platform: test, tui, sdl3, glfw, webgpu")
 
 # Validate platform
-if(NOT GLIMMER_PLATFORM MATCHES "^(test|tui|sdl3|glfw)$")
-    message(FATAL_ERROR "Invalid GLIMMER_PLATFORM: ${GLIMMER_PLATFORM}. Must be: test, tui, sdl3, or glfw")
+if(NOT GLIMMER_PLATFORM MATCHES "^(test|tui|sdl3|glfw|webgpu)$")
+    message(FATAL_ERROR "Invalid GLIMMER_PLATFORM: ${GLIMMER_PLATFORM}. Must be: test, tui, sdl3, glfw, or webgpu")
 endif()
 
 # Map platform to library name and define
@@ -53,6 +53,9 @@ elseif(GLIMMER_PLATFORM STREQUAL "sdl3")
 elseif(GLIMMER_PLATFORM STREQUAL "glfw")
     set(LIBRARY_NAME "glimmer_glfw")
     set(PLATFORM_DEFINE "GLIMMER_PLATFORM_GLFW=2")
+elseif(GLIMMER_PLATFORM STREQUAL "webgpu")
+    set(LIBRARY_NAME "glimmer_webgpu")
+    set(PLATFORM_DEFINE "GLIMMER_PLATFORM_WEBGPU=3")
 endif()
 
 message(STATUS "Platform: ${GLIMMER_PLATFORM} (${GLIMMER_OS_DIR})")
@@ -88,6 +91,7 @@ option(GLIMMER_DISABLE_RICHTEXT "Disable rich text rendering" OFF)
 option(GLIMMER_DISABLE_PLOTS "Disable plotting/graph library integration" OFF)
 option(GLIMMER_ENABLE_NFDEXT "Enable nfd-extended library for file pickers" OFF)
 option(GLIMMER_ENABLE_BLEND2D "Enable Blend2D renderer" OFF)
+option(GLIMMER_ENABLE_WEBGPU "Enable WebGPU library" OFF)
 option(GLIMMER_FORCE_UPDATE "Force dependency refresh" OFF)
 
 # Configure compile definitions
@@ -111,6 +115,9 @@ if(GLIMMER_ENABLE_NFDEXT)
 endif()
 if(NOT GLIMMER_ENABLE_BLEND2D)
     add_compile_definitions(GLIMMER_DISABLE_BLEND2D_RENDERER)
+endif()
+if(GLIMMER_ENABLE_WEBGPU)
+    add_compile_definitions(GLIMMER_ENABLE_WEBGPU)
 endif()
 if(GLIMMER_FORCE_UPDATE)
     add_compile_definitions(GLIMMER_FORCE_UPDATE)
@@ -213,6 +220,7 @@ target_include_directories(${LIBRARY_NAME} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/imguisdl3
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/blend2d
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/nlohmann
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/libs/inc/webgpu
 )
 
 #==============================================================================
@@ -234,7 +242,7 @@ if(WIN32)
     target_link_libraries(${LIBRARY_NAME} PUBLIC
         user32 gdi32 shell32 advapi32 ole32 oleaut32 imm32 version winmm setupapi shlwapi
     )
-elseif(UNIX AND NOT APPLE AND GLIMMER_PLATFORM MATCHES "sdl3|glfw")
+elseif(UNIX AND NOT APPLE AND GLIMMER_PLATFORM MATCHES "sdl3|glfw|webgpu")
     # Linux X11
     find_package(X11 REQUIRED)
     target_link_libraries(${LIBRARY_NAME} PUBLIC ${X11_LIBRARIES})
@@ -371,6 +379,31 @@ elseif(GLIMMER_PLATFORM STREQUAL "glfw")
             message(WARNING "NFD requested but ${nfd_name} not found")
         endif()
     endif()
+
+elseif(GLIMMER_PLATFORM STREQUAL "webgpu")
+    # WebGPU + SDL3 + SVG + Plots + Icons
+    if(WIN32)
+        set(WEBGPU_LIBS SDL3 plutovg lunasvg imgui_static)
+    else()
+        set(WEBGPU_LIBS libSDL3 libplutovg liblunasvg libimgui_static)
+    endif()
+
+    foreach(lib_base ${WEBGPU_LIBS})
+        set(full_name "${lib_base}${LIB_EXT}")
+        set(lib_path "${PLATFORM_LIB_DIR}/${full_name}")
+        if(EXISTS "${lib_path}")
+            target_link_libraries(${LIBRARY_NAME} PUBLIC "${lib_path}")
+            message(STATUS "✓ Linking ${full_name}")
+        else()
+            message(WARNING "${full_name} not found (may be optional)")
+        endif()
+    endforeach()
+
+    # WebGPU (header-only, no library linking needed)
+    if(GLIMMER_ENABLE_WEBGPU)
+        message(STATUS "✓ WebGPU enabled (header-only library)")
+    endif()
+
 endif()
 
 #==============================================================================
